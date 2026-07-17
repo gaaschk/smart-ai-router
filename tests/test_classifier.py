@@ -1,5 +1,5 @@
 """Tests for the role-agnostic classifier."""
-from capability_router.classifier import classify
+from smart_ai_router.classifier import classify
 
 
 def test_coding_prompt():

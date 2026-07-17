@@ -3,12 +3,12 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
-from capability_router.models import ModelSpec
-from capability_router.store.base import MatrixStore
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.base import MatrixStore
 
 
 class SqliteStore(MatrixStore):
-    def __init__(self, path: str | Path = "~/.capability_router.db"):
+    def __init__(self, path: str | Path = "~/.smart_ai_router.db"):
         self._path = Path(path).expanduser()
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)

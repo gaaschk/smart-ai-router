@@ -1,8 +1,8 @@
 """Tests for the core routing logic."""
 import pytest
-from capability_router.models import ModelSpec
-from capability_router.store.sqlite_store import SqliteStore
-from capability_router.router import route, DEFAULT_THRESHOLDS
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.sqlite_store import SqliteStore
+from smart_ai_router.router import route, DEFAULT_THRESHOLDS
 
 
 def _store_with(*specs):

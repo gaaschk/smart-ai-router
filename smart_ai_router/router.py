@@ -6,8 +6,8 @@ No role knowledge. No pricing tables. The caller supplies explicit hints.
 """
 from __future__ import annotations
 
-from capability_router.models import ModelSpec
-from capability_router.store.base import MatrixStore
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.base import MatrixStore
 
 
 # Default thresholds — callers can override by passing their own dict.

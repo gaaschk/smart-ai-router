@@ -1,5 +1,5 @@
 """
-capability-router — vendor-agnostic LLM capability router.
+smart-ai-router — vendor-agnostic LLM capability router.
 
 Public API:
     CapabilityRouter   main façade
@@ -8,11 +8,11 @@ Public API:
     ModelSpec          per-model data container
     classify           optional role-agnostic prompt classifier
 """
-from capability_router.models import ModelSpec
-from capability_router.store.base import MatrixStore
-from capability_router.store.sqlite_store import SqliteStore
-from capability_router.classifier import classify
-from capability_router.facade import CapabilityRouter
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.base import MatrixStore
+from smart_ai_router.store.sqlite_store import SqliteStore
+from smart_ai_router.classifier import classify
+from smart_ai_router.facade import CapabilityRouter
 
 __all__ = [
     "CapabilityRouter",

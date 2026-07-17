@@ -1,6 +1,6 @@
 """Tests for the pricing module."""
-from capability_router.models import ModelSpec
-from capability_router.pricing import cost_for
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.pricing import cost_for
 
 
 def test_ollama_is_free():

@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_router.models import ModelSpec
-from capability_router.store.base import MatrixStore
-from capability_router.store.sqlite_store import SqliteStore
-from capability_router import router as _router
-from capability_router import pricing as _pricing
-from capability_router.sync import SyncResult, sync_from_providers
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.base import MatrixStore
+from smart_ai_router.store.sqlite_store import SqliteStore
+from smart_ai_router import router as _router
+from smart_ai_router import pricing as _pricing
+from smart_ai_router.sync import SyncResult, sync_from_providers
 
 
 class CapabilityRouter:

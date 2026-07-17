@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "capability-router"
+name = "smart-ai-router"
 version = "0.1.0"
 description = "Vendor-agnostic LLM capability router with live provider sync"
 requires-python = ">=3.10"

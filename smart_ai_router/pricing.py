@@ -8,7 +8,7 @@ and the provider is not known-free like Ollama).
 """
 from __future__ import annotations
 
-from capability_router.models import ModelSpec
+from smart_ai_router.models import ModelSpec
 
 
 def cost_for(

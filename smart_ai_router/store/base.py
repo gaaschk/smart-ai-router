@@ -1,7 +1,7 @@
 """MatrixStore — interface for persisting the capability matrix."""
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from capability_router.models import ModelSpec
+from smart_ai_router.models import ModelSpec
 
 
 class MatrixStore(ABC):

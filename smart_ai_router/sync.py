@@ -11,9 +11,9 @@ import json
 import urllib.request
 from dataclasses import dataclass, field
 
-from capability_router.competence import infer_competence
-from capability_router.models import ModelSpec
-from capability_router.store.base import MatrixStore
+from smart_ai_router.competence import infer_competence
+from smart_ai_router.models import ModelSpec
+from smart_ai_router.store.base import MatrixStore
 
 
 @dataclass
@@ -60,7 +60,7 @@ def _sync_ollama(
     try:
         req = urllib.request.Request(
             f"{base_url}/api/tags",
-            headers={"User-Agent": "capability-router"},
+            headers={"User-Agent": "smart-ai-router"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
             tags = json.load(r)
@@ -106,7 +106,7 @@ def _sync_openrouter(
         req = urllib.request.Request(
             "https://openrouter.ai/api/v1/models",
             headers={
-                "User-Agent": "capability-router",
+                "User-Agent": "smart-ai-router",
                 "Authorization": f"Bearer {api_key}",
             },
         )
