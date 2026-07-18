@@ -30,9 +30,9 @@ SONNET_MODEL=""
 HAIKU_MODEL=""
 
 if curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
-  OPUS_MODEL=$(route "reasoning" "hard")
-  SONNET_MODEL=$(route "coding" "moderate")
-  HAIKU_MODEL=$(route "general" "trivial")
+  OPUS_MODEL=$(route "reasoning" "hard" || true)
+  SONNET_MODEL=$(route "coding" "moderate" || true)
+  HAIKU_MODEL=$(route "general" "trivial" || true)
 else
   echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — using claudish defaults" >&2
 fi
