@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from smart_ai_router.models import ModelSpec
+from smart_ai_router.models import ModelSpec, ProviderConfig
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
 from smart_ai_router import router as _router
@@ -56,13 +56,49 @@ class CapabilityRouter:
         ollama_base_url: str | None = None,
         timeout: int = 15,
     ) -> SyncResult:
-        """Fetch live model catalogs and upsert into the store."""
-        return sync_from_providers(
-            self._store,
-            openrouter_key=openrouter_key,
-            ollama_base_url=ollama_base_url,
-            timeout=timeout,
-        )
+        """Fetch live model catalogs and upsert into the store.
+
+        When called with no explicit credentials, falls back to enabled
+        providers stored in the database.
+        """
+        explicit = openrouter_key or ollama_base_url
+        if explicit:
+            return sync_from_providers(
+                self._store,
+                openrouter_key=openrouter_key,
+                ollama_base_url=ollama_base_url,
+                timeout=timeout,
+            )
+
+        # Use stored provider configs
+        result = SyncResult()
+        for cfg in self._store.all_providers():
+            if not cfg.enabled:
+                continue
+            partial = sync_from_providers(
+                self._store,
+                openrouter_key=cfg.api_key if cfg.kind == "openrouter" else None,
+                ollama_base_url=cfg.base_url if cfg.kind == "ollama" else None,
+                timeout=cfg.timeout,
+            )
+            result.added += partial.added
+            result.updated += partial.updated
+            result.errors.extend(partial.errors)
+        return result
+
+    # ── Provider config ───────────────────────────────────────────────────────
+
+    def all_providers(self) -> list[ProviderConfig]:
+        return self._store.all_providers()
+
+    def get_provider(self, name: str) -> ProviderConfig | None:
+        return self._store.get_provider(name)
+
+    def upsert_provider(self, cfg: ProviderConfig) -> None:
+        self._store.upsert_provider(cfg)
+
+    def delete_provider(self, name: str) -> bool:
+        return self._store.delete_provider(name)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 

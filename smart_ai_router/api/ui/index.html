@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>smart-ai-router</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3e;
+    --accent: #6c63ff;
+    --accent-dim: #3d3870;
+    --text: #e0e0f0;
+    --muted: #7a7a9a;
+    --success: #3ecf8e;
+    --error: #f87171;
+    --warning: #fbbf24;
+    --radius: 8px;
+    --font-mono: "JetBrains Mono", "Fira Code", "Menlo", monospace;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 1.25rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  header h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  header .badge {
+    font-size: 0.7rem;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 58px);
+  }
+
+  nav {
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 1rem;
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 58px);
+    overflow-y: auto;
+  }
+
+  nav .nav-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  nav a {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s;
+    margin-bottom: 2px;
+  }
+
+  nav a:hover { background: var(--surface); color: var(--text); }
+  nav a.active { background: var(--accent-dim); color: var(--accent); }
+
+  nav .method {
+    font-size: 0.65rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 4px;
+    min-width: 36px;
+    text-align: center;
+  }
+
+  .method-post { background: #2d1f5e; color: #a78bfa; }
+  .method-get  { background: #1a3a2a; color: #3ecf8e; }
+
+  main {
+    padding: 2rem;
+    max-width: 860px;
+  }
+
+  .section { margin-bottom: 2.5rem; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .section-header .endpoint {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .form-grid.full { grid-template-columns: 1fr; }
+
+  label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+
+  input, select, textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    font-family: inherit;
+    transition: border-color 0.15s;
+    outline: none;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+  }
+
+  select option { background: var(--surface); }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .checkbox-row input[type=checkbox] {
+    width: auto;
+    accent-color: var(--accent);
+  }
+
+  .checkbox-row label { margin: 0; font-size: 0.875rem; color: var(--text); }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  button:hover { opacity: 0.88; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .result-box {
+    margin-top: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .result-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.75rem;
+  }
+
+  .result-bar .status {
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+
+  .status-ok   { color: var(--success); }
+  .status-err  { color: var(--error); }
+
+  .result-bar .copy-btn {
+    background: none;
+    color: var(--muted);
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    font-weight: 500;
+  }
+
+  .result-bar .copy-btn:hover { color: var(--text); opacity: 1; }
+
+  pre {
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .highlight-key   { color: #7dd3fc; }
+  .highlight-str   { color: #86efac; }
+  .highlight-num   { color: #fca5a5; }
+  .highlight-bool  { color: #c4b5fd; }
+  .highlight-null  { color: var(--muted); }
+
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  .callout strong { color: var(--text); }
+
+  .models-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+
+  .models-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .models-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+  }
+
+  .models-table tr:hover td { background: #ffffff05; }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .pill-yes { background: #1a3a2a; color: var(--success); }
+  .pill-no  { background: #2a1a1a; color: var(--error); }
+
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #models-search {
+    width: 100%;
+    margin-bottom: 0.75rem;
+  }
+
+  .providers-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.25rem; }
+
+  .provider-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .provider-card.disabled { opacity: 0.5; }
+
+  .provider-card .pc-name {
+    font-weight: 600;
+    font-size: 0.875rem;
+    flex: 1;
+  }
+
+  .provider-card .pc-kind {
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .provider-card .pc-url {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    flex: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .provider-card .pc-actions { display: flex; gap: 0.4rem; }
+
+  .btn-sm {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .btn-sm:hover { background: var(--border); opacity: 1; }
+
+  .btn-danger {
+    background: #2a1a1a;
+    border-color: #4a2020;
+    color: var(--error);
+  }
+
+  .btn-danger:hover { background: #3a2020; opacity: 1; }
+
+  .provider-form {
+    background: var(--surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .provider-form h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--accent);
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--border);
+    border-radius: 18px;
+    transition: 0.2s;
+  }
+
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 12px;
+    width: 12px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--muted);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .toggle input:checked + .toggle-slider { background: var(--accent-dim); }
+  .toggle input:checked + .toggle-slider::before {
+    transform: translateX(16px);
+    background: var(--accent);
+  }
+
+  #update-indicator {
+    display: none;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--warning);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: #2a2210;
+    border: 1px solid #4a3a10;
+    transition: opacity 0.15s;
+  }
+
+  #update-indicator:hover { opacity: 0.8; }
+
+  #update-indicator .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warning);
+  }
+
+  .update-status-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .update-status-box .commit-info {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .update-status-box .commit-info strong { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>smart-ai-router</h1>
+  <span class="badge">v0.1.0</span>
+  <div id="update-indicator" onclick="document.querySelector('a[href=\"#updates\"]').click();document.getElementById('updates').scrollIntoView({behavior:'smooth'})">
+    <span class="dot"></span> Update available
+  </div>
+</header>
+
+<div class="layout">
+  <nav>
+    <div class="nav-label">Endpoints</div>
+    <a href="#route" class="active">
+      <span class="method method-post">POST</span> /route
+    </a>
+    <a href="#models">
+      <span class="method method-get">GET</span> /models
+    </a>
+    <a href="#model-detail">
+      <span class="method method-get">GET</span> /models/{id}
+    </a>
+    <a href="#sync">
+      <span class="method method-post">POST</span> /sync
+    </a>
+    <a href="#cost">
+      <span class="method method-post">POST</span> /cost
+    </a>
+    <div class="nav-label" style="margin-top:1rem">System</div>
+    <a href="#updates">
+      <span class="method method-get">GET</span> /updates
+    </a>
+    <div class="nav-label" style="margin-top:1rem">Providers</div>
+    <a href="#providers">
+      <span class="method method-get">GET</span> /providers
+    </a>
+  </nav>
+
+  <main>
+
+    <!-- ── POST /route ──────────────────────────────────────────────── -->
+    <section class="section" id="route">
+      <div class="section-header">
+        <span class="method method-post">POST</span>
+        <h2>Route</h2>
+        <span class="endpoint">/api/route</span>
+      </div>
+      <div class="callout">
+        Returns the <strong>cheapest model</strong> that clears the competence and reliability bars for the given hints.
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="route-domain">domain</label>
+          <select id="route-domain">
+            <option>coding</option>
+            <option>docs</option>
+            <option>reasoning</option>
+            <option>general</option>
+          </select>
+        </div>
+        <div>
+          <label for="route-complexity">complexity</label>
+          <select id="route-complexity">
+            <option>trivial</option>
+            <option selected>moderate</option>
+            <option>hard</option>
+          </select>
+        </div>
+        <div>
+          <label for="route-tokens">est_tokens</label>
+          <input type="number" id="route-tokens" value="0" min="0">
+        </div>
+        <div>
+          <label for="route-exclude">exclude (comma-separated model IDs)</label>
+          <input type="text" id="route-exclude" placeholder="e.g. openrouter/x/y">
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="route-tools">
+        <label for="route-tools">needs_tools</label>
+      </div>
+      <br>
+      <button onclick="doRoute()" id="btn-route">
+        <span id="spin-route" style="display:none" class="spinner"></span>
+        Send
+      </button>
+      <div id="result-route"></div>
+    </section>
+
+    <!-- ── GET /models ──────────────────────────────────────────────── -->
+    <section class="section" id="models">
+      <div class="section-header">
+        <span class="method method-get">GET</span>
+        <h2>List Models</h2>
+        <span class="endpoint">/api/models</span>
+      </div>
+      <input type="text" id="models-search" placeholder="Filter models…" oninput="filterModels()">
+      <button onclick="doListModels()" id="btn-models">
+        <span id="spin-models" style="display:none" class="spinner"></span>
+        Fetch
+      </button>
+      <div id="result-models"></div>
+    </section>
+
+    <!-- ── GET /models/{id} ─────────────────────────────────────────── -->
+    <section class="section" id="model-detail">
+      <div class="section-header">
+        <span class="method method-get">GET</span>
+        <h2>Get Model</h2>
+        <span class="endpoint">/api/models/{model_id}</span>
+      </div>
+      <div class="form-grid full">
+        <div>
+          <label for="modelid-input">model_id</label>
+          <input type="text" id="modelid-input" placeholder="e.g. openrouter/meta-llama/llama-3.3-70b-instruct">
+        </div>
+      </div>
+      <button onclick="doGetModel()" id="btn-model-detail">
+        <span id="spin-model-detail" style="display:none" class="spinner"></span>
+        Fetch
+      </button>
+      <div id="result-model-detail"></div>
+    </section>
+
+    <!-- ── POST /sync ───────────────────────────────────────────────── -->
+    <section class="section" id="sync">
+      <div class="section-header">
+        <span class="method method-post">POST</span>
+        <h2>Sync</h2>
+        <span class="endpoint">/api/sync</span>
+      </div>
+      <div class="callout">
+        Fetches live model catalogs and upserts into the store.
+        Leave all fields blank to use <strong>stored provider settings</strong> (managed in the Providers section below).
+        Explicit credentials here override stored settings for this call only.
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="sync-or-key">openrouter_key</label>
+          <input type="password" id="sync-or-key" placeholder="sk-or-…">
+        </div>
+        <div>
+          <label for="sync-ollama-url">ollama_base_url</label>
+          <input type="text" id="sync-ollama-url" placeholder="http://localhost:11434">
+        </div>
+        <div>
+          <label for="sync-timeout">timeout (seconds)</label>
+          <input type="number" id="sync-timeout" value="15" min="1">
+        </div>
+      </div>
+      <button onclick="doSync()" id="btn-sync">
+        <span id="spin-sync" style="display:none" class="spinner"></span>
+        Sync
+      </button>
+      <div id="result-sync"></div>
+    </section>
+
+    <!-- ── Updates ──────────────────────────────────────────────────── -->
+    <section class="section" id="updates">
+      <div class="section-header">
+        <span class="method method-get">GET</span>
+        <h2>Updates</h2>
+        <span class="endpoint">/api/updates</span>
+      </div>
+      <div class="callout">
+        Pull the latest code from <strong>origin/main</strong> and restart the service.
+        The server performs a fast-forward-only merge — it will refuse if local commits diverge.
+      </div>
+
+      <div id="update-status-box" class="update-status-box" style="display:none">
+        <div class="commit-info" id="update-commit-info"></div>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <button id="btn-apply-update" onclick="doApplyUpdate()" style="display:none">
+            <span id="spin-apply-update" style="display:none" class="spinner"></span>
+            Pull &amp; Restart
+          </button>
+          <button class="btn-sm" onclick="doCheckUpdates(false)">
+            <span id="spin-updates" style="display:none" class="spinner"></span>
+            Check
+          </button>
+        </div>
+      </div>
+
+      <div id="result-updates"></div>
+    </section>
+
+    <!-- ── Providers ────────────────────────────────────────────────── -->
+    <section class="section" id="providers">
+      <div class="section-header">
+        <span class="method method-get">GET</span>
+        <h2>Provider Settings</h2>
+        <span class="endpoint">/api/providers</span>
+      </div>
+      <div class="callout">
+        Stored provider connections. <strong>POST /api/sync</strong> with no credentials
+        will use all enabled providers automatically.
+      </div>
+
+      <div id="providers-list" class="providers-list"></div>
+
+      <button onclick="showProviderForm()" id="btn-add-provider" style="margin-bottom:1rem">
+        + Add Provider
+      </button>
+
+      <!-- inline add/edit form (hidden by default) -->
+      <div id="provider-form" class="provider-form" style="display:none">
+        <h3 id="provider-form-title">New Provider</h3>
+        <div class="form-grid">
+          <div>
+            <label for="pf-name">name <span style="color:var(--muted);font-weight:400">(unique slug)</span></label>
+            <input type="text" id="pf-name" placeholder="e.g. my-openrouter">
+          </div>
+          <div>
+            <label for="pf-kind">kind</label>
+            <select id="pf-kind" onchange="providerKindChanged()">
+              <option value="openrouter">openrouter</option>
+              <option value="ollama">ollama</option>
+            </select>
+          </div>
+          <div id="pf-apikey-row">
+            <label for="pf-apikey">api_key</label>
+            <input type="password" id="pf-apikey" placeholder="sk-or-…">
+          </div>
+          <div id="pf-baseurl-row" style="display:none">
+            <label for="pf-baseurl">base_url</label>
+            <input type="text" id="pf-baseurl" placeholder="http://localhost:11434">
+          </div>
+          <div>
+            <label for="pf-timeout">timeout (seconds)</label>
+            <input type="number" id="pf-timeout" value="15" min="1">
+          </div>
+          <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+            <div class="checkbox-row">
+              <input type="checkbox" id="pf-enabled" checked>
+              <label for="pf-enabled">enabled</label>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <button onclick="saveProvider()" id="btn-save-provider">
+            <span id="spin-save-provider" style="display:none" class="spinner"></span>
+            Save
+          </button>
+          <button class="btn-sm" onclick="hideProviderForm()">Cancel</button>
+        </div>
+        <div id="result-provider-form"></div>
+      </div>
+
+      <button onclick="doListProviders()" id="btn-providers" style="display:none">
+        <span id="spin-providers" style="display:none" class="spinner"></span>
+        Refresh
+      </button>
+      <div id="result-providers"></div>
+    </section>
+
+    <!-- ── POST /cost ───────────────────────────────────────────────── -->
+    <section class="section" id="cost">
+      <div class="section-header">
+        <span class="method method-post">POST</span>
+        <h2>Cost Estimate</h2>
+        <span class="endpoint">/api/cost</span>
+      </div>
+      <div class="form-grid">
+        <div style="grid-column: 1/-1">
+          <label for="cost-model">model</label>
+          <input type="text" id="cost-model" placeholder="e.g. openrouter/meta-llama/llama-3.3-70b-instruct">
+        </div>
+        <div>
+          <label for="cost-prompt">prompt_tokens</label>
+          <input type="number" id="cost-prompt" value="1000" min="0">
+        </div>
+        <div>
+          <label for="cost-completion">completion_tokens</label>
+          <input type="number" id="cost-completion" value="500" min="0">
+        </div>
+      </div>
+      <button onclick="doCost()" id="btn-cost">
+        <span id="spin-cost" style="display:none" class="spinner"></span>
+        Estimate
+      </button>
+      <div id="result-cost"></div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+const API = '/api'
+
+// ── nav highlight on scroll ──────────────────────────────────────────────────
+const navLinks = document.querySelectorAll('nav a')
+const sections = document.querySelectorAll('section.section')
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('active'))
+      const active = document.querySelector(`nav a[href="#${e.target.id}"]`)
+      if (active) active.classList.add('active')
+    }
+  })
+}, { threshold: 0.4 })
+
+sections.forEach(s => observer.observe(s))
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+function setLoading(id, on) {
+  document.getElementById(`btn-${id}`).disabled = on
+  const sp = document.getElementById(`spin-${id}`)
+  if (sp) sp.style.display = on ? 'inline-block' : 'none'
+}
+
+function syntaxHighlight(json) {
+  return JSON.stringify(json, null, 2)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+      if (/^"/.test(match)) {
+        return /:$/.test(match)
+          ? `<span class="highlight-key">${match}</span>`
+          : `<span class="highlight-str">${match}</span>`
+      }
+      if (/true|false/.test(match)) return `<span class="highlight-bool">${match}</span>`
+      if (/null/.test(match)) return `<span class="highlight-null">${match}</span>`
+      return `<span class="highlight-num">${match}</span>`
+    })
+}
+
+function renderResult(containerId, status, data) {
+  const ok = status >= 200 && status < 300
+  const container = document.getElementById(containerId)
+  const highlighted = syntaxHighlight(data)
+  container.innerHTML = `
+    <div class="result-box">
+      <div class="result-bar">
+        <span class="status ${ok ? 'status-ok' : 'status-err'}">${status} ${ok ? 'OK' : 'Error'}</span>
+        <button class="copy-btn" onclick="copyResult(this)">Copy</button>
+      </div>
+      <pre>${highlighted}</pre>
+    </div>`
+}
+
+function copyResult(btn) {
+  const pre = btn.closest('.result-box').querySelector('pre')
+  navigator.clipboard.writeText(pre.innerText)
+  btn.textContent = 'Copied!'
+  setTimeout(() => btn.textContent = 'Copy', 1500)
+}
+
+async function apiFetch(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } }
+  if (body !== undefined) opts.body = JSON.stringify(body)
+  const res = await fetch(`${API}${path}`, opts)
+  const data = await res.json()
+  return { status: res.status, data }
+}
+
+// ── POST /route ───────────────────────────────────────────────────────────────
+async function doRoute() {
+  setLoading('route', true)
+  const excludeRaw = document.getElementById('route-exclude').value.trim()
+  const body = {
+    domain:      document.getElementById('route-domain').value,
+    complexity:  document.getElementById('route-complexity').value,
+    needs_tools: document.getElementById('route-tools').checked,
+    est_tokens:  parseInt(document.getElementById('route-tokens').value) || 0,
+    exclude:     excludeRaw ? excludeRaw.split(',').map(s => s.trim()).filter(Boolean) : [],
+  }
+  try {
+    const { status, data } = await apiFetch('POST', '/route', body)
+    renderResult('result-route', status, data)
+  } catch(e) {
+    renderResult('result-route', 0, { error: e.message })
+  } finally {
+    setLoading('route', false)
+  }
+}
+
+// ── GET /models ───────────────────────────────────────────────────────────────
+let _allModels = []
+
+async function doListModels() {
+  setLoading('models', true)
+  try {
+    const { status, data } = await apiFetch('GET', '/models')
+    _allModels = Array.isArray(data) ? data : []
+    if (status === 200 && _allModels.length > 0) {
+      renderModelsTable(_allModels)
+    } else {
+      renderResult('result-models', status, data)
+    }
+  } catch(e) {
+    renderResult('result-models', 0, { error: e.message })
+  } finally {
+    setLoading('models', false)
+  }
+}
+
+function filterModels() {
+  const q = document.getElementById('models-search').value.toLowerCase()
+  const filtered = _allModels.filter(m => m.value.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q))
+  if (filtered.length > 0) renderModelsTable(filtered)
+}
+
+function renderModelsTable(models) {
+  const rows = models.map(m => `
+    <tr>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${m.value}">${m.value}</td>
+      <td>${m.provider}</td>
+      <td>${m.ctx_k}K</td>
+      <td><span class="pill ${m.tools ? 'pill-yes' : 'pill-no'}">${m.tools ? 'yes' : 'no'}</span></td>
+      <td>${m.cost_input > 0 ? '$' + m.cost_input : '—'}</td>
+      <td>${m.cost_output > 0 ? '$' + m.cost_output : '—'}</td>
+      <td>${(m.reliability * 100).toFixed(0)}%</td>
+    </tr>`).join('')
+
+  document.getElementById('result-models').innerHTML = `
+    <div class="result-box" style="margin-top:1rem">
+      <div class="result-bar">
+        <span class="status status-ok">${models.length} model${models.length !== 1 ? 's' : ''}</span>
+        <button class="copy-btn" onclick="copyAllModels()">Copy JSON</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead>
+            <tr>
+              <th>model</th><th>provider</th><th>ctx</th>
+              <th>tools</th><th>$/M in</th><th>$/M out</th><th>reliability</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`
+}
+
+function copyAllModels() {
+  navigator.clipboard.writeText(JSON.stringify(_allModels, null, 2))
+  event.target.textContent = 'Copied!'
+  setTimeout(() => event.target.textContent = 'Copy JSON', 1500)
+}
+
+// ── GET /models/{id} ──────────────────────────────────────────────────────────
+async function doGetModel() {
+  setLoading('model-detail', true)
+  const id = document.getElementById('modelid-input').value.trim()
+  if (!id) { setLoading('model-detail', false); return }
+  try {
+    const { status, data } = await apiFetch('GET', `/models/${encodeURIComponent(id)}`)
+    renderResult('result-model-detail', status, data)
+  } catch(e) {
+    renderResult('result-model-detail', 0, { error: e.message })
+  } finally {
+    setLoading('model-detail', false)
+  }
+}
+
+// ── POST /sync ────────────────────────────────────────────────────────────────
+async function doSync() {
+  setLoading('sync', true)
+  const body = {
+    openrouter_key:  document.getElementById('sync-or-key').value.trim() || null,
+    ollama_base_url: document.getElementById('sync-ollama-url').value.trim() || null,
+    timeout:         parseInt(document.getElementById('sync-timeout').value) || 15,
+  }
+  try {
+    const { status, data } = await apiFetch('POST', '/sync', body)
+    renderResult('result-sync', status, data)
+  } catch(e) {
+    renderResult('result-sync', 0, { error: e.message })
+  } finally {
+    setLoading('sync', false)
+  }
+}
+
+// ── Updates ───────────────────────────────────────────────────────────────────
+
+async function doCheckUpdates(fetch = true) {
+  const sp = document.getElementById('spin-updates')
+  sp.style.display = 'inline-block'
+  try {
+    const { status, data } = await apiFetch('GET', `/updates?fetch=${fetch}`)
+    renderUpdateStatus(status, data)
+  } catch(e) {
+    renderResult('result-updates', 0, { error: e.message })
+  } finally {
+    sp.style.display = 'none'
+  }
+}
+
+function renderUpdateStatus(status, data) {
+  const box = document.getElementById('update-status-box')
+  const info = document.getElementById('update-commit-info')
+  const applyBtn = document.getElementById('btn-apply-update')
+  const indicator = document.getElementById('update-indicator')
+
+  if (status !== 200 || !data.ok) {
+    box.style.display = 'none'
+    renderResult('result-updates', status, data)
+    return
+  }
+
+  document.getElementById('result-updates').innerHTML = ''
+  box.style.display = 'flex'
+
+  if (data.update_available) {
+    info.innerHTML = `<strong>${data.behind} commit(s) behind</strong> &nbsp;·&nbsp; local <code>${data.local}</code> → remote <code>${data.remote}</code>`
+    applyBtn.style.display = 'inline-flex'
+    indicator.style.display = 'flex'
+  } else {
+    info.innerHTML = `<strong style="color:var(--success)">Up to date</strong> &nbsp;·&nbsp; <code>${data.local}</code>`
+    applyBtn.style.display = 'none'
+    indicator.style.display = 'none'
+  }
+}
+
+async function doApplyUpdate() {
+  if (!confirm('Pull latest from origin/main and restart the service?')) return
+  document.getElementById('btn-apply-update').disabled = true
+  document.getElementById('spin-apply-update').style.display = 'inline-block'
+  try {
+    const { status, data } = await apiFetch('POST', '/updates/apply')
+    if (data.ok) {
+      document.getElementById('result-updates').innerHTML =
+        `<div class="result-box" style="margin-top:1rem">
+          <div class="result-bar"><span class="status status-ok">Restarting…</span></div>
+          <pre>Pulled latest. Waiting for server to come back up…</pre>
+        </div>`
+      pollUntilBack()
+    } else {
+      renderResult('result-updates', status, data)
+      document.getElementById('btn-apply-update').disabled = false
+      document.getElementById('spin-apply-update').style.display = 'none'
+    }
+  } catch(e) {
+    // Connection drop is expected — server is restarting
+    document.getElementById('result-updates').innerHTML =
+      `<div class="result-box" style="margin-top:1rem">
+        <div class="result-bar"><span class="status status-ok">Restarting…</span></div>
+        <pre>Server is restarting. Reconnecting…</pre>
+      </div>`
+    pollUntilBack()
+  }
+}
+
+async function pollUntilBack() {
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 2000))
+    try {
+      const r = await fetch('/api/updates?fetch=false')
+      if (r.ok) {
+        document.getElementById('result-updates').innerHTML =
+          `<div class="result-box" style="margin-top:1rem">
+            <div class="result-bar"><span class="status status-ok">200 OK</span></div>
+            <pre>Server is back. Update applied successfully.</pre>
+          </div>`
+        document.getElementById('btn-apply-update').disabled = false
+        document.getElementById('spin-apply-update').style.display = 'none'
+        doCheckUpdates(false)
+        return
+      }
+    } catch(_) { /* still down */ }
+  }
+  document.getElementById('result-updates').innerHTML +=
+    '<p style="color:var(--error);font-size:0.8rem;margin-top:0.5rem">Server did not come back within 60s — check logs.</p>'
+}
+
+// Check for updates silently on load (no fetch — avoids slowing page load)
+doCheckUpdates(false)
+// Re-check with a real fetch every 5 minutes
+setInterval(() => doCheckUpdates(true), 5 * 60 * 1000)
+
+// ── Providers ─────────────────────────────────────────────────────────────────
+let _editingProvider = null   // name string when editing, null when adding
+
+async function doListProviders() {
+  setLoading('providers', true)
+  try {
+    const { status, data } = await apiFetch('GET', '/providers')
+    if (status === 200) renderProvidersList(data)
+    else renderResult('result-providers', status, data)
+  } catch(e) {
+    renderResult('result-providers', 0, { error: e.message })
+  } finally {
+    setLoading('providers', false)
+  }
+}
+
+function renderProvidersList(providers) {
+  const list = document.getElementById('providers-list')
+  if (!providers.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;padding:0.5rem 0">No providers configured. Add one to enable automatic sync.</div>'
+    return
+  }
+  list.innerHTML = providers.map(p => `
+    <div class="provider-card ${p.enabled ? '' : 'disabled'}" id="pc-${CSS.escape(p.name)}">
+      <label class="toggle" title="${p.enabled ? 'Disable' : 'Enable'}">
+        <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="toggleProvider('${p.name}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="pc-name">${p.name}</span>
+      <span class="pc-kind">${p.kind}</span>
+      <span class="pc-url">${p.kind === 'ollama' ? (p.base_url || '—') : (p.api_key ? '••••••••' : '(no key)')}</span>
+      <div class="pc-actions">
+        <button class="btn-sm" onclick="editProvider(${JSON.stringify(p)})">Edit</button>
+        <button class="btn-sm btn-danger" onclick="deleteProvider('${p.name}')">Delete</button>
+      </div>
+    </div>`).join('')
+}
+
+function showProviderForm(provider) {
+  _editingProvider = provider ? provider.name : null
+  document.getElementById('provider-form-title').textContent = provider ? `Edit: ${provider.name}` : 'New Provider'
+  document.getElementById('pf-name').value = provider ? provider.name : ''
+  document.getElementById('pf-name').disabled = !!provider
+  document.getElementById('pf-kind').value = provider ? provider.kind : 'openrouter'
+  document.getElementById('pf-apikey').value = provider ? provider.api_key : ''
+  document.getElementById('pf-baseurl').value = provider ? provider.base_url : ''
+  document.getElementById('pf-timeout').value = provider ? provider.timeout : 15
+  document.getElementById('pf-enabled').checked = provider ? provider.enabled : true
+  document.getElementById('provider-form').style.display = 'block'
+  document.getElementById('result-provider-form').innerHTML = ''
+  providerKindChanged()
+  document.getElementById('pf-name').focus()
+}
+
+function editProvider(p) { showProviderForm(p) }
+
+function hideProviderForm() {
+  document.getElementById('provider-form').style.display = 'none'
+  _editingProvider = null
+}
+
+function providerKindChanged() {
+  const kind = document.getElementById('pf-kind').value
+  document.getElementById('pf-apikey-row').style.display = kind === 'openrouter' ? '' : 'none'
+  document.getElementById('pf-baseurl-row').style.display = kind === 'ollama' ? '' : 'none'
+}
+
+async function saveProvider() {
+  const name = document.getElementById('pf-name').value.trim()
+  if (!name) return
+  const body = {
+    name,
+    kind:     document.getElementById('pf-kind').value,
+    enabled:  document.getElementById('pf-enabled').checked,
+    api_key:  document.getElementById('pf-apikey').value,
+    base_url: document.getElementById('pf-baseurl').value.trim(),
+    timeout:  parseInt(document.getElementById('pf-timeout').value) || 15,
+  }
+  setLoading('save-provider', true)
+  try {
+    const { status, data } = await apiFetch('PUT', `/providers/${encodeURIComponent(name)}`, body)
+    if (status === 200) {
+      hideProviderForm()
+      doListProviders()
+    } else {
+      renderResult('result-provider-form', status, data)
+    }
+  } catch(e) {
+    renderResult('result-provider-form', 0, { error: e.message })
+  } finally {
+    setLoading('save-provider', false)
+  }
+}
+
+async function toggleProvider(name, enabled) {
+  const { status, data } = await apiFetch('GET', `/providers/${encodeURIComponent(name)}`)
+  if (status !== 200) return
+  const body = { ...data, enabled }
+  await apiFetch('PUT', `/providers/${encodeURIComponent(name)}`, body)
+  doListProviders()
+}
+
+async function deleteProvider(name) {
+  if (!confirm(`Delete provider "${name}"?`)) return
+  const { status } = await apiFetch('DELETE', `/providers/${encodeURIComponent(name)}`)
+  if (status === 204 || status === 200) doListProviders()
+}
+
+// load providers on page init
+doListProviders()
+
+// ── POST /cost ────────────────────────────────────────────────────────────────
+async function doCost() {
+  setLoading('cost', true)
+  const body = {
+    model:             document.getElementById('cost-model').value.trim(),
+    prompt_tokens:     parseInt(document.getElementById('cost-prompt').value) || 0,
+    completion_tokens: parseInt(document.getElementById('cost-completion').value) || 0,
+  }
+  try {
+    const { status, data } = await apiFetch('POST', '/cost', body)
+    renderResult('result-cost', status, data)
+  } catch(e) {
+    renderResult('result-cost', 0, { error: e.message })
+  } finally {
+    setLoading('cost', false)
+  }
+}
+</script>
+</body>
+</html>

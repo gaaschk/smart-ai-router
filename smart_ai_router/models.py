@@ -1,6 +1,16 @@
-"""ModelSpec — the canonical per-model data container."""
+"""Data containers for the smart-ai-router."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+
+
+@dataclass
+class ProviderConfig:
+    name: str                        # "openrouter" | "ollama" | user-defined slug
+    kind: str                        # "openrouter" | "ollama"  (driver selector)
+    enabled: bool = True
+    api_key: str = ""                # bearer token; empty for local providers
+    base_url: str = ""               # e.g. "http://localhost:11434" for Ollama
+    timeout: int = 15
 
 
 @dataclass

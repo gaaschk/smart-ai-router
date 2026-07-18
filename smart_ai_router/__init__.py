@@ -8,7 +8,7 @@ Public API:
     ModelSpec          per-model data container
     classify           optional role-agnostic prompt classifier
 """
-from smart_ai_router.models import ModelSpec
+from smart_ai_router.models import ModelSpec, ProviderConfig
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
 from smart_ai_router.classifier import classify
@@ -19,5 +19,6 @@ __all__ = [
     "MatrixStore",
     "SqliteStore",
     "ModelSpec",
+    "ProviderConfig",
     "classify",
 ]

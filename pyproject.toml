@@ -7,10 +7,16 @@ name = "smart-ai-router"
 version = "0.1.0"
 description = "Vendor-agnostic LLM capability router with live provider sync"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
+
+[project.scripts]
+smart-ai-router = "smart_ai_router.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

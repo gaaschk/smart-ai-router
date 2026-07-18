@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
-from smart_ai_router.models import ModelSpec
+from smart_ai_router.models import ModelSpec, ProviderConfig
 from smart_ai_router.store.base import MatrixStore
 
 
@@ -31,6 +31,16 @@ class SqliteStore(MatrixStore):
                     competence_docs       REAL DEFAULT 0.0,
                     competence_reasoning  REAL DEFAULT 0.0,
                     competence_general    REAL DEFAULT 0.0
+                )
+            """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS providers (
+                    name     TEXT PRIMARY KEY,
+                    kind     TEXT NOT NULL,
+                    enabled  INTEGER DEFAULT 1,
+                    api_key  TEXT DEFAULT '',
+                    base_url TEXT DEFAULT '',
+                    timeout  INTEGER DEFAULT 15
                 )
             """)
             self._conn.commit()
@@ -81,6 +91,59 @@ class SqliteStore(MatrixStore):
                 "SELECT * FROM models WHERE value=?", (value,)
             ).fetchone()
         return self._row_to_spec(row) if row else None
+
+    # ── Provider config ───────────────────────────────────────────────────────
+
+    def all_providers(self) -> list[ProviderConfig]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM providers").fetchall()
+        return [self._row_to_provider(r) for r in rows]
+
+    def get_provider(self, name: str) -> ProviderConfig | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM providers WHERE name=?", (name,)
+            ).fetchone()
+        return self._row_to_provider(row) if row else None
+
+    def upsert_provider(self, cfg: ProviderConfig) -> None:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO providers (name, kind, enabled, api_key, base_url, timeout)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(name) DO UPDATE SET
+                       kind=excluded.kind,
+                       enabled=excluded.enabled,
+                       api_key=excluded.api_key,
+                       base_url=excluded.base_url,
+                       timeout=excluded.timeout
+                """,
+                (
+                    cfg.name, cfg.kind,
+                    1 if cfg.enabled else 0,
+                    cfg.api_key, cfg.base_url, cfg.timeout,
+                ),
+            )
+            self._conn.commit()
+
+    def delete_provider(self, name: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM providers WHERE name=?", (name,)
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_provider(row: sqlite3.Row) -> ProviderConfig:
+        return ProviderConfig(
+            name=row["name"],
+            kind=row["kind"],
+            enabled=bool(row["enabled"]),
+            api_key=row["api_key"] or "",
+            base_url=row["base_url"] or "",
+            timeout=row["timeout"] or 15,
+        )
 
     @staticmethod
     def _row_to_spec(row: sqlite3.Row) -> ModelSpec:
