@@ -21,7 +21,13 @@ route() {
   curl -sf -X POST "$ROUTER/api/route" \
     -H "Content-Type: application/json" \
     -d "{\"domain\":\"$domain\",\"complexity\":\"$complexity\"}" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])" 2>/dev/null
+    | python3 -c "
+import sys, json
+m = json.load(sys.stdin)['model']
+# convert 'provider/rest' -> 'provider@rest' (claudish modern syntax)
+parts = m.split('/', 1)
+print(parts[0] + '@' + parts[1] if len(parts) == 2 else m)
+" 2>/dev/null
 }
 
 # Resolve each role; fall through to claudish defaults if router is unreachable
