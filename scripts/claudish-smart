@@ -44,13 +44,26 @@ else
 fi
 
 EXTRA_ARGS=()
-[ -n "$OPUS_MODEL" ]   && EXTRA_ARGS+=(--model-opus    "$OPUS_MODEL")
-[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-sonnet  "$SONNET_MODEL")
-[ -n "$HAIKU_MODEL" ]  && EXTRA_ARGS+=(--model-haiku   "$HAIKU_MODEL")
+[ -n "$OPUS_MODEL" ]   && EXTRA_ARGS+=(--model-opus     "$OPUS_MODEL")
+[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-sonnet   "$SONNET_MODEL")
+[ -n "$HAIKU_MODEL" ]  && EXTRA_ARGS+=(--model-haiku    "$HAIKU_MODEL")
 [ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-subagent "$SONNET_MODEL")
 
 if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
   echo "[claudish-smart] routing: opus=$OPUS_MODEL sonnet=$SONNET_MODEL haiku=$HAIKU_MODEL" >&2
+fi
+
+# Inject API keys from stored provider configs so claudish doesn't prompt.
+# Only sets a variable if it isn't already in the environment.
+_providers=$(curl -sf --max-time 3 "$ROUTER/api/providers" 2>/dev/null || true)
+if [ -n "$_providers" ]; then
+  _or_key=$(echo "$_providers" | python3 -c "
+import sys, json
+for p in json.load(sys.stdin):
+    if p.get('kind') == 'openrouter' and p.get('api_key'):
+        print(p['api_key']); break
+" 2>/dev/null || true)
+  [ -n "$_or_key" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && export OPENROUTER_API_KEY="$_or_key"
 fi
 
 exec claudish "${EXTRA_ARGS[@]}" "$@"
