@@ -6,6 +6,9 @@
   <key>Label</key>
   <string>com.kevingaasch.smart-ai-router</string>
 
+  <key>UserName</key>
+  <string>kevingaasch</string>
+
   <key>ProgramArguments</key>
   <array>
     <string>/Users/kevingaasch/ProjectHome/smart-ai-router/.venv/bin/python</string>
