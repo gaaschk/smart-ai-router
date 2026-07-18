@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# claudish-smart — wrap claudish with model roles resolved from smart-ai-router.
+#
+# Usage:
+#   claudish-smart [claudish args...]
+#
+# smart-ai-router maps:
+#   opus    -> reasoning / hard
+#   sonnet  -> coding / moderate  (default role)
+#   haiku   -> general / trivial
+#
+# The router URL can be overridden:
+#   SMART_ROUTER_URL=http://my-host:8001  claudish-smart
+
+set -euo pipefail
+
+ROUTER="${SMART_ROUTER_URL:-http://kevins-mac-mini.local:8001}"
+
+route() {
+  local domain="$1" complexity="$2"
+  curl -sf -X POST "$ROUTER/api/route" \
+    -H "Content-Type: application/json" \
+    -d "{\"domain\":\"$domain\",\"complexity\":\"$complexity\"}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])" 2>/dev/null
+}
+
+# Resolve each role; fall through to claudish defaults if router is unreachable
+OPUS_MODEL=""
+SONNET_MODEL=""
+HAIKU_MODEL=""
+
+if curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
+  OPUS_MODEL=$(route "reasoning" "hard")
+  SONNET_MODEL=$(route "coding" "moderate")
+  HAIKU_MODEL=$(route "general" "trivial")
+else
+  echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — using claudish defaults" >&2
+fi
+
+EXTRA_ARGS=()
+[ -n "$OPUS_MODEL" ]   && EXTRA_ARGS+=(--model-opus    "$OPUS_MODEL")
+[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-sonnet  "$SONNET_MODEL")
+[ -n "$HAIKU_MODEL" ]  && EXTRA_ARGS+=(--model-haiku   "$HAIKU_MODEL")
+[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-subagent "$SONNET_MODEL")
+
+if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
+  echo "[claudish-smart] routing: opus=$OPUS_MODEL sonnet=$SONNET_MODEL haiku=$HAIKU_MODEL" >&2
+fi
+
+exec claudish "${EXTRA_ARGS[@]}" "$@"
