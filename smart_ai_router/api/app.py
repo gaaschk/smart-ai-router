@@ -28,8 +28,10 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     app.state.capability_router = capability_router or CapabilityRouter()
     app.include_router(api_router, prefix="/api")
 
+    _static_dir = _UI_DIR / "static"
     if _UI_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=_UI_DIR / "static"), name="static")
+        if _static_dir.is_dir() and any(_static_dir.iterdir()):
+            app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
         @app.get("/", include_in_schema=False)
         def ui_index():
