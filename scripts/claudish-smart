@@ -84,9 +84,37 @@ for p in json.load(sys.stdin):
   [ -n "$_or_key" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && export OPENROUTER_API_KEY="$_or_key"
 fi
 
-# Unset env vars that would make Claude Code bypass claudish's model routing
-# and talk directly to Bedrock or another hardcoded provider.
-unset CLAUDE_CODE_USE_BEDROCK ANTHROPIC_MODEL CLAUDE_MODEL \
-      AWS_PROFILE AWS_DEFAULT_PROFILE
+# ~/.claude/settings.json has CLAUDE_CODE_USE_BEDROCK=1 and Bedrock ARNs in its
+# env block. Claude Code loads settings.local.json last at highest priority.
+# Write a temporary settings.local.json that zeros out the Bedrock config,
+# then remove it when the session exits.
+_SETTINGS_LOCAL="$HOME/.claude/settings.local.json"
+_SETTINGS_LOCAL_BACKUP=""
+
+if [ -f "$_SETTINGS_LOCAL" ]; then
+  _SETTINGS_LOCAL_BACKUP=$(mktemp)
+  cp "$_SETTINGS_LOCAL" "$_SETTINGS_LOCAL_BACKUP"
+fi
+
+cat > "$_SETTINGS_LOCAL" <<'SETTINGS'
+{
+  "env": {
+    "CLAUDE_CODE_USE_BEDROCK": "0",
+    "ANTHROPIC_MODEL": "",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": ""
+  }
+}
+SETTINGS
+
+cleanup() {
+  if [ -n "$_SETTINGS_LOCAL_BACKUP" ]; then
+    mv "$_SETTINGS_LOCAL_BACKUP" "$_SETTINGS_LOCAL"
+  else
+    rm -f "$_SETTINGS_LOCAL"
+  fi
+}
+trap cleanup EXIT
 
 exec claudish "${EXTRA_ARGS[@]}" "$@"
