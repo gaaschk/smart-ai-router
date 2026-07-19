@@ -24,10 +24,10 @@ OPTIONAL="${SMART_ROUTER_OPTIONAL:-0}"
 die() { echo "[claudish-smart] ERROR: $*" >&2; exit 1; }
 
 route() {
-  local domain="$1" complexity="$2"
+  local domain="$1" complexity="$2" needs_tools="${3:-false}"
   curl -sf -X POST "$ROUTER/api/route" \
     -H "Content-Type: application/json" \
-    -d "{\"domain\":\"$domain\",\"complexity\":\"$complexity\"}" \
+    -d "{\"domain\":\"$domain\",\"complexity\":\"$complexity\",\"needs_tools\":$needs_tools}" \
     | python3 -c "
 import sys, json
 m = json.load(sys.stdin)['model']
@@ -42,9 +42,12 @@ SONNET_MODEL=""
 HAIKU_MODEL=""
 
 if curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
-  OPUS_MODEL=$(route "reasoning" "hard" || true)
-  SONNET_MODEL=$(route "coding" "moderate" || true)
-  HAIKU_MODEL=$(route "general" "trivial" || true)
+  # opus: hard reasoning tasks that need tool use (agents, complex coding)
+  # sonnet: moderate coding tasks that need tool use (default interactive role)
+  # haiku: trivial general tasks, no tool requirement (background, autocomplete)
+  OPUS_MODEL=$(route "reasoning" "hard" "true" || true)
+  SONNET_MODEL=$(route "coding" "moderate" "true" || true)
+  HAIKU_MODEL=$(route "general" "trivial" "false" || true)
 
   if [ -z "$SONNET_MODEL" ]; then
     if [ "$OPTIONAL" = "1" ]; then
