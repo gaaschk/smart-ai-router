@@ -4,21 +4,21 @@ OpenAI-compatible proxy endpoint.
 Every POST /v1/chat/completions is:
   1. Classified (domain + complexity) from the last user message.
   2. Routed to the cheapest-qualifying model via CapabilityRouter.
-  3. Forwarded to the real provider, streaming the response back verbatim.
+  3. Forwarded to the real provider with async httpx, streaming back verbatim.
 
 Supported provider prefixes in the model value:
   openrouter/<vendor>/<model>  -> https://openrouter.ai/api/v1
-  ollama/<model>               -> OLLAMA_BASE_URL (default http://localhost:11434)
+  ollama/<model>               -> stored ollama base_url (default http://localhost:11434)
 """
 from __future__ import annotations
 
 import json
-import urllib.request
-import urllib.error
-from typing import Any
+import sys
+from typing import Any, AsyncIterator
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router.classifier import classify
 
@@ -30,7 +30,6 @@ _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_prompt(messages: list[dict]) -> str:
-    """Return the last user-role message content as a string."""
     for msg in reversed(messages):
         if msg.get("role") == "user":
             content = msg.get("content", "")
@@ -45,44 +44,39 @@ def _extract_prompt(messages: list[dict]) -> str:
 
 
 def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
-    """Return (base_url, api_key, real_model_id) for the given routed model."""
+    """Return (base_url, api_key, real_model_id)."""
     if model_value.startswith("openrouter/"):
         real_model = model_value[len("openrouter/"):]
-        # Look for stored OpenRouter provider key
-        api_key = ""
-        for p in cr.all_providers():
-            if p.kind == "openrouter" and p.api_key:
-                api_key = p.api_key
-                break
+        api_key = next(
+            (p.api_key for p in cr.all_providers() if p.kind == "openrouter" and p.api_key),
+            "",
+        )
         return _OPENROUTER_BASE, api_key, real_model
 
     if model_value.startswith("ollama/"):
         real_model = model_value[len("ollama/"):]
-        base_url = "http://localhost:11434"
-        for p in cr.all_providers():
-            if p.kind == "ollama" and p.base_url:
-                base_url = p.base_url.rstrip("/")
-                break
+        base_url = next(
+            (p.base_url.rstrip("/") for p in cr.all_providers() if p.kind == "ollama" and p.base_url),
+            "http://localhost:11434",
+        )
         return f"{base_url}/v1", "", real_model
 
-    # Unknown prefix — try to forward as-is to OpenRouter
-    for p in cr.all_providers():
-        if p.kind == "openrouter" and p.api_key:
-            return _OPENROUTER_BASE, p.api_key, model_value
-    raise HTTPException(status_code=422, detail=f"Cannot resolve provider for model {model_value!r}")
-
-
-def _build_request(base_url: str, api_key: str, body: dict) -> urllib.request.Request:
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    headers["HTTP-Referer"] = "https://github.com/gaaschk/smart-ai-router"
-    return urllib.request.Request(
-        f"{base_url}/chat/completions",
-        data=json.dumps(body).encode(),
-        headers=headers,
-        method="POST",
+    # Unknown prefix — fall through to OpenRouter
+    api_key = next(
+        (p.api_key for p in cr.all_providers() if p.kind == "openrouter" and p.api_key),
+        "",
     )
+    if not api_key:
+        raise HTTPException(status_code=422, detail=f"Cannot resolve provider for model {model_value!r}")
+    return _OPENROUTER_BASE, api_key, model_value
+
+
+def _headers(api_key: str) -> dict[str, str]:
+    h = {"Content-Type": "application/json",
+         "HTTP-Referer": "https://github.com/gaaschk/smart-ai-router"}
+    if api_key:
+        h["Authorization"] = f"Bearer {api_key}"
+    return h
 
 
 # ── endpoint ──────────────────────────────────────────────────────────────────
@@ -93,13 +87,13 @@ async def chat_completions(request: Request):
     cr = request.app.state.capability_router
 
     messages = body.get("messages", [])
-    stream = body.get("stream", False)
+    stream = bool(body.get("stream", False))
 
-    # 1. Classify the prompt
+    # 1. Classify
     prompt_text = _extract_prompt(messages)
     domain, complexity = classify(prompt_text) if prompt_text else ("general", "trivial")
 
-    # 2. Route to the best model
+    # 2. Route
     try:
         routed_model = cr.route(
             domain,
@@ -110,59 +104,53 @@ async def chat_completions(request: Request):
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    # 3. Resolve provider URL + credentials
+    # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
 
-    # 4. Forward request with real model id
+    print(f"[proxy] {domain}/{complexity} → {routed_model} (real: {real_model})",
+          file=sys.stderr, flush=True)
+
     forward_body = {**body, "model": real_model}
-    req = _build_request(base_url, api_key, forward_body)
+    url = f"{base_url}/chat/completions"
+    routing_headers = {
+        "X-Routed-Model": routed_model,
+        "X-Domain": domain,
+        "X-Complexity": complexity,
+    }
 
-    # Log routing decision to stderr (visible in service logs)
-    import sys
-    print(
-        f"[proxy] {domain}/{complexity} → {routed_model} (real: {real_model})",
-        file=sys.stderr, flush=True,
-    )
+    # 4. Forward with async httpx
+    if stream:
+        async def _stream_generator() -> AsyncIterator[bytes]:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream(
+                    "POST", url,
+                    headers=_headers(api_key),
+                    json=forward_body,
+                ) as resp:
+                    if resp.status_code >= 400:
+                        error = await resp.aread()
+                        yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
+                        return
+                    async for chunk in resp.aiter_bytes(4096):
+                        yield chunk
 
-    # 5. Stream or return response
-    try:
-        if stream:
-            def _generate():
-                try:
-                    with urllib.request.urlopen(req, timeout=120) as resp:
-                        while True:
-                            chunk = resp.read(4096)
-                            if not chunk:
-                                break
-                            yield chunk
-                except urllib.error.HTTPError as e:
-                    error_body = e.read().decode(errors="replace")
-                    yield f"data: {json.dumps({'error': error_body})}\n\n".encode()
+        return StreamingResponse(
+            _stream_generator(),
+            media_type="text/event-stream",
+            headers=routing_headers,
+        )
+    else:
+        async with httpx.AsyncClient(timeout=120) as client:
+            try:
+                resp = await client.post(
+                    url,
+                    headers=_headers(api_key),
+                    json=forward_body,
+                )
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=502, detail=f"Provider unreachable: {exc}")
 
-            return StreamingResponse(
-                _generate(),
-                media_type="text/event-stream",
-                headers={
-                    "X-Routed-Model": routed_model,
-                    "X-Domain": domain,
-                    "X-Complexity": complexity,
-                },
-            )
-        else:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.load(resp)
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                content=data,
-                headers={
-                    "X-Routed-Model": routed_model,
-                    "X-Domain": domain,
-                    "X-Complexity": complexity,
-                },
-            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode(errors="replace")
-        raise HTTPException(status_code=e.code, detail=error_body)
-    except urllib.error.URLError as e:
-        raise HTTPException(status_code=502, detail=f"Provider unreachable: {e.reason}")
+        return JSONResponse(content=resp.json(), headers=routing_headers)
