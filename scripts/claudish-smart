@@ -85,13 +85,47 @@ for p in json.load(sys.stdin):
 fi
 
 # ~/.claude/settings.json injects CLAUDE_CODE_USE_BEDROCK=1 via its env block.
-# Claude Code applies that AFTER process startup, so shell unset/export can't
-# intercept it. Instead we redirect claudish to a shim via CLAUDE_PATH — the
-# shim unsets the Bedrock vars right before exec-ing the real claude binary.
-_REAL_CLAUDE="${CLAUDE_PATH:-$(command -v claude)}"
-export _CLAUDISH_SMART_REAL_CLAUDE="$_REAL_CLAUDE"
-_SHIM_DIR="$(cd "$(dirname "$0")" && pwd)"
-export CLAUDE_PATH="$_SHIM_DIR/claude-no-bedrock"
-echo "[claudish-smart] CLAUDE_PATH → $CLAUDE_PATH (real claude: $_REAL_CLAUDE)" >&2
+# Claude Code re-applies that block AFTER startup — the shim can't stop it.
+# The only thing with higher priority is a project-level .claude/settings.local.json.
+# Write one into the CWD before launching, then clean it up on exit.
+# Drop exec so the EXIT trap fires.
+_LOCAL_SETTINGS="$PWD/.claude/settings.local.json"
+_LOCAL_SETTINGS_BACKUP=""
 
-exec claudish "${EXTRA_ARGS[@]}" "$@"
+mkdir -p "$PWD/.claude"
+
+if [ -f "$_LOCAL_SETTINGS" ]; then
+  _LOCAL_SETTINGS_BACKUP=$(mktemp)
+  cp "$_LOCAL_SETTINGS" "$_LOCAL_SETTINGS_BACKUP"
+fi
+
+# Neutral env block — zeros out all Bedrock config so claudish's routing wins.
+cat > "$_LOCAL_SETTINGS" <<'SETTINGS'
+{
+  "env": {
+    "CLAUDE_CODE_USE_BEDROCK": "0",
+    "ANTHROPIC_MODEL": "",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": ""
+  }
+}
+SETTINGS
+
+echo "[claudish-smart] wrote $PWD/.claude/settings.local.json to override Bedrock" >&2
+
+cleanup() {
+  if [ -n "$_LOCAL_SETTINGS_BACKUP" ]; then
+    mv "$_LOCAL_SETTINGS_BACKUP" "$_LOCAL_SETTINGS"
+  else
+    rm -f "$_LOCAL_SETTINGS"
+    # Remove .claude dir only if we created it and it's now empty
+    rmdir "$PWD/.claude" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+claudish "${EXTRA_ARGS[@]}" "$@"
