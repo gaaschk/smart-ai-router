@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
+from smart_ai_router.api.proxy import proxy_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -27,6 +28,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     )
     app.state.capability_router = capability_router or CapabilityRouter()
     app.include_router(api_router, prefix="/api")
+    app.include_router(proxy_router)  # OpenAI-compat proxy at /v1/chat/completions
 
     _static_dir = _UI_DIR / "static"
     if _UI_DIR.is_dir():

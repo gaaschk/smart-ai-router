@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
-# claudish-smart — wrap claudish with model roles resolved from smart-ai-router.
+# claudish-smart — point claudish at smart-ai-router's OpenAI-compatible proxy.
+#
+# Every request from Claude Code flows through POST /v1/chat/completions, which
+# classifies the prompt and routes it to the best available model per call.
 #
 # Usage:
 #   claudish-smart [claudish args...]
 #
-# smart-ai-router maps:
-#   opus    -> reasoning / hard
-#   sonnet  -> coding / moderate  (default role)
-#   haiku   -> general / trivial
-#
-# By default the router is REQUIRED — the script aborts if it is unreachable or
-# returns no models. To allow falling back to claudish defaults instead, set:
-#   SMART_ROUTER_OPTIONAL=1  claudish-smart
-#
-# The router URL can be overridden:
-#   SMART_ROUTER_URL=http://my-host:8001  claudish-smart
+# Overrides:
+#   SMART_ROUTER_URL=http://my-host:8001   change router address
+#   SMART_ROUTER_OPTIONAL=1               fall back to claudish defaults if unreachable
 
 set -euo pipefail
 
@@ -23,75 +18,26 @@ OPTIONAL="${SMART_ROUTER_OPTIONAL:-0}"
 
 die() { echo "[claudish-smart] ERROR: $*" >&2; exit 1; }
 
-route() {
-  local domain="$1" complexity="$2" needs_tools="${3:-false}"
-  curl -sf -X POST "$ROUTER/api/route" \
-    -H "Content-Type: application/json" \
-    -d "{\"domain\":\"$domain\",\"complexity\":\"$complexity\",\"needs_tools\":$needs_tools}" \
-    | python3 -c "
-import sys, json
-m = json.load(sys.stdin)['model']
-# convert 'provider/rest' -> 'provider@rest' (claudish modern syntax)
-parts = m.split('/', 1)
-print(parts[0] + '@' + parts[1] if len(parts) == 2 else m)
-" 2>/dev/null
-}
-
-OPUS_MODEL=""
-SONNET_MODEL=""
-HAIKU_MODEL=""
-
-if curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
-  # opus: hard reasoning tasks that need tool use (agents, complex coding)
-  # sonnet: moderate coding tasks that need tool use (default interactive role)
-  # haiku: trivial general tasks, no tool requirement (background, autocomplete)
-  OPUS_MODEL=$(route "reasoning" "hard" "true" || true)
-  SONNET_MODEL=$(route "coding" "moderate" "true" || true)
-  HAIKU_MODEL=$(route "general" "trivial" "false" || true)
-
-  if [ -z "$SONNET_MODEL" ]; then
-    if [ "$OPTIONAL" = "1" ]; then
-      echo "[claudish-smart] router returned no models — falling back to claudish defaults" >&2
-    else
-      die "smart-ai-router at $ROUTER returned no models. Run a sync first, or set SMART_ROUTER_OPTIONAL=1 to fall back to claudish defaults."
-    fi
-  fi
-else
+# Check router reachability
+if ! curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
   if [ "$OPTIONAL" = "1" ]; then
-    echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — falling back to claudish defaults" >&2
+    echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — using claudish defaults" >&2
+    exec claudish "$@"
   else
-    die "smart-ai-router unreachable at $ROUTER. Check the service is running, or set SMART_ROUTER_OPTIONAL=1 to fall back to claudish defaults."
+    die "smart-ai-router unreachable at $ROUTER. Check the service is running, or set SMART_ROUTER_OPTIONAL=1 to fall back."
   fi
 fi
 
-EXTRA_ARGS=()
-[ -n "$OPUS_MODEL" ]   && EXTRA_ARGS+=(--model-opus     "$OPUS_MODEL")
-[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-sonnet   "$SONNET_MODEL")
-[ -n "$HAIKU_MODEL" ]  && EXTRA_ARGS+=(--model-haiku    "$HAIKU_MODEL")
-[ -n "$SONNET_MODEL" ] && EXTRA_ARGS+=(--model-subagent "$SONNET_MODEL")
+echo "[claudish-smart] routing via $ROUTER/v1 (per-request classification)" >&2
 
-if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
-  echo "[claudish-smart] routing: opus=$OPUS_MODEL sonnet=$SONNET_MODEL haiku=$HAIKU_MODEL" >&2
-fi
+# Point claudish's LiteLLM provider at the proxy.
+# claudish sends OpenAI-format requests to LITELLM_BASE_URL/chat/completions.
+# The proxy classifies each prompt and forwards to the best model.
+export LITELLM_BASE_URL="$ROUTER/v1"
+export LITELLM_API_KEY="smart-ai-router"   # arbitrary non-empty value
 
-# Inject API keys from stored provider configs so claudish doesn't prompt.
-# Only sets a variable if it isn't already in the environment.
-_providers=$(curl -sf --max-time 3 "$ROUTER/api/providers" 2>/dev/null || true)
-if [ -n "$_providers" ]; then
-  _or_key=$(echo "$_providers" | python3 -c "
-import sys, json
-for p in json.load(sys.stdin):
-    if p.get('kind') == 'openrouter' and p.get('api_key'):
-        print(p['api_key']); break
-" 2>/dev/null || true)
-  [ -n "$_or_key" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && export OPENROUTER_API_KEY="$_or_key"
-fi
-
-# ~/.claude/settings.json injects CLAUDE_CODE_USE_BEDROCK=1 via its env block.
-# Claude Code re-applies that block AFTER startup — the shim can't stop it.
-# The only thing with higher priority is a project-level .claude/settings.local.json.
-# Write one into the CWD before launching, then clean it up on exit.
-# Drop exec so the EXIT trap fires.
+# Override Bedrock config via project-level settings.local.json (higher priority
+# than ~/.claude/settings.json). Drop exec so the EXIT trap fires for cleanup.
 _LOCAL_SETTINGS="$PWD/.claude/settings.local.json"
 _LOCAL_SETTINGS_BACKUP=""
 
@@ -102,7 +48,6 @@ if [ -f "$_LOCAL_SETTINGS" ]; then
   cp "$_LOCAL_SETTINGS" "$_LOCAL_SETTINGS_BACKUP"
 fi
 
-# Neutral env block — zeros out all Bedrock config so claudish's routing wins.
 cat > "$_LOCAL_SETTINGS" <<'SETTINGS'
 {
   "env": {
@@ -118,17 +63,21 @@ cat > "$_LOCAL_SETTINGS" <<'SETTINGS'
 }
 SETTINGS
 
-echo "[claudish-smart] wrote $PWD/.claude/settings.local.json to override Bedrock" >&2
-
 cleanup() {
   if [ -n "$_LOCAL_SETTINGS_BACKUP" ]; then
     mv "$_LOCAL_SETTINGS_BACKUP" "$_LOCAL_SETTINGS"
   else
     rm -f "$_LOCAL_SETTINGS"
-    # Remove .claude dir only if we created it and it's now empty
     rmdir "$PWD/.claude" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
-claudish "${EXTRA_ARGS[@]}" "$@"
+# Route all three Claude roles through the LiteLLM provider → our proxy.
+# The model name is arbitrary — the proxy ignores it and routes by content.
+claudish \
+  --model-opus     "ll@smart-router" \
+  --model-sonnet   "ll@smart-router" \
+  --model-haiku    "ll@smart-router" \
+  --model-subagent "ll@smart-router" \
+  "$@"
