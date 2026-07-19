@@ -84,37 +84,16 @@ for p in json.load(sys.stdin):
   [ -n "$_or_key" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && export OPENROUTER_API_KEY="$_or_key"
 fi
 
-# ~/.claude/settings.json has CLAUDE_CODE_USE_BEDROCK=1 and Bedrock ARNs in its
-# env block. Claude Code loads settings.local.json last at highest priority.
-# Write a temporary settings.local.json that zeros out the Bedrock config,
-# then remove it when the session exits.
-_SETTINGS_LOCAL="$HOME/.claude/settings.local.json"
-_SETTINGS_LOCAL_BACKUP=""
-
-if [ -f "$_SETTINGS_LOCAL" ]; then
-  _SETTINGS_LOCAL_BACKUP=$(mktemp)
-  cp "$_SETTINGS_LOCAL" "$_SETTINGS_LOCAL_BACKUP"
-fi
-
-cat > "$_SETTINGS_LOCAL" <<'SETTINGS'
-{
-  "env": {
-    "CLAUDE_CODE_USE_BEDROCK": "0",
-    "ANTHROPIC_MODEL": "",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": ""
-  }
-}
-SETTINGS
-
-cleanup() {
-  if [ -n "$_SETTINGS_LOCAL_BACKUP" ]; then
-    mv "$_SETTINGS_LOCAL_BACKUP" "$_SETTINGS_LOCAL"
-  else
-    rm -f "$_SETTINGS_LOCAL"
-  fi
-}
-trap cleanup EXIT
+# ~/.claude/settings.json injects CLAUDE_CODE_USE_BEDROCK=1 and Bedrock ARNs via
+# its env block. Claude Code's env block doesn't merge across settings files —
+# the highest-priority file wins entirely — so we can't selectively override
+# individual keys via a settings file without rewriting the whole env block.
+# Exporting these vars into the shell environment takes precedence over anything
+# Claude Code reads from settings files.
+export CLAUDE_CODE_USE_BEDROCK=0
+export ANTHROPIC_MODEL=""
+export ANTHROPIC_DEFAULT_OPUS_MODEL=""
+export ANTHROPIC_DEFAULT_SONNET_MODEL=""
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=""
 
 exec claudish "${EXTRA_ARGS[@]}" "$@"
