@@ -33,7 +33,7 @@ echo "[claudish-smart] routing via $ROUTER/v1 (per-request classification)" >&2
 # Point claudish's LiteLLM provider at the proxy.
 # claudish sends OpenAI-format requests to LITELLM_BASE_URL/chat/completions.
 # The proxy classifies each prompt and forwards to the best model.
-export LITELLM_BASE_URL="$ROUTER/v1"
+export LITELLM_BASE_URL="$ROUTER"
 export LITELLM_API_KEY="smart-ai-router"   # arbitrary non-empty value
 
 # Override Bedrock config via project-level settings.local.json (higher priority
