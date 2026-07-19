@@ -9,12 +9,19 @@
 #   sonnet  -> coding / moderate  (default role)
 #   haiku   -> general / trivial
 #
+# By default the router is REQUIRED — the script aborts if it is unreachable or
+# returns no models. To allow falling back to claudish defaults instead, set:
+#   SMART_ROUTER_OPTIONAL=1  claudish-smart
+#
 # The router URL can be overridden:
 #   SMART_ROUTER_URL=http://my-host:8001  claudish-smart
 
 set -euo pipefail
 
 ROUTER="${SMART_ROUTER_URL:-http://kevins-mac-mini.local:8001}"
+OPTIONAL="${SMART_ROUTER_OPTIONAL:-0}"
+
+die() { echo "[claudish-smart] ERROR: $*" >&2; exit 1; }
 
 route() {
   local domain="$1" complexity="$2"
@@ -30,7 +37,6 @@ print(parts[0] + '@' + parts[1] if len(parts) == 2 else m)
 " 2>/dev/null
 }
 
-# Resolve each role; fall through to claudish defaults if router is unreachable
 OPUS_MODEL=""
 SONNET_MODEL=""
 HAIKU_MODEL=""
@@ -39,8 +45,20 @@ if curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; the
   OPUS_MODEL=$(route "reasoning" "hard" || true)
   SONNET_MODEL=$(route "coding" "moderate" || true)
   HAIKU_MODEL=$(route "general" "trivial" || true)
+
+  if [ -z "$SONNET_MODEL" ]; then
+    if [ "$OPTIONAL" = "1" ]; then
+      echo "[claudish-smart] router returned no models — falling back to claudish defaults" >&2
+    else
+      die "smart-ai-router at $ROUTER returned no models. Run a sync first, or set SMART_ROUTER_OPTIONAL=1 to fall back to claudish defaults."
+    fi
+  fi
 else
-  echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — using claudish defaults" >&2
+  if [ "$OPTIONAL" = "1" ]; then
+    echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — falling back to claudish defaults" >&2
+  else
+    die "smart-ai-router unreachable at $ROUTER. Check the service is running, or set SMART_ROUTER_OPTIONAL=1 to fall back to claudish defaults."
+  fi
 fi
 
 EXTRA_ARGS=()
