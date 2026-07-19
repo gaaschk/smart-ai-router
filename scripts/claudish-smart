@@ -84,16 +84,13 @@ for p in json.load(sys.stdin):
   [ -n "$_or_key" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && export OPENROUTER_API_KEY="$_or_key"
 fi
 
-# ~/.claude/settings.json injects CLAUDE_CODE_USE_BEDROCK=1 and Bedrock ARNs via
-# its env block. Claude Code's env block doesn't merge across settings files —
-# the highest-priority file wins entirely — so we can't selectively override
-# individual keys via a settings file without rewriting the whole env block.
-# Exporting these vars into the shell environment takes precedence over anything
-# Claude Code reads from settings files.
-export CLAUDE_CODE_USE_BEDROCK=0
-export ANTHROPIC_MODEL=""
-export ANTHROPIC_DEFAULT_OPUS_MODEL=""
-export ANTHROPIC_DEFAULT_SONNET_MODEL=""
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=""
+# ~/.claude/settings.json injects CLAUDE_CODE_USE_BEDROCK=1 via its env block.
+# Claude Code applies that AFTER process startup, so shell unset/export can't
+# intercept it. Instead we redirect claudish to a shim via CLAUDE_PATH — the
+# shim unsets the Bedrock vars right before exec-ing the real claude binary.
+_REAL_CLAUDE="${CLAUDE_PATH:-$(command -v claude)}"
+export _CLAUDISH_SMART_REAL_CLAUDE="$_REAL_CLAUDE"
+_SHIM_DIR="$(cd "$(dirname "$0")" && pwd)"
+export CLAUDE_PATH="$_SHIM_DIR/claude-no-bedrock"
 
 exec claudish "${EXTRA_ARGS[@]}" "$@"
