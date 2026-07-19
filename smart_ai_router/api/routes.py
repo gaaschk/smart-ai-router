@@ -33,6 +33,7 @@ def route(body: RouteRequest, request: Request):
             body.domain,
             body.complexity,
             needs_tools=body.needs_tools,
+            needs_vision=body.needs_vision,
             est_tokens=body.est_tokens,
             exclude=set(body.exclude) if body.exclude else None,
         )
@@ -156,6 +157,7 @@ def _to_response(spec) -> ModelSpecResponse:
         cost=spec.cost,
         ctx_k=spec.ctx_k,
         tools=spec.tools,
+        vision=spec.vision,
         reliability=spec.reliability,
         cost_input=spec.cost_input,
         cost_output=spec.cost_output,

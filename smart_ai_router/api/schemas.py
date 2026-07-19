@@ -8,6 +8,7 @@ class RouteRequest(BaseModel):
     domain: str = Field(..., description="coding | docs | reasoning | general")
     complexity: str = Field(..., description="trivial | moderate | hard")
     needs_tools: bool = False
+    needs_vision: bool = False
     est_tokens: int = 0
     exclude: list[str] = Field(default_factory=list)
 
@@ -22,6 +23,7 @@ class ModelSpecResponse(BaseModel):
     cost: int
     ctx_k: int
     tools: bool
+    vision: bool
     reliability: float
     cost_input: float
     cost_output: float

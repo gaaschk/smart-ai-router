@@ -159,6 +159,7 @@ def _sync_openrouter(
 
         supports = m.get("supported_parameters") or []
         tools = "tools" in supports
+        vision = "text+image->text" in modality
         reliability = 0.5 if mid.endswith(":free") else 0.9
 
         spec = ModelSpec(
@@ -167,6 +168,7 @@ def _sync_openrouter(
             cost=cost,
             ctx_k=ctx_k,
             tools=tools,
+            vision=vision,
             reliability=reliability,
             cost_input=cost_input,
             cost_output=cost_output,

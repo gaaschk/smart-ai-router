@@ -30,6 +30,7 @@ class CapabilityRouter:
         complexity: str,
         *,
         needs_tools: bool = False,
+        needs_vision: bool = False,
         est_tokens: int = 0,
         exclude: set[str] | None = None,
     ) -> str:
@@ -42,6 +43,7 @@ class CapabilityRouter:
             domain=domain,
             complexity=complexity,
             needs_tools=needs_tools,
+            needs_vision=needs_vision,
             est_tokens=est_tokens,
             exclude=exclude,
             thresholds=self._thresholds,

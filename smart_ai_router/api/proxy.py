@@ -93,12 +93,20 @@ async def chat_completions(request: Request):
     prompt_text = _extract_prompt(messages)
     domain, complexity = classify(prompt_text) if prompt_text else ("general", "trivial")
 
+    # Detect image content in any message
+    needs_vision = any(
+        isinstance(m.get("content"), list) and
+        any(isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"])
+        for m in messages
+    )
+
     # 2. Route
     try:
         routed_model = cr.route(
             domain,
             complexity,
             needs_tools=bool(body.get("tools")),
+            needs_vision=needs_vision,
             est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
         )
     except RuntimeError as exc:

@@ -25,6 +25,7 @@ def route(
     complexity: str,
     *,
     needs_tools: bool,
+    needs_vision: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
     thresholds: dict[str, float] | None = None,
@@ -56,6 +57,8 @@ def route(
         if spec.reliability < min_rel:
             return False
         if needs_tools and not spec.tools:
+            return False
+        if needs_vision and not spec.vision:
             return False
         if est_tokens > 0 and spec.ctx_k > 0 and est_tokens > spec.ctx_k * 1000:
             return False

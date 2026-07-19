@@ -24,6 +24,7 @@ class SqliteStore(MatrixStore):
                     cost          INTEGER DEFAULT 0,
                     ctx_k         INTEGER DEFAULT 0,
                     tools         INTEGER DEFAULT 0,
+                    vision        INTEGER DEFAULT 0,
                     reliability   REAL DEFAULT 1.0,
                     cost_input    REAL DEFAULT 0.0,
                     cost_output   REAL DEFAULT 0.0,
@@ -43,6 +44,11 @@ class SqliteStore(MatrixStore):
                     timeout  INTEGER DEFAULT 15
                 )
             """)
+            # Additive migration: vision column added after initial release
+            try:
+                self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -54,16 +60,17 @@ class SqliteStore(MatrixStore):
         with self._lock:
             self._conn.execute(
                 """INSERT INTO models (
-                    value, provider, cost, ctx_k, tools, reliability,
+                    value, provider, cost, ctx_k, tools, vision, reliability,
                     cost_input, cost_output,
                     competence_coding, competence_docs,
                     competence_reasoning, competence_general
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
                     ctx_k=excluded.ctx_k,
                     tools=excluded.tools,
+                    vision=excluded.vision,
                     reliability=excluded.reliability,
                     cost_input=excluded.cost_input,
                     cost_output=excluded.cost_output,
@@ -75,6 +82,7 @@ class SqliteStore(MatrixStore):
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
                     1 if spec.tools else 0,
+                    1 if spec.vision else 0,
                     float(max(0.0, min(1.0, spec.reliability))),
                     spec.cost_input, spec.cost_output,
                     spec.competence.get("coding", 0.0),
@@ -153,6 +161,7 @@ class SqliteStore(MatrixStore):
             cost=row["cost"] or 0,
             ctx_k=row["ctx_k"] or 0,
             tools=bool(row["tools"]),
+            vision=bool(row["vision"]) if row["vision"] is not None else False,
             reliability=row["reliability"] if row["reliability"] is not None else 1.0,
             cost_input=row["cost_input"] or 0.0,
             cost_output=row["cost_output"] or 0.0,

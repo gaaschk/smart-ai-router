@@ -921,6 +921,7 @@ function renderModelsTable(models) {
       <td>${m.provider}</td>
       <td>${m.ctx_k}K</td>
       <td><span class="pill ${m.tools ? 'pill-yes' : 'pill-no'}">${m.tools ? 'yes' : 'no'}</span></td>
+      <td><span class="pill ${m.vision ? 'pill-yes' : 'pill-no'}">${m.vision ? 'yes' : 'no'}</span></td>
       <td>${m.cost_input > 0 ? '$' + m.cost_input : '—'}</td>
       <td>${m.cost_output > 0 ? '$' + m.cost_output : '—'}</td>
       <td>${(m.reliability * 100).toFixed(0)}%</td>
@@ -937,7 +938,7 @@ function renderModelsTable(models) {
           <thead>
             <tr>
               <th>model</th><th>provider</th><th>ctx</th>
-              <th>tools</th><th>$/M in</th><th>$/M out</th><th>reliability</th>
+              <th>tools</th><th>vision</th><th>$/M in</th><th>$/M out</th><th>reliability</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
