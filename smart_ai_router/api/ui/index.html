@@ -508,6 +508,10 @@
     <a href="#cost">
       <span class="method method-post">POST</span> /cost
     </a>
+    <div class="nav-label" style="margin-top:1rem">Proxy</div>
+    <a href="#proxy">
+      <span class="method method-post">POST</span> /v1/chat/completions
+    </a>
     <div class="nav-label" style="margin-top:1rem">System</div>
     <a href="#updates">
       <span class="method method-get">GET</span> /updates
@@ -519,6 +523,32 @@
   </nav>
 
   <main>
+
+    <!-- ── POST /v1/chat/completions (proxy) ───────────────────────── -->
+    <section class="section" id="proxy">
+      <div class="section-header">
+        <span class="method method-post">POST</span>
+        <h2>Proxy</h2>
+        <span class="endpoint">/v1/chat/completions</span>
+      </div>
+      <div class="callout">
+        OpenAI-compatible endpoint. Each request is <strong>classified by prompt content</strong>
+        (domain + complexity) and routed to the best available model automatically.
+        Response headers <code>X-Routed-Model</code>, <code>X-Domain</code>, and <code>X-Complexity</code>
+        show the routing decision.
+      </div>
+      <div class="form-grid full">
+        <div>
+          <label for="proxy-prompt">prompt</label>
+          <textarea id="proxy-prompt" rows="4" placeholder="e.g. Refactor this Python class to use dataclasses…"></textarea>
+        </div>
+      </div>
+      <button onclick="doProxy()" id="btn-proxy">
+        <span id="spin-proxy" style="display:none" class="spinner"></span>
+        Classify &amp; Route
+      </button>
+      <div id="result-proxy"></div>
+    </section>
 
     <!-- ── POST /route ──────────────────────────────────────────────── -->
     <section class="section" id="route">
@@ -952,6 +982,48 @@ async function doSync() {
     renderResult('result-sync', 0, { error: e.message })
   } finally {
     setLoading('sync', false)
+  }
+}
+
+// ── Proxy ─────────────────────────────────────────────────────────────────────
+
+async function doProxy() {
+  const prompt = document.getElementById('proxy-prompt').value.trim()
+  if (!prompt) return
+  setLoading('proxy', true)
+  try {
+    const res = await fetch('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ui' },
+      body: JSON.stringify({
+        model: 'smart-router',
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        max_tokens: 1,   // minimal — we just want to see the routing decision
+      }),
+    })
+    const routed = res.headers.get('x-routed-model') || '(unknown)'
+    const domain = res.headers.get('x-domain') || '?'
+    const complexity = res.headers.get('x-complexity') || '?'
+    const data = await res.json().catch(() => ({}))
+    const container = document.getElementById('result-proxy')
+    const ok = res.status < 500
+    container.innerHTML = `
+      <div class="result-box" style="margin-top:1rem">
+        <div class="result-bar">
+          <span class="status ${ok ? 'status-ok' : 'status-err'}">${res.status}</span>
+          <span style="font-size:0.78rem;color:var(--muted)">domain: <strong style="color:var(--text)">${domain}</strong> &nbsp;·&nbsp; complexity: <strong style="color:var(--text)">${complexity}</strong></span>
+        </div>
+        <div style="padding:0.75rem 1rem;font-family:var(--font-mono);font-size:0.85rem">
+          <span style="color:var(--muted)">routed to →</span>
+          <strong style="color:var(--accent)">${routed}</strong>
+        </div>
+        ${Object.keys(data).length ? `<pre>${syntaxHighlight(data)}</pre>` : ''}
+      </div>`
+  } catch(e) {
+    renderResult('result-proxy', 0, { error: e.message })
+  } finally {
+    setLoading('proxy', false)
   }
 }
 
