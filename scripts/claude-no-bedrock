@@ -2,6 +2,7 @@
 # Shim invoked by claudish-smart via CLAUDE_PATH.
 # Unsets Bedrock env vars that ~/.claude/settings.json injects before
 # launching the real Claude Code binary.
+echo "[claude-no-bedrock] shim running — unsetting Bedrock env vars" >&2
 unset CLAUDE_CODE_USE_BEDROCK
 unset ANTHROPIC_MODEL
 unset ANTHROPIC_DEFAULT_OPUS_MODEL
@@ -14,8 +15,9 @@ unset AWS_PROFILE
 
 _REAL_CLAUDE="${_CLAUDISH_SMART_REAL_CLAUDE:-}"
 if [ -z "$_REAL_CLAUDE" ]; then
-  echo "[claudish-smart] ERROR: _CLAUDISH_SMART_REAL_CLAUDE not set" >&2
+  echo "[claude-no-bedrock] ERROR: _CLAUDISH_SMART_REAL_CLAUDE not set" >&2
   exit 1
 fi
 
+echo "[claude-no-bedrock] exec-ing real claude: $_REAL_CLAUDE" >&2
 exec "$_REAL_CLAUDE" "$@"

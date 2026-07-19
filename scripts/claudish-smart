@@ -92,5 +92,6 @@ _REAL_CLAUDE="${CLAUDE_PATH:-$(command -v claude)}"
 export _CLAUDISH_SMART_REAL_CLAUDE="$_REAL_CLAUDE"
 _SHIM_DIR="$(cd "$(dirname "$0")" && pwd)"
 export CLAUDE_PATH="$_SHIM_DIR/claude-no-bedrock"
+echo "[claudish-smart] CLAUDE_PATH → $CLAUDE_PATH (real claude: $_REAL_CLAUDE)" >&2
 
 exec claudish "${EXTRA_ARGS[@]}" "$@"
