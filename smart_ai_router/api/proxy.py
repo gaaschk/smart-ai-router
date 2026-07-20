@@ -211,31 +211,43 @@ async def chat_completions(request: Request):
         f"Escalation happens only when necessary._\n\n"
     )
 
+    # Generous timeout: reasoning models can take minutes to first token.
+    # connect short, read/write/pool long — the read budget covers slow
+    # time-to-first-token and long generations.
+    _timeout = httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=600.0)
+
     # 4. Forward with async httpx
     if stream:
         async def _stream_generator() -> AsyncIterator[bytes]:
-            async with httpx.AsyncClient(timeout=120) as client:
-                async with client.stream(
-                    "POST", url,
-                    headers=_headers(api_key),
-                    json=forward_body,
-                ) as resp:
-                    if resp.status_code >= 400:
-                        error = await resp.aread()
-                        yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
-                        return
-                    # Prepend escalation note as a synthetic first delta chunk
-                    if escalated:
-                        note_chunk = {
-                            "choices": [{
-                                "index": 0,
-                                "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
-                                "finish_reason": None,
-                            }],
-                        }
-                        yield f"data: {json.dumps(note_chunk)}\n\n".encode()
-                    async for chunk in resp.aiter_bytes(4096):
-                        yield chunk
+            # Emit an SSE comment immediately so the client sees the stream is
+            # alive while we wait for the upstream provider's first token.
+            yield b": smart-ai-router connected\n\n"
+            try:
+                async with httpx.AsyncClient(timeout=_timeout) as client:
+                    async with client.stream(
+                        "POST", url,
+                        headers=_headers(api_key),
+                        json=forward_body,
+                    ) as resp:
+                        if resp.status_code >= 400:
+                            error = await resp.aread()
+                            yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
+                            return
+                        # Prepend escalation note as a synthetic first delta chunk
+                        if escalated:
+                            note_chunk = {
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
+                                    "finish_reason": None,
+                                }],
+                            }
+                            yield f"data: {json.dumps(note_chunk)}\n\n".encode()
+                        async for chunk in resp.aiter_bytes(4096):
+                            yield chunk
+            except httpx.RequestError as exc:
+                yield f"data: {json.dumps({'error': f'proxy upstream error: {exc}'})}\n\n".encode()
+                yield b"data: [DONE]\n\n"
 
         return StreamingResponse(
             _stream_generator(),
@@ -243,7 +255,7 @@ async def chat_completions(request: Request):
             headers=routing_headers,
         )
     else:
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=_timeout) as client:
             try:
                 resp = await client.post(
                     url,
