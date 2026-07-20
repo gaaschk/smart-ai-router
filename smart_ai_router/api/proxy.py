@@ -167,11 +167,16 @@ async def chat_completions(request: Request):
         except RuntimeError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
 
+    # Worker path escalated to Claude — no cheaper model cleared the quality bar.
+    # Claude is the most expensive tier, so surface a note to the user.
+    escalated = (not is_orchestrator) and ("claude" in routed_model.lower())
+
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
 
     mode = "orchestrator" if is_orchestrator else f"{domain}/{complexity}"
-    print(f"[proxy] {mode} → {routed_model} (real: {real_model})",
+    print(f"[proxy] {mode} → {routed_model} (real: {real_model})"
+          f"{' [ESCALATED]' if escalated else ''}",
           file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
@@ -180,7 +185,15 @@ async def chat_completions(request: Request):
         "X-Routed-Model": routed_model,
         "X-Domain": domain,
         "X-Complexity": complexity,
+        "X-Escalated": "true" if escalated else "false",
     }
+
+    _ESCALATION_NOTE = (
+        f"> _[smart-ai-router] This {domain}/{complexity} task exceeded the "
+        f"capability of every available lower-cost model, so it was escalated "
+        f"to {routed_model} — the most capable (and most expensive) tier. "
+        f"Escalation happens only when necessary._\n\n"
+    )
 
     # 4. Forward with async httpx
     if stream:
@@ -195,6 +208,16 @@ async def chat_completions(request: Request):
                         error = await resp.aread()
                         yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
                         return
+                    # Prepend escalation note as a synthetic first delta chunk
+                    if escalated:
+                        note_chunk = {
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(note_chunk)}\n\n".encode()
                     async for chunk in resp.aiter_bytes(4096):
                         yield chunk
 
@@ -217,4 +240,11 @@ async def chat_completions(request: Request):
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-        return JSONResponse(content=resp.json(), headers=routing_headers)
+        data = resp.json()
+        if escalated:
+            try:
+                msg = data["choices"][0]["message"]
+                msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
+            except (KeyError, IndexError, TypeError):
+                pass  # unexpected shape — return provider response unmodified
+        return JSONResponse(content=data, headers=routing_headers)
