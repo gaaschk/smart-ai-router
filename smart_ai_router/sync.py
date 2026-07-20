@@ -32,6 +32,7 @@ def sync_from_providers(
     *,
     openrouter_key: str | None = None,
     ollama_base_url: str | None = None,
+    bedrock_key: str | None = None,
     timeout: int = 15,
 ) -> SyncResult:
     """Fetch model catalogs from configured providers and upsert into the store.
@@ -46,7 +47,50 @@ def sync_from_providers(
     if openrouter_key:
         _sync_openrouter(store, openrouter_key, result, timeout)
 
+    if bedrock_key:
+        _sync_bedrock(store, result)
+
     return result
+
+
+# ── Bedrock (Claude) ────────────────────────────────────────────────────────
+# Bedrock's OpenAI-compatible endpoint uses stable us.anthropic.* model IDs.
+# We seed a curated set of Claude models with benchmark-informed competence and
+# a HIGH cost tier so the router only picks them when no cheaper model clears
+# the quality bar (the built-in fallback), or when orchestrator mode forces it.
+
+_BEDROCK_CLAUDE_MODELS = [
+    # (model_id, cost_tier, ctx_k, competence)
+    ("us.anthropic.claude-haiku-4-5",   4, 200,
+     {"coding": 0.80, "docs": 0.78, "reasoning": 0.80, "general": 0.80}),
+    ("us.anthropic.claude-sonnet-4-6",  8, 1000,
+     {"coding": 0.88, "docs": 0.89, "reasoning": 0.89, "general": 0.89}),
+    ("us.anthropic.claude-opus-4-8",   12, 1000,
+     {"coding": 0.92, "docs": 0.94, "reasoning": 0.94, "general": 0.94}),
+]
+
+
+def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
+    existing = {s.value for s in store.all_models()}
+    for mid, cost, ctx_k, comp in _BEDROCK_CLAUDE_MODELS:
+        value = f"bedrock/{mid}"
+        spec = ModelSpec(
+            value=value,
+            provider="bedrock",
+            cost=cost,
+            ctx_k=ctx_k,
+            tools=True,
+            vision=True,
+            reliability=0.95,
+            cost_input=0.0,
+            cost_output=0.0,
+            competence=comp,
+        )
+        store.upsert_model(spec)
+        if value in existing:
+            result.updated += 1
+        else:
+            result.added += 1
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────

@@ -73,11 +73,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Route all three Claude roles through the LiteLLM provider → our proxy.
-# The model name is arbitrary — the proxy ignores it and routes by content.
+# Orchestration roles (opus/sonnet/haiku) drive the main Claude Code loop —
+# recognizing skills, emitting Workflow/Agent tool calls. These need a
+# Claude-compliant model, so they use the 'smart-orchestrator' name which the
+# proxy forces to a Claude model (via bedrock).
+#
+# The subagent role does the actual fan-out work; it uses 'smart-worker' which
+# the proxy classifies and routes to the cheapest capable model (Claude fallback
+# when nothing third-party clears the quality bar).
 claudish \
-  --model-opus     "ll@smart-router" \
-  --model-sonnet   "ll@smart-router" \
-  --model-haiku    "ll@smart-router" \
-  --model-subagent "ll@smart-router" \
+  --model-opus     "ll@smart-orchestrator" \
+  --model-sonnet   "ll@smart-orchestrator" \
+  --model-haiku    "ll@smart-orchestrator" \
+  --model-subagent "ll@smart-worker" \
   "$@"

@@ -56,6 +56,7 @@ class CapabilityRouter:
         *,
         openrouter_key: str | None = None,
         ollama_base_url: str | None = None,
+        bedrock_key: str | None = None,
         timeout: int = 15,
     ) -> SyncResult:
         """Fetch live model catalogs and upsert into the store.
@@ -63,12 +64,13 @@ class CapabilityRouter:
         When called with no explicit credentials, falls back to enabled
         providers stored in the database.
         """
-        explicit = openrouter_key or ollama_base_url
+        explicit = openrouter_key or ollama_base_url or bedrock_key
         if explicit:
             return sync_from_providers(
                 self._store,
                 openrouter_key=openrouter_key,
                 ollama_base_url=ollama_base_url,
+                bedrock_key=bedrock_key,
                 timeout=timeout,
             )
 
@@ -81,6 +83,7 @@ class CapabilityRouter:
                 self._store,
                 openrouter_key=cfg.api_key if cfg.kind == "openrouter" else None,
                 ollama_base_url=cfg.base_url if cfg.kind == "ollama" else None,
+                bedrock_key=cfg.api_key if cfg.kind == "bedrock" else None,
                 timeout=cfg.timeout,
             )
             result.added += partial.added

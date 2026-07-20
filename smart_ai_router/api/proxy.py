@@ -6,9 +6,14 @@ Every POST /v1/chat/completions is:
   2. Routed to the cheapest-qualifying model via CapabilityRouter.
   3. Forwarded to the real provider with async httpx, streaming back verbatim.
 
-Supported provider prefixes in the model value:
+Routing modes (selected by the incoming `model` name):
+  smart-orchestrator  -> force a Claude model (reliable skill/workflow tool-calling)
+  smart-worker / *    -> classify + route to cheapest capable model, Claude fallback
+
+Supported provider prefixes in the routed model value:
   openrouter/<vendor>/<model>  -> https://openrouter.ai/api/v1
   ollama/<model>               -> stored ollama base_url (default http://localhost:11434)
+  bedrock/<model>              -> https://bedrock-runtime.{region}.amazonaws.com/v1
 """
 from __future__ import annotations
 
@@ -25,6 +30,9 @@ from smart_ai_router.classifier import classify
 proxy_router = APIRouter()
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+
+# Model-name markers that force the orchestrator (Claude) path.
+_ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -43,8 +51,25 @@ def _extract_prompt(messages: list[dict]) -> str:
     return ""
 
 
+def _bedrock_base(cr) -> tuple[str, str] | None:
+    """Return (base_url, api_key) for the stored bedrock provider, or None."""
+    for p in cr.all_providers():
+        if p.kind == "bedrock" and p.api_key:
+            region = p.base_url.strip() or "us-east-1"
+            return f"https://bedrock-runtime.{region}.amazonaws.com/v1", p.api_key
+    return None
+
+
 def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     """Return (base_url, api_key, real_model_id)."""
+    if model_value.startswith("bedrock/"):
+        real_model = model_value[len("bedrock/"):]
+        bedrock = _bedrock_base(cr)
+        if not bedrock:
+            raise HTTPException(status_code=422, detail="No bedrock provider configured")
+        base_url, api_key = bedrock
+        return base_url, api_key, real_model
+
     if model_value.startswith("openrouter/"):
         real_model = model_value[len("openrouter/"):]
         api_key = next(
@@ -71,6 +96,23 @@ def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     return _OPENROUTER_BASE, api_key, model_value
 
 
+def _orchestrator_model(cr) -> str | None:
+    """Pick the cheapest Claude model for the orchestration layer.
+
+    Prefers a bedrock claude model, then any stored anthropic/claude model.
+    Returns the model value string, or None if no Claude model is available.
+    """
+    claude = [
+        s for s in cr.all_models()
+        if "claude" in s.value.lower() and s.reliability >= 0.5
+    ]
+    if not claude:
+        return None
+    # Cheapest first, then highest general competence
+    claude.sort(key=lambda s: (s.cost, -s.competence.get("general", 0.0)))
+    return claude[0].value
+
+
 def _headers(api_key: str) -> dict[str, str]:
     h = {"Content-Type": "application/json",
          "HTTP-Referer": "https://github.com/gaaschk/smart-ai-router"}
@@ -88,6 +130,8 @@ async def chat_completions(request: Request):
 
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
+    requested_model = str(body.get("model", ""))
+    is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
 
     # 1. Classify
     prompt_text = _extract_prompt(messages)
@@ -101,21 +145,33 @@ async def chat_completions(request: Request):
     )
 
     # 2. Route
-    try:
-        routed_model = cr.route(
-            domain,
-            complexity,
-            needs_tools=bool(body.get("tools")),
-            needs_vision=needs_vision,
-            est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    if is_orchestrator:
+        # Orchestration layer: force a Claude model for reliable skill/workflow
+        # tool-calling. Prefer bedrock; fall back to any openrouter claude model.
+        routed_model = _orchestrator_model(cr)
+        if routed_model is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Orchestrator mode requires a Claude model. Configure a "
+                       "'bedrock' provider or ensure an anthropic/claude model is synced.",
+            )
+    else:
+        try:
+            routed_model = cr.route(
+                domain,
+                complexity,
+                needs_tools=bool(body.get("tools")),
+                needs_vision=needs_vision,
+                est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
 
-    print(f"[proxy] {domain}/{complexity} → {routed_model} (real: {real_model})",
+    mode = "orchestrator" if is_orchestrator else f"{domain}/{complexity}"
+    print(f"[proxy] {mode} → {routed_model} (real: {real_model})",
           file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
