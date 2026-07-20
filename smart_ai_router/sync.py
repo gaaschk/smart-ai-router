@@ -167,7 +167,11 @@ def _sync_openrouter(
             continue
         arch = (m.get("architecture") or {})
         modality = arch.get("modality", "text->text")
-        if "text->text" not in modality and "text+image->text" not in modality:
+        # Accept any text-in / text-out model (e.g. text->text,
+        # text+image->text, text+image+file->text). Reject models that
+        # don't take text input or don't produce text output.
+        inp, _, outp = modality.partition("->")
+        if "text" not in inp or "text" not in outp:
             continue
 
         value = f"openrouter/{mid}"
@@ -203,7 +207,7 @@ def _sync_openrouter(
 
         supports = m.get("supported_parameters") or []
         tools = "tools" in supports
-        vision = "text+image->text" in modality
+        vision = "image" in inp  # inp = input side of modality (e.g. "text+image")
         reliability = 0.5 if mid.endswith(":free") else 0.9
 
         spec = ModelSpec(
