@@ -8,7 +8,9 @@ from __future__ import annotations
 
 def infer_competence(model_value: str) -> dict[str, float]:
     """Return {coding, docs, reasoning, general} scores from model name patterns."""
-    n = model_value.lower()
+    # Normalize version separators so "claude-opus-4.8" and "claude-opus-4-8"
+    # both match the same pattern (OpenRouter uses dots, our patterns use hyphens).
+    n = model_value.lower().replace(".", "-")
 
     # ── Specialised coders (high coding, lower general) ──────────────────────
     if any(x in n for x in ("qwen2.5-coder", "qwen3-coder", "deepseek-coder",
@@ -36,8 +38,10 @@ def infer_competence(model_value: str) -> dict[str, float]:
         return {"coding": 0.88, "docs": 0.89, "reasoning": 0.89, "general": 0.89}
     if "claude-sonnet" in n:
         return {"coding": 0.87, "docs": 0.88, "reasoning": 0.88, "general": 0.88}
-    if "claude-haiku" in n:
-        return {"coding": 0.78, "docs": 0.75, "reasoning": 0.78, "general": 0.78}
+    if "claude-haiku-4-5" in n or "claude-haiku-5" in n:
+        return {"coding": 0.80, "docs": 0.78, "reasoning": 0.80, "general": 0.82}
+    if "claude-haiku" in n:  # older haiku (3, 3.5)
+        return {"coding": 0.72, "docs": 0.70, "reasoning": 0.72, "general": 0.74}
 
     # ── GPT-5 family ──────────────────────────────────────────────────────────
     if any(x in n for x in ("gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-5-turbo")):

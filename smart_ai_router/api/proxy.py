@@ -96,11 +96,20 @@ def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     return _OPENROUTER_BASE, api_key, model_value
 
 
-def _orchestrator_model(cr) -> str | None:
-    """Pick the cheapest Claude model for the orchestration layer.
+# Minimum general competence for a Claude model to drive the orchestration
+# loop reliably. Old/weak Claude models (e.g. claude-3-haiku ≈ 0.78) fall
+# below this and are skipped in favor of modern Haiku/Sonnet (≥ 0.80).
+_ORCHESTRATOR_MIN_COMPETENCE = 0.80
 
-    Prefers a bedrock claude model, then any stored anthropic/claude model.
-    Returns the model value string, or None if no Claude model is available.
+
+def _orchestrator_model(cr) -> str | None:
+    """Pick the cheapest *capable* Claude model for the orchestration layer.
+
+    Orchestration needs a Claude model that reliably follows Claude Code's
+    skill/workflow tool-calling conventions, so we require a competence floor
+    and then pick the cheapest that clears it. Prefers bedrock over openrouter
+    at equal cost (bedrock claude models carry higher seeded competence).
+    Returns the model value string, or None if no capable Claude model exists.
     """
     claude = [
         s for s in cr.all_models()
@@ -108,9 +117,16 @@ def _orchestrator_model(cr) -> str | None:
     ]
     if not claude:
         return None
+
+    capable = [
+        s for s in claude
+        if s.competence.get("general", 0.0) >= _ORCHESTRATOR_MIN_COMPETENCE
+    ]
+    pool = capable or claude  # if none clear the floor, fall back to any claude
+
     # Cheapest first, then highest general competence
-    claude.sort(key=lambda s: (s.cost, -s.competence.get("general", 0.0)))
-    return claude[0].value
+    pool.sort(key=lambda s: (s.cost, -s.competence.get("general", 0.0)))
+    return pool[0].value
 
 
 def _headers(api_key: str) -> dict[str, str]:
