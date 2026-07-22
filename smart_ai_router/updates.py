@@ -7,11 +7,12 @@ the UI. No push-based CI runner required.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-APP_DAEMON_LABEL = "com.kevingaasch.smart-ai-router"
+APP_DAEMON_LABEL = os.environ.get("SMART_ROUTER_LABEL", "com.smart-ai-router")
 
 
 def _git(*args) -> subprocess.CompletedProcess:
@@ -65,9 +66,10 @@ def apply_source_update() -> dict:
         capture_output=True, text=True,
     )
 
-    # Restart via scoped passwordless-sudo rule (see scripts/sudoers-setup.sh).
+    # Restart via user-domain launchctl (no sudo needed).
     # This kills the current process — the HTTP response may not return; that's expected.
+    uid = os.getuid()
     subprocess.Popen(
-        ["sudo", "-n", "/bin/launchctl", "kickstart", "-k", f"system/{APP_DAEMON_LABEL}"]
+        ["launchctl", "kickstart", "-k", f"gui/{uid}/{APP_DAEMON_LABEL}"]
     )
     return {"ok": True, "detail": "Pulled latest and restarting…"}
