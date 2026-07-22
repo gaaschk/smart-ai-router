@@ -131,7 +131,7 @@ def _orchestrator_model(cr) -> str | None:
 
 def _headers(api_key: str) -> dict[str, str]:
     h = {"Content-Type": "application/json",
-         "HTTP-Referer": "https://github.com/gaaschk/smart-ai-router"}
+         "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router"}
     if api_key:
         h["Authorization"] = f"Bearer {api_key}"
     return h

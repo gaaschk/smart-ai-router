@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# deploy.sh — Bootstrap or manually re-deploy smart-ai-router on the Mac mini.
+# deploy.sh — Bootstrap or manually re-deploy smart-ai-router on a remote Mac.
 #
 # Usage:
-#   ./scripts/deploy.sh kevingaasch@<mac-mini-ip>
-#
-# CI deploys automatically via SSH (see .github/workflows/ci.yml).
-# Use this script for the initial bootstrap or when you need to deploy by hand.
+#   ./scripts/deploy.sh user@host
 #
 set -euo pipefail
 
@@ -15,9 +12,9 @@ if [ -z "$TARGET" ]; then
   exit 1
 fi
 
-REMOTE_DIR="/Users/${TARGET%%@*}/ProjectHome/smart-ai-router"
-PLIST_NAME="com.kevingaasch.smart-ai-router"
-PLIST_SRC="com.kevingaasch.smart-ai-router.plist"
+REMOTE_USER="${TARGET%%@*}"
+REMOTE_DIR="/Users/${REMOTE_USER}/ProjectHome/smart-ai-router"
+PLIST_LABEL="com.smart-ai-router"
 
 echo "→ Deploying to $TARGET:$REMOTE_DIR"
 
@@ -31,6 +28,7 @@ rsync -avz --progress \
   --exclude '*.pyc' \
   --exclude '.git' \
   --exclude '.idea' \
+  --exclude '.DS_Store' \
   . "$TARGET:$REMOTE_DIR"
 
 echo "→ Setting up venv and dependencies on $TARGET"
@@ -56,31 +54,25 @@ ssh "$TARGET" bash <<EOF
   echo "  ✓ venv ready"
 EOF
 
-# 3. Install and (re)start launchd service
-echo "→ Installing launchd service on $TARGET"
+# 3. Run setup on remote (installs launchd + symlinks)
+echo "→ Running setup on $TARGET"
 ssh "$TARGET" bash <<EOF
   set -euo pipefail
-  LAUNCH_DIR="\$HOME/Library/LaunchAgents"
-  mkdir -p "\$LAUNCH_DIR"
+  cd "$REMOTE_DIR"
+  source .venv/bin/activate
 
-  launchctl unload "\$LAUNCH_DIR/$PLIST_NAME.plist" 2>/dev/null || true
-
-  cp "$REMOTE_DIR/$PLIST_SRC" "\$LAUNCH_DIR/$PLIST_NAME.plist"
-
-  launchctl load "\$LAUNCH_DIR/$PLIST_NAME.plist"
-  sleep 2
-
-  if launchctl list | grep -q "$PLIST_NAME"; then
-    echo "  ✓ Service running"
-  else
-    echo "  ✗ Service failed to start — check $REMOTE_DIR/logs/server.err"
-    exit 1
-  fi
+  # Non-interactive: just install the service if providers are already configured
+  python -m smart_ai_router setup <<INPUT
+n
+n
+n
+8001
+INPUT
 EOF
 
 echo ""
-echo "✅  Deploy complete!"
+echo "Done! Run 'smart-ai-router setup' on the remote for interactive provider config."
 echo ""
-echo "   Web UI:  http://${TARGET##*@}:8000"
+echo "   Service: http://${TARGET##*@}:8001"
 echo "   Logs:    ssh $TARGET 'tail -f $REMOTE_DIR/logs/server.log'"
-echo "   Restart: ssh $TARGET 'launchctl kickstart -k gui/\$(id -u)/$PLIST_NAME'"
+echo "   Restart: ssh $TARGET 'launchctl kickstart -k gui/\$(id -u)/$PLIST_LABEL'"
