@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-ROUTER="${SMART_ROUTER_URL:-http://kevins-mac-mini.local:8001}"
+ROUTER="${SMART_ROUTER_URL:-http://$(hostname):8001}"
 OPTIONAL="${SMART_ROUTER_OPTIONAL:-0}"
 
 die() { echo "[claudish-smart] ERROR: $*" >&2; exit 1; }
