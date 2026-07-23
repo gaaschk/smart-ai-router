@@ -27,6 +27,46 @@ class SyncResult:
         return self.added + self.updated
 
 
+# ── Cost tier ─────────────────────────────────────────────────────────────────
+# The router sorts primarily by ModelSpec.cost (an integer tier). We derive the
+# tier from a *blended* effective price, not input price alone: output tokens
+# are priced far higher than input (typically ~3-5x) and generation workloads
+# emit more output than they ingest, so output dominates real cost. Ranking by
+# input alone mis-orders models (e.g. cheap-input/expensive-output reasoning
+# models look cheaper than they are).
+#
+# Weighting assumes output volume ~3x input (a typical chat/generation mix).
+_TIER_WEIGHT_INPUT = 0.25
+_TIER_WEIGHT_OUTPUT = 0.75
+
+
+def _cost_tier(cost_input: float, cost_output: float, *, is_free: bool = False) -> int:
+    """Map per-1M input/output $ rates to an integer cost tier for routing.
+
+    Blends input and output rates (see weights above) then buckets. Both rates
+    zero → tier 0 (local/unknown) or 1 (:free). Buckets are calibrated on the
+    blended scale so distinct price points stay in distinct tiers, e.g.
+    Haiku ($1/$5)≈$4→3, Sonnet ($3/$15)≈$12→5, Opus 4.8 ($5/$25)≈$20→8,
+    Opus 4.1 ($15/$75)≈$60→15.
+    """
+    if cost_input == 0.0 and cost_output == 0.0:
+        return 1 if is_free else 0
+    eff = _TIER_WEIGHT_INPUT * cost_input + _TIER_WEIGHT_OUTPUT * cost_output
+    if eff < 0.5:
+        return 1
+    if eff < 2:
+        return 2
+    if eff < 5:
+        return 3
+    if eff < 15:
+        return 5
+    if eff < 30:
+        return 8
+    if eff < 60:
+        return 12
+    return 15
+
+
 def sync_from_providers(
     store: MatrixStore,
     *,
@@ -56,34 +96,37 @@ def sync_from_providers(
 # ── Bedrock (Claude) ────────────────────────────────────────────────────────
 # Bedrock's OpenAI-compatible endpoint uses stable us.anthropic.* model IDs.
 # We seed a curated set of Claude models with benchmark-informed competence and
-# a HIGH cost tier so the router only picks them when no cheaper model clears
-# the quality bar (the built-in fallback), or when orchestrator mode forces it.
+# real per-1M input/output rates. The cost tier is derived from those rates via
+# the same _cost_tier() blend used for OpenRouter models, so both providers land
+# on one consistent scale (a model appearing in both won't show two tiers).
+# Claude is still the most expensive tier, so the router only picks it when no
+# cheaper model clears the quality bar (the fallback), or when forced.
 
 _BEDROCK_CLAUDE_MODELS = [
-    # (model_id, cost_tier, ctx_k, competence)
-    ("us.anthropic.claude-haiku-4-5",   4, 200,
+    # (model_id, ctx_k, cost_input, cost_output, competence)
+    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0,
      {"coding": 0.80, "docs": 0.78, "reasoning": 0.80, "general": 0.80}),
-    ("us.anthropic.claude-sonnet-4-6",  8, 1000,
+    ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0,
      {"coding": 0.88, "docs": 0.89, "reasoning": 0.89, "general": 0.89}),
-    ("us.anthropic.claude-opus-4-8",   12, 1000,
+    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0,
      {"coding": 0.92, "docs": 0.94, "reasoning": 0.94, "general": 0.94}),
 ]
 
 
 def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
     existing = {s.value for s in store.all_models()}
-    for mid, cost, ctx_k, comp in _BEDROCK_CLAUDE_MODELS:
+    for mid, ctx_k, cost_input, cost_output, comp in _BEDROCK_CLAUDE_MODELS:
         value = f"bedrock/{mid}"
         spec = ModelSpec(
             value=value,
             provider="bedrock",
-            cost=cost,
+            cost=_cost_tier(cost_input, cost_output),
             ctx_k=ctx_k,
             tools=True,
             vision=True,
             reliability=0.95,
-            cost_input=0.0,
-            cost_output=0.0,
+            cost_input=cost_input,
+            cost_output=cost_output,
             competence=comp,
         )
         store.upsert_model(spec)
@@ -187,23 +230,8 @@ def _sync_openrouter(
         except Exception:
             cost_output = 0.0
 
-        # Cost tier for router sorting
-        if cost_input == 0:
-            cost = 1 if mid.endswith(":free") else 0
-        elif cost_input < 0.1:
-            cost = 1
-        elif cost_input < 0.5:
-            cost = 2
-        elif cost_input < 1:
-            cost = 3
-        elif cost_input < 3:
-            cost = 5
-        elif cost_input < 8:
-            cost = 8
-        elif cost_input < 15:
-            cost = 12
-        else:
-            cost = 15
+        # Cost tier for router sorting — blends input + output rates.
+        cost = _cost_tier(cost_input, cost_output, is_free=mid.endswith(":free"))
 
         supports = m.get("supported_parameters") or []
         tools = "tools" in supports
