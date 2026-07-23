@@ -1088,7 +1088,9 @@ async function doPlayground() {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ui' },
-      body: JSON.stringify({ model: 'smart-worker', messages: [{ role: 'user', content: prompt }], stream: false, max_tokens: 512 }),
+      // No max_tokens — inherit the proxy's generous default so reasoning
+      // models have budget for thinking + answer instead of truncating.
+      body: JSON.stringify({ model: 'smart-worker', messages: [{ role: 'user', content: prompt }], stream: false }),
     });
     const domain = res.headers.get('x-domain') || '?';
     const complexity = res.headers.get('x-complexity') || '?';
@@ -1110,10 +1112,22 @@ async function doPlayground() {
       respEl.style.color = 'var(--error)';
       respEl.textContent = `Error ${res.status}: ${detail || 'request failed'}`;
     } else {
-      const content = data && data.choices && data.choices[0]
-        && data.choices[0].message && data.choices[0].message.content;
+      const choice = data && data.choices && data.choices[0];
+      const msg = (choice && choice.message) || {};
+      let text = msg.content;
+      // Reasoning models (e.g. qwen3) return an empty `content` and put their
+      // text in `reasoning` / `reasoning_content`. Fall back to that so the
+      // response isn't shown as blank.
+      if (!text && (msg.reasoning || msg.reasoning_content)) {
+        text = '[reasoning — no final answer]\n\n' + (msg.reasoning || msg.reasoning_content);
+      }
+      // If the model hit the output cap mid-generation, flag the truncation
+      // so an empty/partial answer isn't mistaken for the model's real output.
+      if (choice && choice.finish_reason === 'length') {
+        text = (text || '') + '\n\n[truncated: hit max_tokens — increase the budget for a full answer]';
+      }
       respEl.style.color = 'var(--text)';
-      respEl.textContent = content || '(no content returned)';
+      respEl.textContent = text || '(no content returned)';
     }
     document.getElementById('playground-result').style.display = 'block';
   } catch(e) {
