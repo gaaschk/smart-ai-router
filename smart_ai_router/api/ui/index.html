@@ -920,6 +920,40 @@
 
 <script>
 const API = '/api';
+
+// ── API key auth ──────────────────────────────────────────────────────────────
+// The router may require an API key (SMART_ROUTER_API_KEYS). Wrap fetch so every
+// same-origin /api and /v1 request carries the stored key, and prompt + retry once
+// on a 401. Without this the dashboard silently fails ("Could not check", empty data).
+function getApiKey() { return localStorage.getItem('smart_router_api_key') || ''; }
+function setApiKey(k) { k ? localStorage.setItem('smart_router_api_key', k) : localStorage.removeItem('smart_router_api_key'); }
+function promptApiKey() {
+  const k = window.prompt('This router requires an API key.\nEnter your SMART_ROUTER_API_KEYS value:', getApiKey());
+  if (k === null) return null;            // cancelled
+  setApiKey(k.trim());
+  return getApiKey();
+}
+
+const _rawFetch = window.fetch.bind(window);
+window.fetch = async function(input, init = {}) {
+  const url = typeof input === 'string' ? input : (input && input.url) || '';
+  const guarded = url.startsWith('/api') || url.startsWith(API) || url.startsWith('/v1');
+  if (!guarded) return _rawFetch(input, init);
+
+  const withKey = () => {
+    const headers = new Headers(init.headers || {});
+    const key = getApiKey();
+    if (key) headers.set('Authorization', `Bearer ${key}`);
+    return { ...init, headers };
+  };
+
+  let res = await _rawFetch(input, withKey());
+  if (res.status === 401 && promptApiKey() !== null) {
+    res = await _rawFetch(input, withKey());
+  }
+  return res;
+};
+
 let _allModels = [];
 let _activeFilters = new Set();
 let _sortKey = 'cost';
