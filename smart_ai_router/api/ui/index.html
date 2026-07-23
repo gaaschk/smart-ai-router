@@ -732,9 +732,9 @@
     <div class="playground-actions">
       <button class="btn btn-primary" onclick="doPlayground()" id="btn-playground">
         <span id="spin-playground" style="display:none" class="spinner"></span>
-        Route
+        Route &amp; Run
       </button>
-      <span style="font-size:0.75rem;color:var(--text-muted)">Classifies prompt and returns the chosen model (1 token max)</span>
+      <span style="font-size:0.75rem;color:var(--text-muted)">Classifies the prompt, routes to a model, and shows its response</span>
     </div>
     <div class="route-result" id="playground-result">
       <div class="route-line">
@@ -746,6 +746,7 @@
         <span id="pr-complexity"></span>
         <span id="pr-escalated"></span>
       </div>
+      <div id="pr-response" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:0.85rem;color:var(--text)"></div>
     </div>
   </div>
 
@@ -1081,12 +1082,13 @@ async function doPlayground() {
   if (!prompt) return;
   const btn = document.getElementById('btn-playground');
   const spin = document.getElementById('spin-playground');
+  const respEl = document.getElementById('pr-response');
   btn.disabled = true; spin.style.display = 'inline-block';
   try {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ui' },
-      body: JSON.stringify({ model: 'smart-worker', messages: [{ role: 'user', content: prompt }], stream: false, max_tokens: 1 }),
+      body: JSON.stringify({ model: 'smart-worker', messages: [{ role: 'user', content: prompt }], stream: false, max_tokens: 512 }),
     });
     const domain = res.headers.get('x-domain') || '?';
     const complexity = res.headers.get('x-complexity') || '?';
@@ -1098,9 +1100,26 @@ async function doPlayground() {
     document.getElementById('pr-complexity').innerHTML = `complexity: <strong style="color:var(--text)">${complexity}</strong>`;
     document.getElementById('pr-escalated').innerHTML = escalated
       ? '<span style="color:var(--warning)">escalated</span>' : '';
+
+    const data = await res.json().catch(() => null);
+    respEl.style.display = 'block';
+    if (!res.ok) {
+      // Surface the actual failure instead of a silent blank result.
+      let detail = data && (data.detail || data.error);
+      if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
+      respEl.style.color = 'var(--error)';
+      respEl.textContent = `Error ${res.status}: ${detail || 'request failed'}`;
+    } else {
+      const content = data && data.choices && data.choices[0]
+        && data.choices[0].message && data.choices[0].message.content;
+      respEl.style.color = 'var(--text)';
+      respEl.textContent = content || '(no content returned)';
+    }
     document.getElementById('playground-result').style.display = 'block';
   } catch(e) {
-    document.getElementById('pr-model').textContent = `Error: ${e.message}`;
+    respEl.style.display = 'block';
+    respEl.style.color = 'var(--error)';
+    respEl.textContent = `Error: ${e.message}`;
     document.getElementById('playground-result').style.display = 'block';
   } finally {
     btn.disabled = false; spin.style.display = 'none';
