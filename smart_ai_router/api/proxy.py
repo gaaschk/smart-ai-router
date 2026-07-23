@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router.classifier import classify
+from smart_ai_router.llm_classifier import classify_llm, classifier_model
 
 proxy_router = APIRouter()
 
@@ -57,6 +58,15 @@ def _extract_prompt(messages: list[dict]) -> str:
                     if isinstance(part, dict) and part.get("type") == "text"
                 )
     return ""
+
+
+def _ollama_base(cr) -> str:
+    """OpenAI-compatible base URL for the stored ollama provider (or default)."""
+    base_url = next(
+        (p.base_url.rstrip("/") for p in cr.all_providers() if p.kind == "ollama" and p.base_url),
+        "http://localhost:11434",
+    )
+    return f"{base_url}/v1"
 
 
 def _bedrock_base(cr) -> tuple[str, str] | None:
@@ -157,9 +167,24 @@ async def chat_completions(request: Request):
     requested_model = str(body.get("model", ""))
     is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
 
-    # 1. Classify
+    # 1. Classify — LLM classifier is primary; the deterministic keyword
+    # classifier is the fallback whenever the LLM path is disabled or fails
+    # (network error, timeout, malformed output). Classification never blocks
+    # or fails the request.
     prompt_text = _extract_prompt(messages)
-    domain, complexity = classify(prompt_text) if prompt_text else ("general", "trivial")
+    if not prompt_text:
+        domain, complexity = "general", "trivial"
+        classifier_used = "default"
+    else:
+        llm_result = None
+        if classifier_model():
+            llm_result = await classify_llm(prompt_text, base_url=_ollama_base(cr))
+        if llm_result is not None:
+            domain, complexity = llm_result
+            classifier_used = "llm"
+        else:
+            domain, complexity = classify(prompt_text)
+            classifier_used = "keyword"
 
     # Detect image content in any message
     needs_vision = any(
@@ -199,7 +224,7 @@ async def chat_completions(request: Request):
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
 
     mode = "orchestrator" if is_orchestrator else f"{domain}/{complexity}"
-    print(f"[proxy] {mode} → {routed_model} (real: {real_model})"
+    print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
           f"{' [ESCALATED]' if escalated else ''}",
           file=sys.stderr, flush=True)
 
@@ -214,6 +239,7 @@ async def chat_completions(request: Request):
         "X-Domain": domain,
         "X-Complexity": complexity,
         "X-Escalated": "true" if escalated else "false",
+        "X-Classifier": classifier_used,
     }
 
     _ESCALATION_NOTE = (
