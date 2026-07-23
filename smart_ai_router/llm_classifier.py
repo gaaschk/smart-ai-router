@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 
 import httpx
 
@@ -28,6 +29,12 @@ _COMPLEXITIES = frozenset({"trivial", "moderate", "hard"})
 # trivial task on the hot path of every request, so avoid "thinking" models.
 # Empty string (via env) disables the LLM path entirely → always fall back.
 _DEFAULT_MODEL = "llama3.1:8b"
+
+# Default fallback classifier: a small, free OpenRouter model tried when the
+# local model fails/times out, before giving up to the keyword classifier.
+# Free-tier is rate-limited and sends prompts off-box, so it's a resilience
+# backstop, not the primary. Empty (via env) disables the fallback.
+_DEFAULT_FALLBACK_MODEL = "nvidia/nemotron-nano-9b-v2:free"
 
 # Read budget covers a cold model load: Ollama unloads an idle model after a
 # few minutes, and the first request then pays a one-time load cost (~8s for an
@@ -56,9 +63,25 @@ _SYSTEM_PROMPT = (
 )
 
 
+@dataclass(frozen=True)
+class ClassifierTarget:
+    """One step in the classifier fallback chain."""
+    model: str
+    base_url: str
+    api_key: str = ""
+    label: str = "llm"  # reported via X-Classifier, e.g. "llm" or "llm-free"
+
+
 def classifier_model() -> str:
-    """The configured classifier model, or "" if the LLM path is disabled."""
+    """The configured primary classifier model, or "" if disabled."""
     return os.environ.get("SMART_ROUTER_CLASSIFIER_MODEL", _DEFAULT_MODEL).strip()
+
+
+def classifier_fallback_model() -> str:
+    """The configured free/remote fallback classifier model, or "" if disabled."""
+    return os.environ.get(
+        "SMART_ROUTER_CLASSIFIER_FALLBACK", _DEFAULT_FALLBACK_MODEL
+    ).strip()
 
 
 def _parse_classification(text: str) -> tuple[str, str] | None:
@@ -91,14 +114,18 @@ async def classify_llm(
     *,
     base_url: str,
     model: str | None = None,
+    api_key: str = "",
 ) -> tuple[str, str] | None:
-    """Classify a prompt via a local LLM. Returns None on any failure.
+    """Classify a prompt via an OpenAI-compatible LLM. None on any failure.
 
     Args:
         prompt:   The user prompt text to classify.
-        base_url: OpenAI-compatible base URL (e.g. "http://host:11434/v1").
+        base_url: OpenAI-compatible base URL (e.g. "http://host:11434/v1"
+                  for Ollama, or "https://openrouter.ai/api/v1").
         model:    Override the configured classifier model. If None, uses
                   classifier_model(); if that is "", the LLM path is disabled.
+        api_key:  Bearer token for the endpoint (required for OpenRouter,
+                  unused for local Ollama).
     """
     if not prompt or not prompt.strip():
         return None
@@ -116,10 +143,11 @@ async def classify_llm(
         "temperature": 0,
         "max_tokens": 40,  # a tiny JSON object; no room needed for chatter
     }
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
     url = f"{base_url.rstrip('/')}/chat/completions"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code >= 400:
             return None
         data = resp.json()
@@ -127,3 +155,23 @@ async def classify_llm(
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         return None
     return _parse_classification(content)
+
+
+async def classify_chain(
+    prompt: str,
+    targets: list[ClassifierTarget],
+) -> tuple[str, str, str] | None:
+    """Try each classifier target in order; return the first success.
+
+    Returns (domain, complexity, label) from the first target that yields a
+    valid classification, or None if every target fails (caller then uses the
+    deterministic keyword classifier). Targets are tried sequentially so a fast
+    local model is preferred and remote calls only happen on local failure.
+    """
+    for t in targets:
+        result = await classify_llm(
+            prompt, base_url=t.base_url, model=t.model, api_key=t.api_key
+        )
+        if result is not None:
+            return result[0], result[1], t.label
+    return None

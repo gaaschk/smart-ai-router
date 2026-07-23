@@ -26,7 +26,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router.classifier import classify
-from smart_ai_router.llm_classifier import classify_llm, classifier_model
+from smart_ai_router.llm_classifier import (
+    ClassifierTarget,
+    classifier_fallback_model,
+    classifier_model,
+    classify_chain,
+)
 
 proxy_router = APIRouter()
 
@@ -67,6 +72,36 @@ def _ollama_base(cr) -> str:
         "http://localhost:11434",
     )
     return f"{base_url}/v1"
+
+
+def _openrouter_key(cr) -> str:
+    """API key for the stored openrouter provider, or "" if none configured."""
+    return next(
+        (p.api_key for p in cr.all_providers() if p.kind == "openrouter" and p.api_key),
+        "",
+    )
+
+
+def _classifier_targets(cr) -> list[ClassifierTarget]:
+    """Build the ordered classifier fallback chain from config + providers.
+
+    1. Local Ollama model (fast, private, no rate limit) — primary.
+    2. A free OpenRouter model — resilience backstop, only if a key is stored.
+    Either step is skipped when its model is unset or its provider unavailable.
+    """
+    targets: list[ClassifierTarget] = []
+    local = classifier_model()
+    if local:
+        targets.append(ClassifierTarget(model=local, base_url=_ollama_base(cr), label="llm"))
+    fallback = classifier_fallback_model()
+    or_key = _openrouter_key(cr)
+    if fallback and or_key:
+        targets.append(
+            ClassifierTarget(
+                model=fallback, base_url=_OPENROUTER_BASE, api_key=or_key, label="llm-free"
+            )
+        )
+    return targets
 
 
 def _bedrock_base(cr) -> tuple[str, str] | None:
@@ -176,12 +211,9 @@ async def chat_completions(request: Request):
         domain, complexity = "general", "trivial"
         classifier_used = "default"
     else:
-        llm_result = None
-        if classifier_model():
-            llm_result = await classify_llm(prompt_text, base_url=_ollama_base(cr))
-        if llm_result is not None:
-            domain, complexity = llm_result
-            classifier_used = "llm"
+        chain_result = await classify_chain(prompt_text, _classifier_targets(cr))
+        if chain_result is not None:
+            domain, complexity, classifier_used = chain_result
         else:
             domain, complexity = classify(prompt_text)
             classifier_used = "keyword"
