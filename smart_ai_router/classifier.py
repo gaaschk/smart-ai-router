@@ -33,6 +33,10 @@ _REASONING_HINTS = frozenset({
     "analyse", "analyze", "evaluate", "compare", "trade-off", "tradeoff",
     "decide", "recommend", "review", "assess", "audit", "diagnose",
     "root cause", "investigate", "brainstorm", "proposal",
+    # Math / science reasoning — derivations, proofs, and quantitative work.
+    "derive", "derivation", "prove", "proof", "theorem", "formula",
+    "equation", "calculate", "compute", "solve for", "integral",
+    "differentiate", "wavefunction", "quantum", "physics",
 })
 
 # ── Complexity keyword signals ────────────────────────────────────────────────
@@ -42,6 +46,8 @@ _HARD_KEYWORDS = frozenset({
     "algorithm", "root cause", "security", "audit",
     "system design", "large-scale", "distributed", "race condition",
     "production bug", "incident", "postmortem",
+    # Multi-step math/science reasoning — derivations and formal proofs.
+    "derive", "derivation", "prove", "proof", "theorem",
 })
 
 _MODERATE_KEYWORDS = frozenset({
