@@ -1,10 +1,12 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from smart_ai_router.facade import CapabilityRouter
@@ -12,6 +14,16 @@ from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
 
 _UI_DIR = Path(__file__).parent / "ui"
+
+_OPEN_PATHS = frozenset({"/", "/favicon.ico"})
+
+
+def _get_api_keys() -> set[str]:
+    """Load valid API keys from SMART_ROUTER_API_KEYS (comma-separated)."""
+    raw = os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
+    if not raw:
+        return set()
+    return {k.strip() for k in raw.split(",") if k.strip()}
 
 
 def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
@@ -27,8 +39,30 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.capability_router = capability_router or CapabilityRouter()
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        api_keys = _get_api_keys()
+        if not api_keys:
+            return await call_next(request)
+
+        path = request.url.path
+        if path in _OPEN_PATHS or path.startswith("/static"):
+            return await call_next(request)
+
+        auth = request.headers.get("authorization", "")
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+
+        if not token or not any(secrets.compare_digest(token, k) for k in api_keys):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
+            )
+
+        return await call_next(request)
+
     app.include_router(api_router, prefix="/api")
-    app.include_router(proxy_router)  # OpenAI-compat proxy at /v1/chat/completions
+    app.include_router(proxy_router)
 
     _static_dir = _UI_DIR / "static"
     if _UI_DIR.is_dir():

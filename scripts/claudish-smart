@@ -9,17 +9,26 @@
 #
 # Overrides:
 #   SMART_ROUTER_URL=http://my-host:8001   change router address
+#   SMART_ROUTER_API_KEY=<key>            API key for authenticated access
 #   SMART_ROUTER_OPTIONAL=1               fall back to claudish defaults if unreachable
 
 set -euo pipefail
 
 ROUTER="${SMART_ROUTER_URL:-http://$(hostname):8001}"
+API_KEY="${SMART_ROUTER_API_KEY:-}"
 OPTIONAL="${SMART_ROUTER_OPTIONAL:-0}"
 
 die() { echo "[claudish-smart] ERROR: $*" >&2; exit 1; }
 
+# Build auth header for health check
+_AUTH_HEADER=""
+if [ -n "$API_KEY" ]; then
+  _AUTH_HEADER="-H"
+  _AUTH_HEADER2="Authorization: Bearer $API_KEY"
+fi
+
 # Check router reachability
-if ! curl -sf --max-time 3 "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
+if ! curl -sf --max-time 3 ${_AUTH_HEADER:+"$_AUTH_HEADER" "$_AUTH_HEADER2"} "$ROUTER/api/updates?fetch=false" > /dev/null 2>&1; then
   if [ "$OPTIONAL" = "1" ]; then
     echo "[claudish-smart] smart-ai-router unreachable at $ROUTER — using claudish defaults" >&2
     exec claudish "$@"
@@ -34,7 +43,7 @@ echo "[claudish-smart] routing via $ROUTER/v1 (per-request classification)" >&2
 # claudish sends OpenAI-format requests to LITELLM_BASE_URL/chat/completions.
 # The proxy classifies each prompt and forwards to the best model.
 export LITELLM_BASE_URL="$ROUTER"
-export LITELLM_API_KEY="smart-ai-router"   # arbitrary non-empty value
+export LITELLM_API_KEY="${API_KEY:-smart-ai-router}"
 
 # Override Bedrock config via project-level settings.local.json (higher priority
 # than ~/.claude/settings.json). Drop exec so the EXIT trap fires for cleanup.
