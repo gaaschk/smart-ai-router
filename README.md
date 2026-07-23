@@ -217,10 +217,17 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_LABEL` | `com.smart-ai-router` | launchd service label |
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
-| `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Ollama model used for LLM-based prompt classification. Empty string disables it (keyword classifier only). |
+| `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
+| `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_MODEL_DENYLIST` | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 
-**Prompt classification** is LLM-first: each request's prompt is classified (domain + complexity) by `SMART_ROUTER_CLASSIFIER_MODEL` via the configured Ollama provider. If that model is disabled, unreachable, times out, or returns unparseable output, the router falls back to the built-in keyword classifier — classification never blocks or fails a request. The `X-Classifier` response header reports which path was used (`llm`, `keyword`, or `default`).
+**Prompt classification** is a fallback chain, tried in order:
+
+1. **Local** — `SMART_ROUTER_CLASSIFIER_MODEL` via the Ollama provider (fast, private, no rate limit).
+2. **Free remote** — `SMART_ROUTER_CLASSIFIER_FALLBACK` via OpenRouter, only if an OpenRouter key is stored (a resilience backstop; free tier is rate-limited and sends prompts off-box).
+3. **Keyword** — the built-in deterministic classifier.
+
+Each LLM step is skipped if its model is unset or provider unavailable, and any failure (network error, timeout, unparseable output) advances to the next step. **Classification never blocks or fails a request.** The `X-Classifier` response header reports which step succeeded: `llm` (local), `llm-free` (OpenRouter), `keyword`, or `default` (empty prompt).
 
 ## Service management (macOS)
 
