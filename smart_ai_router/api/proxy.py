@@ -34,6 +34,14 @@ _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # Model-name markers that force the orchestrator (Claude) path.
 _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 
+# Default output-token ceiling applied when a caller omits max_tokens.
+# max_tokens caps *output* only (for reasoning models: thinking + answer), so
+# a stingy default silently truncates responses — the common empty-content /
+# finish_reason:"length" failure. OpenAI/ChatGPT treat max_tokens as optional
+# (unbounded up to context), but many providers here default low, so we set a
+# generous floor that leaves room for a reasoning budget plus a real answer.
+_DEFAULT_MAX_TOKENS = 4096
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -196,6 +204,10 @@ async def chat_completions(request: Request):
           file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
+    # Apply a generous output-token default when the caller omits one, so
+    # reasoning models have budget for thinking + answer instead of truncating.
+    if not forward_body.get("max_tokens"):
+        forward_body["max_tokens"] = _DEFAULT_MAX_TOKENS
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
