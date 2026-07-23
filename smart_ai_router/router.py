@@ -6,6 +6,8 @@ No role knowledge. No pricing tables. The caller supplies explicit hints.
 """
 from __future__ import annotations
 
+import os
+
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.store.base import MatrixStore
 
@@ -17,6 +19,21 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "hard":           0.88,
     "min_reliability": 0.70,
 }
+
+
+def _denylisted() -> tuple[str, ...]:
+    """Substrings of model `value`s to never route to.
+
+    Read from SMART_ROUTER_MODEL_DENYLIST (comma-separated). Matched as
+    case-insensitive substrings so a whole family can be excluded with one
+    entry (e.g. "mxfp8" or "qwen3.6:35b"). This is a durable, config-driven
+    override: unlike a hand-edited reliability value, it survives sync(),
+    which re-seeds models with reliability=1.0. Use it to route away from a
+    model that's installed but broken in this environment (e.g. an MLX-quant
+    model whose runtime can't load) without deleting it from the catalog.
+    """
+    raw = os.environ.get("SMART_ROUTER_MODEL_DENYLIST", "")
+    return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
 
 
 def route(
@@ -48,11 +65,14 @@ def route(
     bar: float = thr.get(complexity, 0.70)
     min_rel: float = thr.get("min_reliability", 0.70)
     _exclude = exclude or set()
+    _deny = _denylisted()
 
     models = store.all_models()
 
     def _eligible(spec: ModelSpec) -> bool:
         if spec.value in _exclude:
+            return False
+        if _deny and any(d in spec.value.lower() for d in _deny):
             return False
         if spec.reliability < min_rel:
             return False

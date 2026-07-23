@@ -22,6 +22,15 @@ def test_long_prompt_is_hard():
     assert complexity == "hard"
 
 
+def test_derivation_is_reasoning_and_hard():
+    # A math/physics derivation should not fall through to general/trivial.
+    domain, complexity = classify(
+        "Derive the formula for the electronic orbitals about a hydrogen atom"
+    )
+    assert domain == "reasoning"
+    assert complexity == "hard"
+
+
 def test_no_roles():
     # Confirm no agent-name parameter exists
     import inspect
