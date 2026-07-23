@@ -76,6 +76,8 @@ def _generate_plist(install_dir: Path, venv_python: Path, port: int) -> str:
             <string>{Path.home() / ".local/bin"}:/usr/local/bin:/usr/bin:/bin</string>
             <key>SMART_ROUTER_PORT</key>
             <string>{port}</string>
+            <key>SMART_ROUTER_LABEL</key>
+            <string>{PLIST_LABEL}</string>
           </dict>
 
           <key>RunAtLoad</key>
