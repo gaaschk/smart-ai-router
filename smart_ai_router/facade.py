@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
 from smart_ai_router import router as _router
@@ -33,6 +34,7 @@ class CapabilityRouter:
         needs_vision: bool = False,
         est_tokens: int = 0,
         exclude: set[str] | None = None,
+        scope: ModelScope | None = None,
     ) -> str:
         """Return the optimal model string for the given hints.
 
@@ -46,6 +48,7 @@ class CapabilityRouter:
             needs_vision=needs_vision,
             est_tokens=est_tokens,
             exclude=exclude,
+            scope=scope,
             thresholds=self._thresholds,
         )
 
