@@ -878,11 +878,20 @@
       <input type="number" id="kf-maxtier" value="0" min="0">
     </div>
     <div class="form-row">
-      <label>Rate limit <span style="color:var(--text-muted)">(0 = none)</span></label>
+      <label>Rate limit <span style="color:var(--text-muted)">(0 = none; needs a window + at least one cap)</span></label>
       <div style="display:flex;gap:0.5rem">
-        <input type="number" id="kf-maxreq" value="0" min="0" placeholder="max requests" title="max requests">
-        <input type="number" id="kf-maxtokens" value="0" min="0" placeholder="max tokens" title="max tokens">
-        <input type="number" id="kf-window" value="0" min="0" placeholder="per N seconds" title="window seconds">
+        <div style="flex:1">
+          <label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:0.2rem">Max requests</label>
+          <input type="number" id="kf-maxreq" value="0" min="0" style="width:100%" title="max requests per window">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:0.2rem">Max tokens</label>
+          <input type="number" id="kf-maxtokens" value="0" min="0" style="width:100%" title="max tokens (prompt + completion) per window">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:0.2rem">Per (seconds)</label>
+          <input type="number" id="kf-window" value="0" min="0" style="width:100%" title="window length in seconds">
+        </div>
       </div>
     </div>
     <div class="form-actions">
