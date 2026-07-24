@@ -98,6 +98,10 @@ claudish-smart
 | `smart_ai_router/store/sqlite_store.py` | SQLite persistence for models + provider configs |
 | `smart_ai_router/setup.py` | First-run setup wizard |
 | `smart_ai_router/updates.py` | Self-update: git fetch/merge + launchd restart |
+| `smart_ai_router/apikeys.py` | Per-user API key minting + hashing |
+| `smart_ai_router/scope.py` | Per-user model scope (allow/deny + cost-tier ceiling) |
+| `smart_ai_router/ratelimit.py` | Per-user request/token quotas from the usage log |
+| `smart_ai_router/keys_cli.py` | `smart-ai-router keys` command-line key management |
 
 ## API
 
@@ -170,7 +174,39 @@ curl -X DELETE http://localhost:8001/api/keys/sk-smart-a1b2c3 \
 
 The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
 
-> Per-user **model/provider scoping** and **rate limits/quotas** are stored on each key now but enforced in later phases; the fields (`scope_models`, `max_tier`, `rl_*`) are accepted by `POST /api/keys` today.
+#### Per-user scope and quotas
+
+A per-user key can be constrained on three axes, all optional and all set at mint time (or via the API):
+
+- **`scope_models`** — a JSON allow/deny list of case-insensitive substrings matched against a model's value and provider. `allow` is a whitelist (empty = all); `deny` overrides. Enforced inside routing, so a scoped user gets the best model *within scope* — never one outside it (the fallback pick respects scope too). Orchestrator mode returns `403` if the forced Claude model is out of scope.
+- **`max_tier`** — a cost-tier ceiling; models above it are out of scope (`0` = no ceiling).
+- **`rl_window_s` + `rl_max_req` / `rl_max_tokens`** — a rolling-window request and/or token quota, counted from the usage log. Over-quota requests get `429` with a `Retry-After` header, before any routing or forwarding.
+
+```bash
+# A key that may only use local Ollama models, capped at 100 requests/hour
+curl -X POST http://localhost:8001/api/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"user":"alice",
+       "scope_models":"{\"allow\":[\"ollama/\"]}",
+       "rl_window_s":3600,"rl_max_req":100}'
+```
+
+Admin (env) keys are always unscoped and unlimited.
+
+#### Managing keys
+
+Three ways, all equivalent (they share the SQLite store):
+
+- **Web UI** — the **Keys** page at `http://localhost:8001/` (enter your admin key at the prompt to authenticate management calls).
+- **REST API** — the `/api/keys` endpoints above.
+- **CLI** — on the host machine, operating directly on the local store (no HTTP/auth needed):
+
+```bash
+smart-ai-router keys list
+smart-ai-router keys add alice --scope '{"allow":["ollama/"]}' --window-s 3600 --max-req 100
+smart-ai-router keys disable sk-smart-a1b2c3      # revoke (reversible)
+smart-ai-router keys delete  sk-smart-a1b2c3      # permanent
+```
 
 ### Provider management
 
