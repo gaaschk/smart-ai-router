@@ -32,6 +32,7 @@ from smart_ai_router.llm_classifier import (
     classifier_model,
     classify_chain,
 )
+from smart_ai_router.models import UsageRecord
 
 proxy_router = APIRouter()
 
@@ -182,6 +183,38 @@ def _orchestrator_model(cr) -> str | None:
     return pool[0].value
 
 
+def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
+               complexity: str, usage: dict | None, status: int) -> None:
+    """Attribute a proxied request to its user in the usage log (best-effort).
+
+    Never raises — usage accounting must not break a request that already
+    succeeded. `usage` is the provider's OpenAI-style token block, absent for
+    streaming responses (tokens aren't tallied until a later phase).
+    """
+    user = getattr(request.state, "user", "") or ""
+    key_prefix = getattr(request.state, "key_prefix", "") or ""
+    # No identity and no usage → nothing worth recording (e.g. open/no-auth mode).
+    if not user and not key_prefix and not usage:
+        return
+    prompt_tokens = int((usage or {}).get("prompt_tokens", 0) or 0)
+    completion_tokens = int((usage or {}).get("completion_tokens", 0) or 0)
+    cost_usd = 0.0
+    try:
+        if prompt_tokens or completion_tokens:
+            cost_usd = cr.cost_for(routed_model, prompt_tokens, completion_tokens) or 0.0
+    except Exception:  # noqa: BLE001 — pricing lookup must not break logging
+        cost_usd = 0.0
+    try:
+        cr.record_usage(UsageRecord(
+            user=user, key_prefix=key_prefix, routed_model=routed_model,
+            domain=domain, complexity=complexity,
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            cost_usd=cost_usd, status=status,
+        ))
+    except Exception:  # noqa: BLE001 — logging is best-effort
+        pass
+
+
 def _headers(api_key: str) -> dict[str, str]:
     h = {"Content-Type": "application/json",
          "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router"}
@@ -272,6 +305,7 @@ async def chat_completions(request: Request):
         "X-Complexity": complexity,
         "X-Escalated": "true" if escalated else "false",
         "X-Classifier": classifier_used,
+        "X-User": getattr(request.state, "user", "") or "",
     }
 
     _ESCALATION_NOTE = (
@@ -345,4 +379,10 @@ async def chat_completions(request: Request):
                 msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
             except (KeyError, IndexError, TypeError):
                 pass  # unexpected shape — return provider response unmodified
+        _log_usage(
+            cr, request,
+            routed_model=routed_model, domain=domain, complexity=complexity,
+            usage=data.get("usage") if isinstance(data, dict) else None,
+            status=resp.status_code,
+        )
         return JSONResponse(content=data, headers=routing_headers)

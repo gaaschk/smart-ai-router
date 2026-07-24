@@ -135,6 +135,42 @@ Response headers include routing metadata:
 - `X-Domain` — classified domain
 - `X-Complexity` — classified complexity
 - `X-Escalated` — `true` if the task was escalated to a premium model
+- `X-User` — the authenticated user the request was attributed to (empty in open/no-auth mode)
+
+### API keys (per-user auth)
+
+Authentication is optional until at least one key exists. There are two kinds of key:
+
+- **Admin keys** — set via the `SMART_ROUTER_API_KEYS` env var (comma-separated). They authenticate with full, unrestricted access and are the only keys allowed to manage other keys. Use one to bootstrap.
+- **Per-user keys** — minted through the API and stored (hashed) in SQLite. Each carries a `user` identity, so requests can be attributed in the usage log, and each can be revoked or rotated independently without touching anyone else's key or redeploying.
+
+The wire protocol is unchanged: every client still sends `Authorization: Bearer <key>`, so `claudish-smart` and any OpenAI-compatible client work as-is.
+
+```bash
+# Mint a per-user key (admin only). The plaintext key is returned ONCE —
+# only its SHA-256 hash is stored, so save it now; it can never be re-shown.
+curl -X POST http://localhost:8001/api/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"alice"}'
+# → {"user":"alice","key_prefix":"sk-smart-a1b2c3","key":"sk-smart-…","enabled":true, ...}
+
+# List keys (metadata only — never the secret)
+curl http://localhost:8001/api/keys -H "Authorization: Bearer $ADMIN_KEY"
+
+# Revoke (disable) a key by its prefix — takes effect immediately, no redeploy
+curl -X PUT http://localhost:8001/api/keys/sk-smart-a1b2c3/enabled \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+
+# Delete a key
+curl -X DELETE http://localhost:8001/api/keys/sk-smart-a1b2c3 \
+  -H "Authorization: Bearer $ADMIN_KEY"
+```
+
+The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
+
+> Per-user **model/provider scoping** and **rate limits/quotas** are stored on each key now but enforced in later phases; the fields (`scope_models`, `max_tier`, `rl_*`) are accepted by `POST /api/keys` today.
 
 ### Provider management
 
@@ -216,6 +252,7 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_PORT` | `8001` | Port the server listens on |
 | `SMART_ROUTER_LABEL` | `com.smart-ai-router` | launchd service label |
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
+| `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
 | `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |

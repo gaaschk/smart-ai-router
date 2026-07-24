@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from smart_ai_router.models import ModelSpec, ProviderConfig
+from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
 from smart_ai_router import router as _router
@@ -104,6 +104,34 @@ class CapabilityRouter:
 
     def delete_provider(self, name: str) -> bool:
         return self._store.delete_provider(name)
+
+    # ── API keys (per-user auth) ────────────────────────────────────────────────
+
+    def all_api_keys(self) -> list[ApiKey]:
+        return self._store.all_api_keys()
+
+    def create_api_key(self, key: ApiKey) -> ApiKey:
+        return self._store.create_api_key(key)
+
+    def get_api_key_by_hash(self, key_hash: str) -> ApiKey | None:
+        return self._store.get_api_key_by_hash(key_hash)
+
+    def touch_api_key(self, key_hash: str) -> None:
+        self._store.touch_api_key(key_hash)
+
+    def set_api_key_enabled(self, key_prefix: str, enabled: bool) -> bool:
+        return self._store.set_api_key_enabled(key_prefix, enabled)
+
+    def delete_api_key(self, key_prefix: str) -> bool:
+        return self._store.delete_api_key(key_prefix)
+
+    # ── Usage log ────────────────────────────────────────────────────────────
+
+    def record_usage(self, usage: UsageRecord) -> None:
+        self._store.record_usage(usage)
+
+    def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
+        return self._store.recent_usage(user, since_ts)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 

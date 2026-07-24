@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
@@ -18,8 +19,14 @@ _UI_DIR = Path(__file__).parent / "ui"
 _OPEN_PATHS = frozenset({"/", "/favicon.ico"})
 
 
-def _get_api_keys() -> set[str]:
-    """Load valid API keys from SMART_ROUTER_API_KEYS (comma-separated)."""
+def _get_env_api_keys() -> set[str]:
+    """Load unrestricted "admin" keys from SMART_ROUTER_API_KEYS (comma-separated).
+
+    These keep the pre-per-user behavior: any listed key authenticates with full
+    access and no per-user scope or limits. They exist so existing deployments
+    (and the operator's own key in .env) keep working; per-user keys live in the
+    database and layer on top.
+    """
     raw = os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
     if not raw:
         return set()
@@ -42,8 +49,20 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        api_keys = _get_api_keys()
-        if not api_keys:
+        env_keys = _get_env_api_keys()
+        cr = request.app.state.capability_router
+        db_keys = cr.all_api_keys()
+
+        # Default identity attached to every request; overwritten on a DB-key
+        # match so downstream (proxy usage logging, later scope/limit phases)
+        # can read who is calling.
+        request.state.user = ""
+        request.state.key_prefix = ""
+        request.state.api_key = None
+
+        # Auth is only enforced once at least one key exists (env or DB); with
+        # none configured the router stays open, preserving first-run behavior.
+        if not env_keys and not db_keys:
             return await call_next(request)
 
         path = request.url.path
@@ -53,13 +72,25 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         auth = request.headers.get("authorization", "")
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
 
-        if not token or not any(secrets.compare_digest(token, k) for k in api_keys):
-            return JSONResponse(
-                status_code=401,
-                content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
-            )
+        if token:
+            # Env keys authenticate as an unrestricted "admin" identity.
+            if any(secrets.compare_digest(token, k) for k in env_keys):
+                request.state.user = "admin"
+                return await call_next(request)
 
-        return await call_next(request)
+            # Per-user DB keys: match by hash, honor the enabled flag.
+            record = cr.get_api_key_by_hash(hash_key(token))
+            if record is not None and record.enabled:
+                request.state.user = record.user
+                request.state.key_prefix = record.key_prefix
+                request.state.api_key = record
+                cr.touch_api_key(record.key_hash)
+                return await call_next(request)
+
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
+        )
 
     app.include_router(api_router, prefix="/api")
     app.include_router(proxy_router)
