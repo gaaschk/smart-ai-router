@@ -1322,20 +1322,35 @@ async function deleteProvider(name) {
 }
 
 // ── API keys ──────────────────────────────────────────────────────────────────
-async function fetchKeys() {
-  const grid = document.getElementById('keys-grid');
+function _keysMessage(text) {
+  document.getElementById('keys-grid').innerHTML = '';
   const empty = document.getElementById('keys-empty');
+  empty.style.display = '';
+  empty.textContent = text;
+}
+
+async function fetchKeys() {
   try {
     const r = await fetch(`${API}/keys`);
     if (r.status === 403) {
-      grid.innerHTML = '';
-      empty.style.display = '';
-      empty.textContent = 'Managing keys requires an admin key (SMART_ROUTER_API_KEYS). Enter it at the key prompt (reload if needed).';
+      _keysMessage('Managing keys requires an admin key (SMART_ROUTER_API_KEYS). Enter it at the key prompt (reload if needed).');
+      return;
+    }
+    if (r.status === 404) {
+      // The endpoint doesn't exist → the server predates per-user keys.
+      _keysMessage('This router has no /api/keys endpoint. Pull the latest code and restart the service, then reload.');
+      return;
+    }
+    if (!r.ok) {
+      _keysMessage(`Could not load keys (server returned ${r.status}). Check the service logs.`);
       return;
     }
     const keys = await r.json();
     renderKeys(Array.isArray(keys) ? keys : []);
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error(e);
+    _keysMessage('Could not reach the router. Is the service running?');
+  }
 }
 
 function renderKeys(keys) {

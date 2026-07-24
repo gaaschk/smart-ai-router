@@ -107,6 +107,23 @@ def test_empty_user_rejected(admin_client):
     assert client.post("/api/keys", json={"user": "  "}, headers=_auth(_ADMIN)).status_code == 422
 
 
+def test_unauthenticated_browser_nav_redirects_to_ui(admin_client):
+    client, _ = admin_client
+    # A browser hitting an unknown/unauthenticated path (e.g. /login) should be
+    # bounced to the UI, not shown raw JSON.
+    r = client.get("/login", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/"
+
+
+def test_unauthenticated_api_client_still_gets_json_401(admin_client):
+    client, _ = admin_client
+    # Programmatic clients on the JSON surface keep the machine-readable 401.
+    r = client.get("/api/models", headers={"Accept": "application/json"})
+    assert r.status_code == 401
+    assert "error" in r.json()
+
+
 def test_using_a_key_updates_last_used(admin_client):
     client, cr = admin_client
     created = client.post("/api/keys", json={"user": "erin"}, headers=_auth(_ADMIN)).json()

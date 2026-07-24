@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from smart_ai_router.apikeys import hash_key
@@ -86,6 +86,15 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                 request.state.api_key = record
                 cr.touch_api_key(record.key_hash)
                 return await call_next(request)
+
+        # Browser navigations (a GET that accepts HTML, outside the JSON API
+        # surface) get bounced to the UI at "/", where the key prompt lives —
+        # so hitting e.g. /login shows the app instead of a raw JSON error.
+        # Programmatic clients on /api or /v1 still get a proper JSON 401.
+        accepts_html = "text/html" in request.headers.get("accept", "")
+        is_api_path = path.startswith("/api") or path.startswith("/v1")
+        if request.method == "GET" and accepts_html and not is_api_path:
+            return RedirectResponse(url="/", status_code=302)
 
         return JSONResponse(
             status_code=401,
