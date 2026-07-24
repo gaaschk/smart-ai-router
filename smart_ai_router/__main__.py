@@ -29,6 +29,11 @@ def main():
         run_setup()
         return
 
+    if len(sys.argv) > 1 and sys.argv[1] == "keys":
+        _load_dotenv()  # so the CLI uses the same DB path config as the server
+        from smart_ai_router.keys_cli import run_keys_cli
+        sys.exit(run_keys_cli(sys.argv[2:]))
+
     _load_dotenv()
     port = int(os.environ.get("SMART_ROUTER_PORT", "8001"))
     uvicorn.run(create_app(), host="0.0.0.0", port=port)

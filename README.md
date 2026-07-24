@@ -98,6 +98,10 @@ claudish-smart
 | `smart_ai_router/store/sqlite_store.py` | SQLite persistence for models + provider configs |
 | `smart_ai_router/setup.py` | First-run setup wizard |
 | `smart_ai_router/updates.py` | Self-update: git fetch/merge + launchd restart |
+| `smart_ai_router/apikeys.py` | Per-user API key minting + hashing |
+| `smart_ai_router/scope.py` | Per-user model scope (allow/deny + cost-tier ceiling) |
+| `smart_ai_router/ratelimit.py` | Per-user request/token quotas from the usage log |
+| `smart_ai_router/keys_cli.py` | `smart-ai-router keys` command-line key management |
 
 ## API
 
@@ -135,6 +139,74 @@ Response headers include routing metadata:
 - `X-Domain` — classified domain
 - `X-Complexity` — classified complexity
 - `X-Escalated` — `true` if the task was escalated to a premium model
+- `X-User` — the authenticated user the request was attributed to (empty in open/no-auth mode)
+
+### API keys (per-user auth)
+
+Authentication is optional until at least one key exists. There are two kinds of key:
+
+- **Admin keys** — set via the `SMART_ROUTER_API_KEYS` env var (comma-separated). They authenticate with full, unrestricted access and are the only keys allowed to manage other keys. Use one to bootstrap.
+- **Per-user keys** — minted through the API and stored (hashed) in SQLite. Each carries a `user` identity, so requests can be attributed in the usage log, and each can be revoked or rotated independently without touching anyone else's key or redeploying.
+
+The wire protocol is unchanged: every client still sends `Authorization: Bearer <key>`, so `claudish-smart` and any OpenAI-compatible client work as-is.
+
+```bash
+# Mint a per-user key (admin only). The plaintext key is returned ONCE —
+# only its SHA-256 hash is stored, so save it now; it can never be re-shown.
+curl -X POST http://localhost:8001/api/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"alice"}'
+# → {"user":"alice","key_prefix":"sk-smart-a1b2c3","key":"sk-smart-…","enabled":true, ...}
+
+# List keys (metadata only — never the secret)
+curl http://localhost:8001/api/keys -H "Authorization: Bearer $ADMIN_KEY"
+
+# Revoke (disable) a key by its prefix — takes effect immediately, no redeploy
+curl -X PUT http://localhost:8001/api/keys/sk-smart-a1b2c3/enabled \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+
+# Delete a key
+curl -X DELETE http://localhost:8001/api/keys/sk-smart-a1b2c3 \
+  -H "Authorization: Bearer $ADMIN_KEY"
+```
+
+The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
+
+#### Per-user scope and quotas
+
+A per-user key can be constrained on three axes, all optional and all set at mint time (or via the API):
+
+- **`scope_models`** — a JSON allow/deny list of case-insensitive substrings matched against a model's value and provider. `allow` is a whitelist (empty = all); `deny` overrides. Enforced inside routing, so a scoped user gets the best model *within scope* — never one outside it (the fallback pick respects scope too). Orchestrator mode returns `403` if the forced Claude model is out of scope.
+- **`max_tier`** — a cost-tier ceiling; models above it are out of scope (`0` = no ceiling).
+- **`rl_window_s` + `rl_max_req` / `rl_max_tokens`** — a rolling-window request and/or token quota, counted from the usage log. Over-quota requests get `429` with a `Retry-After` header, before any routing or forwarding.
+
+```bash
+# A key that may only use local Ollama models, capped at 100 requests/hour
+curl -X POST http://localhost:8001/api/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"user":"alice",
+       "scope_models":"{\"allow\":[\"ollama/\"]}",
+       "rl_window_s":3600,"rl_max_req":100}'
+```
+
+Admin (env) keys are always unscoped and unlimited.
+
+#### Managing keys
+
+Three ways, all equivalent (they share the SQLite store):
+
+- **Web UI** — the **Keys** page at `http://localhost:8001/` (enter your admin key at the prompt to authenticate management calls).
+- **REST API** — the `/api/keys` endpoints above.
+- **CLI** — on the host machine, operating directly on the local store (no HTTP/auth needed):
+
+```bash
+smart-ai-router keys list
+smart-ai-router keys add alice --scope '{"allow":["ollama/"]}' --window-s 3600 --max-req 100
+smart-ai-router keys disable sk-smart-a1b2c3      # revoke (reversible)
+smart-ai-router keys delete  sk-smart-a1b2c3      # permanent
+```
 
 ### Provider management
 
@@ -216,6 +288,7 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_PORT` | `8001` | Port the server listens on |
 | `SMART_ROUTER_LABEL` | `com.smart-ai-router` | launchd service label |
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
+| `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
 | `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |

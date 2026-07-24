@@ -74,6 +74,41 @@ class ProviderResponse(BaseModel):
     timeout: int
 
 
+# ── API keys (per-user auth) ────────────────────────────────────────────────────
+
+class ApiKeyCreateRequest(BaseModel):
+    user: str = Field(..., description="Identity label this key belongs to")
+    # Scope/limit fields persist now but are enforced in later phases.
+    scope_models: str = Field("", description="Phase 2: allow/deny for models")
+    max_tier: int = Field(0, description="Phase 2: max cost tier (0 = no ceiling)")
+    rl_window_s: int = Field(0, description="Phase 3: rate-limit window seconds")
+    rl_max_req: int = Field(0, description="Phase 3: max requests / window")
+    rl_max_tokens: int = Field(0, description="Phase 3: max tokens / window")
+
+
+class ApiKeyResponse(BaseModel):
+    """A key's metadata. Never includes the secret (only the display prefix)."""
+    user: str
+    key_prefix: str
+    enabled: bool
+    scope_models: str = ""
+    max_tier: int = 0
+    rl_window_s: int = 0
+    rl_max_req: int = 0
+    rl_max_tokens: int = 0
+    created_at: str = ""
+    last_used_at: str = ""
+
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    """Returned once, at creation — the ONLY time the plaintext key is exposed."""
+    key: str = Field(..., description="Plaintext key — shown once; store it now")
+
+
+class ApiKeyEnabledRequest(BaseModel):
+    enabled: bool
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 class UpdateStatusResponse(BaseModel):

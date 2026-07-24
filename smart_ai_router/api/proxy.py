@@ -32,6 +32,9 @@ from smart_ai_router.llm_classifier import (
     classifier_model,
     classify_chain,
 )
+from smart_ai_router.models import UsageRecord
+from smart_ai_router.ratelimit import check_rate_limit, window_start_for
+from smart_ai_router.scope import ModelScope, parse_scope
 
 proxy_router = APIRouter()
 
@@ -182,6 +185,73 @@ def _orchestrator_model(cr) -> str | None:
     return pool[0].value
 
 
+def _enforce_rate_limit(cr, request: Request) -> None:
+    """Raise 429 if the authenticated key is over its request/token quota.
+
+    No-op for admin/open requests (no key record). Uses the usage log as the
+    counter, so a key with no limits configured is never queried.
+    """
+    record = getattr(request.state, "api_key", None)
+    if record is None or not record.rl_window_s:
+        return
+    if not record.rl_max_req and not record.rl_max_tokens:
+        return
+    recent = cr.recent_usage(record.user, window_start_for(record))
+    status = check_rate_limit(record, recent)
+    if not status.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=status.reason,
+            headers={"Retry-After": str(status.retry_after_s)},
+        )
+
+
+def _request_scope(request: Request) -> ModelScope | None:
+    """Per-user model scope for the authenticated key, or None if unrestricted.
+
+    Admin/env keys and open (no-auth) requests carry no `api_key` record, so
+    they are unscoped. A per-user key's scope is built from its stored
+    `scope_models` JSON + `max_tier`.
+    """
+    record = getattr(request.state, "api_key", None)
+    if record is None:
+        return None
+    scope = parse_scope(record.scope_models, record.max_tier)
+    return scope if scope.is_restricted else None
+
+
+def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
+               complexity: str, usage: dict | None, status: int) -> None:
+    """Attribute a proxied request to its user in the usage log (best-effort).
+
+    Never raises — usage accounting must not break a request that already
+    succeeded. `usage` is the provider's OpenAI-style token block, absent for
+    streaming responses (tokens aren't tallied until a later phase).
+    """
+    user = getattr(request.state, "user", "") or ""
+    key_prefix = getattr(request.state, "key_prefix", "") or ""
+    # No identity and no usage → nothing worth recording (e.g. open/no-auth mode).
+    if not user and not key_prefix and not usage:
+        return
+    prompt_tokens = int((usage or {}).get("prompt_tokens", 0) or 0)
+    completion_tokens = int((usage or {}).get("completion_tokens", 0) or 0)
+    cost_usd = 0.0
+    try:
+        if prompt_tokens or completion_tokens:
+            cost_usd = cr.cost_for(routed_model, prompt_tokens, completion_tokens) or 0.0
+    except Exception:  # noqa: BLE001 — pricing lookup must not break logging
+        cost_usd = 0.0
+    try:
+        cr.record_usage(UsageRecord(
+            user=user, key_prefix=key_prefix, routed_model=routed_model,
+            domain=domain, complexity=complexity,
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            cost_usd=cost_usd, status=status,
+        ))
+    except Exception:  # noqa: BLE001 — logging is best-effort
+        pass
+
+
 def _headers(api_key: str) -> dict[str, str]:
     h = {"Content-Type": "application/json",
          "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router"}
@@ -225,6 +295,12 @@ async def chat_completions(request: Request):
         for m in messages
     )
 
+    # Enforce per-user quota before doing any routing/forwarding work.
+    _enforce_rate_limit(cr, request)
+
+    # Per-user model scope (None for admin/open requests).
+    scope = _request_scope(request)
+
     # 2. Route
     if is_orchestrator:
         # Orchestration layer: force a Claude model for reliable skill/workflow
@@ -236,6 +312,15 @@ async def chat_completions(request: Request):
                 detail="Orchestrator mode requires a Claude model. Configure a "
                        "'bedrock' provider or ensure an anthropic/claude model is synced.",
             )
+        # A scoped user who can't reach the forced Claude model can't orchestrate.
+        if scope is not None:
+            spec = cr.get_model(routed_model)
+            if spec is not None and not scope.permits(spec):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Your key's scope does not permit the Claude model "
+                           "required for orchestrator mode.",
+                )
     else:
         try:
             routed_model = cr.route(
@@ -244,6 +329,7 @@ async def chat_completions(request: Request):
                 needs_tools=bool(body.get("tools")),
                 needs_vision=needs_vision,
                 est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
+                scope=scope,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
@@ -272,6 +358,7 @@ async def chat_completions(request: Request):
         "X-Complexity": complexity,
         "X-Escalated": "true" if escalated else "false",
         "X-Classifier": classifier_used,
+        "X-User": getattr(request.state, "user", "") or "",
     }
 
     _ESCALATION_NOTE = (
@@ -303,6 +390,15 @@ async def chat_completions(request: Request):
                             error = await resp.aread()
                             yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
                             return
+                        # Record the request for attribution + request-count
+                        # quotas. Token counts aren't tallied for streams yet
+                        # (usage isn't emitted mid-stream), so they log as 0.
+                        _log_usage(
+                            cr, request,
+                            routed_model=routed_model, domain=domain,
+                            complexity=complexity, usage=None,
+                            status=resp.status_code,
+                        )
                         # Prepend escalation note as a synthetic first delta chunk
                         if escalated:
                             note_chunk = {
@@ -345,4 +441,10 @@ async def chat_completions(request: Request):
                 msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
             except (KeyError, IndexError, TypeError):
                 pass  # unexpected shape — return provider response unmodified
+        _log_usage(
+            cr, request,
+            routed_model=routed_model, domain=domain, complexity=complexity,
+            usage=data.get("usage") if isinstance(data, dict) else None,
+            status=resp.status_code,
+        )
         return JSONResponse(content=data, headers=routing_headers)

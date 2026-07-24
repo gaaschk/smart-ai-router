@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 
 from smart_ai_router.models import ModelSpec
+from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 
 
@@ -45,6 +46,7 @@ def route(
     needs_vision: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
+    scope: ModelScope | None = None,
     thresholds: dict[str, float] | None = None,
 ) -> str:
     """Return the cheapest model string that clears the competence + reliability bars.
@@ -59,6 +61,8 @@ def route(
         needs_tools:  If True, exclude models where tools=False.
         est_tokens:   Estimated prompt size in tokens (0 = skip ctx filter).
         exclude:      Model value strings to skip (e.g. previously rate-limited).
+        scope:        Per-user ModelScope; models outside it are ineligible
+                      (applies to the fallback pick too).
         thresholds:   Override default competence/reliability thresholds.
     """
     thr = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
@@ -73,6 +77,8 @@ def route(
         if spec.value in _exclude:
             return False
         if _deny and any(d in spec.value.lower() for d in _deny):
+            return False
+        if scope is not None and not scope.permits(spec):
             return False
         if spec.reliability < min_rel:
             return False

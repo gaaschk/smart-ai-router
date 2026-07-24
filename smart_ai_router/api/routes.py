@@ -1,10 +1,17 @@
 """Route handlers — mounted onto the FastAPI app by create_app()."""
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException, Request
 
-from smart_ai_router.models import ProviderConfig
+from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
+from smart_ai_router.models import ApiKey, ProviderConfig
 from smart_ai_router.api.schemas import (
+    ApiKeyCreatedResponse,
+    ApiKeyCreateRequest,
+    ApiKeyEnabledRequest,
+    ApiKeyResponse,
     ApplyUpdateResponse,
     CostRequest,
     CostResponse,
@@ -23,6 +30,29 @@ api_router = APIRouter()
 
 def _router_instance(request: Request):
     return request.app.state.capability_router
+
+
+def _require_admin(request: Request) -> None:
+    """Guard key-management endpoints: only the admin identity may manage keys.
+
+    A per-user DB key must not be able to enumerate or revoke other users' keys.
+    The "admin" identity is set by the middleware for an env (SMART_ROUTER_API_KEYS)
+    key. When no keys are configured at all the router is open (first-run), so we
+    allow management too — otherwise you could never mint the first key.
+    """
+    user = getattr(request.state, "user", "") or ""
+    if user == "admin":
+        return
+    no_keys_configured = (
+        not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
+        and not request.app.state.capability_router.all_api_keys()
+    )
+    if no_keys_configured:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Key management requires an admin key (SMART_ROUTER_API_KEYS).",
+    )
 
 
 @api_router.post("/route", response_model=RouteResponse)
@@ -125,6 +155,56 @@ def delete_provider(name: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Provider {name!r} not found")
 
 
+# ── API keys (per-user auth) ────────────────────────────────────────────────────
+
+@api_router.get("/keys", response_model=list[ApiKeyResponse])
+def list_api_keys(request: Request):
+    _require_admin(request)
+    cr = _router_instance(request)
+    return [_to_api_key_response(k) for k in cr.all_api_keys()]
+
+
+@api_router.post("/keys", response_model=ApiKeyCreatedResponse, status_code=201)
+def create_api_key(body: ApiKeyCreateRequest, request: Request):
+    _require_admin(request)
+    if not body.user.strip():
+        raise HTTPException(status_code=422, detail="user must not be empty")
+    cr = _router_instance(request)
+    plaintext = generate_key()
+    record = ApiKey(
+        key_hash=hash_key(plaintext),
+        user=body.user.strip(),
+        key_prefix=display_prefix(plaintext),
+        enabled=True,
+        scope_models=body.scope_models,
+        max_tier=body.max_tier,
+        rl_window_s=body.rl_window_s,
+        rl_max_req=body.rl_max_req,
+        rl_max_tokens=body.rl_max_tokens,
+    )
+    created = cr.create_api_key(record)
+    # Only place the plaintext key is ever exposed — the caller must save it now.
+    return ApiKeyCreatedResponse(key=plaintext, **_to_api_key_response(created).model_dump())
+
+
+@api_router.put("/keys/{key_prefix}/enabled", response_model=ApiKeyResponse)
+def set_api_key_enabled(key_prefix: str, body: ApiKeyEnabledRequest, request: Request):
+    _require_admin(request)
+    cr = _router_instance(request)
+    if not cr.set_api_key_enabled(key_prefix, body.enabled):
+        raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
+    match = next((k for k in cr.all_api_keys() if k.key_prefix == key_prefix), None)
+    return _to_api_key_response(match)
+
+
+@api_router.delete("/keys/{key_prefix}", status_code=204)
+def delete_api_key(key_prefix: str, request: Request):
+    _require_admin(request)
+    cr = _router_instance(request)
+    if not cr.delete_api_key(key_prefix):
+        raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 @api_router.get("/updates", response_model=UpdateStatusResponse)
@@ -137,6 +217,21 @@ def get_update_status(fetch: bool = True):
 def apply_update():
     from smart_ai_router import updates
     return updates.apply_source_update()
+
+
+def _to_api_key_response(k) -> ApiKeyResponse:
+    return ApiKeyResponse(
+        user=k.user,
+        key_prefix=k.key_prefix,
+        enabled=k.enabled,
+        scope_models=k.scope_models,
+        max_tier=k.max_tier,
+        rl_window_s=k.rl_window_s,
+        rl_max_req=k.rl_max_req,
+        rl_max_tokens=k.rl_max_tokens,
+        created_at=k.created_at,
+        last_used_at=k.last_used_at,
+    )
 
 
 def _to_provider_response(cfg) -> ProviderResponse:

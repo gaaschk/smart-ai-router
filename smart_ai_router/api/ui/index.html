@@ -684,6 +684,7 @@
     <button class="active" onclick="showPage('dashboard')">Dashboard</button>
     <button onclick="showPage('models')">Models</button>
     <button onclick="showPage('providers')">Providers</button>
+    <button onclick="showPage('keys')">Keys</button>
     <button onclick="showPage('settings')">Settings</button>
   </nav>
   <div class="status-group">
@@ -853,6 +854,53 @@
   <button class="btn btn-ghost" onclick="showProviderForm()">+ Add Provider</button>
 </div>
 
+<!-- ── Keys ────────────────────────────────────────────────────────── -->
+<div class="page" id="page-keys">
+  <h1 class="page-title">API Keys</h1>
+  <p class="page-subtitle">Per-user keys for the OpenAI-compatible endpoint. Managing keys requires an admin key (SMART_ROUTER_API_KEYS) — set it via the key prompt.</p>
+
+  <div id="key-form-panel" class="form-panel show">
+    <h3>Mint a key</h3>
+    <div class="form-row">
+      <label>User</label>
+      <input type="text" id="kf-user" placeholder="e.g. alice">
+    </div>
+    <div class="form-row">
+      <label>Allowed models <span style="color:var(--text-muted)">(optional, comma-separated substrings)</span></label>
+      <input type="text" id="kf-allow" placeholder="e.g. ollama/, openrouter/">
+    </div>
+    <div class="form-row">
+      <label>Denied models <span style="color:var(--text-muted)">(optional)</span></label>
+      <input type="text" id="kf-deny" placeholder="e.g. claude, bedrock/">
+    </div>
+    <div class="form-row">
+      <label>Max cost tier <span style="color:var(--text-muted)">(0 = no ceiling)</span></label>
+      <input type="number" id="kf-maxtier" value="0" min="0">
+    </div>
+    <div class="form-row">
+      <label>Rate limit <span style="color:var(--text-muted)">(0 = none)</span></label>
+      <div style="display:flex;gap:0.5rem">
+        <input type="number" id="kf-maxreq" value="0" min="0" placeholder="max requests" title="max requests">
+        <input type="number" id="kf-maxtokens" value="0" min="0" placeholder="max tokens" title="max tokens">
+        <input type="number" id="kf-window" value="0" min="0" placeholder="per N seconds" title="window seconds">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="createKey()" id="btn-create-key">
+        <span id="spin-create-key" style="display:none" class="spinner"></span>
+        Mint key
+      </button>
+    </div>
+    <div id="key-created" class="route-result" style="display:none;margin-top:0.75rem">
+      <div style="font-size:0.85rem;color:var(--text)">Save this key now — it will <strong>not</strong> be shown again:</div>
+      <code id="key-created-value" style="display:block;margin-top:0.5rem;word-break:break-all;user-select:all"></code>
+    </div>
+  </div>
+
+  <div id="keys-grid" class="providers-grid"></div>
+  <div id="keys-empty" class="empty-state" style="display:none">No keys yet. Mint one above.</div>
+</div>
+
 <!-- ── Settings ────────────────────────────────────────────────────── -->
 <div class="page" id="page-settings">
   <h1 class="page-title">Settings</h1>
@@ -922,6 +970,13 @@
 <script>
 const API = '/api';
 
+// Escape user-controlled strings before interpolating into innerHTML.
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // ── API key auth ──────────────────────────────────────────────────────────────
 // The router may require an API key (SMART_ROUTER_API_KEYS). Wrap fetch so every
 // same-origin /api and /v1 request carries the stored key, and prompt + retry once
@@ -969,6 +1024,7 @@ function showPage(name) {
   event.target.classList.add('active');
   if (name === 'models' && _allModels.length === 0) fetchModels();
   if (name === 'providers') fetchProviders();
+  if (name === 'keys') fetchKeys();
   if (name === 'settings') doCheckUpdates();
 }
 
@@ -1254,6 +1310,120 @@ async function deleteProvider(name) {
   if (!confirm(`Delete provider "${name}"?`)) return;
   await fetch(`${API}/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
   fetchProviders();
+}
+
+// ── API keys ──────────────────────────────────────────────────────────────────
+async function fetchKeys() {
+  const grid = document.getElementById('keys-grid');
+  const empty = document.getElementById('keys-empty');
+  try {
+    const r = await fetch(`${API}/keys`);
+    if (r.status === 403) {
+      grid.innerHTML = '';
+      empty.style.display = '';
+      empty.textContent = 'Managing keys requires an admin key (SMART_ROUTER_API_KEYS). Enter it at the key prompt (reload if needed).';
+      return;
+    }
+    const keys = await r.json();
+    renderKeys(Array.isArray(keys) ? keys : []);
+  } catch (e) { console.error(e); }
+}
+
+function renderKeys(keys) {
+  const grid = document.getElementById('keys-grid');
+  const empty = document.getElementById('keys-empty');
+  if (!keys.length) {
+    grid.innerHTML = '';
+    empty.style.display = '';
+    empty.textContent = 'No keys yet. Mint one above.';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = keys.map(k => {
+    const limits = [];
+    if (k.scope_models) limits.push(`scope: ${escapeHtml(k.scope_models)}`);
+    if (k.max_tier) limits.push(`max tier ${k.max_tier}`);
+    if (k.rl_window_s && (k.rl_max_req || k.rl_max_tokens)) {
+      const cap = [];
+      if (k.rl_max_req) cap.push(`${k.rl_max_req} req`);
+      if (k.rl_max_tokens) cap.push(`${k.rl_max_tokens} tok`);
+      limits.push(`${cap.join(' / ')} per ${k.rl_window_s}s`);
+    }
+    const detail = limits.length ? limits.join(' · ') : 'unrestricted';
+    const last = k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'never';
+    return `<div class="provider-card">
+      <div class="provider-card-header">
+        <span class="provider-name">${escapeHtml(k.user)}</span>
+        <span class="provider-kind">${escapeHtml(k.key_prefix)}</span>
+      </div>
+      <div class="provider-card-detail">${detail}<br><span style="color:var(--text-muted)">last used: ${last}</span></div>
+      <div class="provider-card-actions">
+        <label class="toggle">
+          <input type="checkbox" ${k.enabled ? 'checked' : ''} onchange="toggleKey('${k.key_prefix}', this.checked)">
+          <span class="toggle-track"></span>
+        </label>
+        <button class="btn btn-danger btn-sm" onclick="deleteKey('${k.key_prefix}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _csv(id) {
+  return document.getElementById(id).value.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function createKey() {
+  const user = document.getElementById('kf-user').value.trim();
+  if (!user) { alert('User is required.'); return; }
+  const allow = _csv('kf-allow');
+  const deny = _csv('kf-deny');
+  let scope_models = '';
+  if (allow.length || deny.length) {
+    const obj = {};
+    if (allow.length) obj.allow = allow;
+    if (deny.length) obj.deny = deny;
+    scope_models = JSON.stringify(obj);
+  }
+  const body = {
+    user,
+    scope_models,
+    max_tier: parseInt(document.getElementById('kf-maxtier').value) || 0,
+    rl_window_s: parseInt(document.getElementById('kf-window').value) || 0,
+    rl_max_req: parseInt(document.getElementById('kf-maxreq').value) || 0,
+    rl_max_tokens: parseInt(document.getElementById('kf-maxtokens').value) || 0,
+  };
+  const spin = document.getElementById('spin-create-key');
+  spin.style.display = 'inline-block';
+  try {
+    const r = await fetch(`${API}/keys`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert(`Could not mint key: ${err.detail || r.status}`);
+      return;
+    }
+    const created = await r.json();
+    const box = document.getElementById('key-created');
+    document.getElementById('key-created-value').textContent = created.key;
+    box.style.display = '';
+    document.getElementById('kf-user').value = '';
+    fetchKeys();
+  } finally { spin.style.display = 'none'; }
+}
+
+async function toggleKey(prefix, enabled) {
+  await fetch(`${API}/keys/${encodeURIComponent(prefix)}/enabled`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled })
+  });
+  fetchKeys();
+}
+
+async function deleteKey(prefix) {
+  if (!confirm(`Delete key "${prefix}"? This cannot be undone.`)) return;
+  await fetch(`${API}/keys/${encodeURIComponent(prefix)}`, { method: 'DELETE' });
+  fetchKeys();
 }
 
 // ── Updates ─────────────────────────────────────────────────────────────────

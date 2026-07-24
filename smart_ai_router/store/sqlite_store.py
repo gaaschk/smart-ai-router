@@ -2,9 +2,15 @@
 from __future__ import annotations
 import sqlite3
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
-from smart_ai_router.models import ModelSpec, ProviderConfig
+from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
 from smart_ai_router.store.base import MatrixStore
+
+
+def _utcnow_iso() -> str:
+    """UTC timestamp in ISO-8601, used for key/usage bookkeeping."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class SqliteStore(MatrixStore):
@@ -44,6 +50,40 @@ class SqliteStore(MatrixStore):
                     timeout  INTEGER DEFAULT 15
                 )
             """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key_hash      TEXT UNIQUE NOT NULL,
+                    user          TEXT NOT NULL,
+                    key_prefix    TEXT DEFAULT '',
+                    enabled       INTEGER DEFAULT 1,
+                    scope_models  TEXT DEFAULT '',
+                    max_tier      INTEGER DEFAULT 0,
+                    rl_window_s   INTEGER DEFAULT 0,
+                    rl_max_req    INTEGER DEFAULT 0,
+                    rl_max_tokens INTEGER DEFAULT 0,
+                    created_at    TEXT DEFAULT '',
+                    last_used_at  TEXT DEFAULT ''
+                )
+            """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS usage_log (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts                TEXT DEFAULT '',
+                    user              TEXT DEFAULT '',
+                    key_prefix        TEXT DEFAULT '',
+                    routed_model      TEXT DEFAULT '',
+                    domain            TEXT DEFAULT '',
+                    complexity        TEXT DEFAULT '',
+                    prompt_tokens     INTEGER DEFAULT 0,
+                    completion_tokens INTEGER DEFAULT 0,
+                    cost_usd          REAL DEFAULT 0.0,
+                    status            INTEGER DEFAULT 200
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_usage_user_ts ON usage_log (user, ts)"
+            )
             # Additive migration: vision column added after initial release
             try:
                 self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
@@ -141,6 +181,128 @@ class SqliteStore(MatrixStore):
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    # ── API keys ────────────────────────────────────────────────────────────
+
+    def all_api_keys(self) -> list[ApiKey]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM api_keys ORDER BY id"
+            ).fetchall()
+        return [self._row_to_api_key(r) for r in rows]
+
+    def create_api_key(self, key: ApiKey) -> ApiKey:
+        created = key.created_at or _utcnow_iso()
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO api_keys (
+                    key_hash, user, key_prefix, enabled, scope_models, max_tier,
+                    rl_window_s, rl_max_req, rl_max_tokens, created_at, last_used_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    key.key_hash, key.user, key.key_prefix,
+                    1 if key.enabled else 0,
+                    key.scope_models, key.max_tier,
+                    key.rl_window_s, key.rl_max_req, key.rl_max_tokens,
+                    created, key.last_used_at,
+                ),
+            )
+            self._conn.commit()
+            key.id = cur.lastrowid
+        key.created_at = created
+        return key
+
+    def get_api_key_by_hash(self, key_hash: str) -> ApiKey | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM api_keys WHERE key_hash=?", (key_hash,)
+            ).fetchone()
+        return self._row_to_api_key(row) if row else None
+
+    def touch_api_key(self, key_hash: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE api_keys SET last_used_at=? WHERE key_hash=?",
+                (_utcnow_iso(), key_hash),
+            )
+            self._conn.commit()
+
+    def set_api_key_enabled(self, key_prefix: str, enabled: bool) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE api_keys SET enabled=? WHERE key_prefix=?",
+                (1 if enabled else 0, key_prefix),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def delete_api_key(self, key_prefix: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM api_keys WHERE key_prefix=?", (key_prefix,)
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    # ── Usage log ────────────────────────────────────────────────────────────
+
+    def record_usage(self, usage: UsageRecord) -> None:
+        ts = usage.ts or _utcnow_iso()
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO usage_log (
+                    ts, user, key_prefix, routed_model, domain, complexity,
+                    prompt_tokens, completion_tokens, cost_usd, status
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    ts, usage.user, usage.key_prefix, usage.routed_model,
+                    usage.domain, usage.complexity,
+                    usage.prompt_tokens, usage.completion_tokens,
+                    usage.cost_usd, usage.status,
+                ),
+            )
+            self._conn.commit()
+
+    def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM usage_log WHERE user=? AND ts>=? ORDER BY ts",
+                (user, since_ts),
+            ).fetchall()
+        return [self._row_to_usage(r) for r in rows]
+
+    @staticmethod
+    def _row_to_api_key(row: sqlite3.Row) -> ApiKey:
+        return ApiKey(
+            id=row["id"],
+            key_hash=row["key_hash"],
+            user=row["user"],
+            key_prefix=row["key_prefix"] or "",
+            enabled=bool(row["enabled"]),
+            scope_models=row["scope_models"] or "",
+            max_tier=row["max_tier"] or 0,
+            rl_window_s=row["rl_window_s"] or 0,
+            rl_max_req=row["rl_max_req"] or 0,
+            rl_max_tokens=row["rl_max_tokens"] or 0,
+            created_at=row["created_at"] or "",
+            last_used_at=row["last_used_at"] or "",
+        )
+
+    @staticmethod
+    def _row_to_usage(row: sqlite3.Row) -> UsageRecord:
+        return UsageRecord(
+            id=row["id"],
+            ts=row["ts"] or "",
+            user=row["user"] or "",
+            key_prefix=row["key_prefix"] or "",
+            routed_model=row["routed_model"] or "",
+            domain=row["domain"] or "",
+            complexity=row["complexity"] or "",
+            prompt_tokens=row["prompt_tokens"] or 0,
+            completion_tokens=row["completion_tokens"] or 0,
+            cost_usd=row["cost_usd"] or 0.0,
+            status=row["status"] or 200,
+        )
 
     @staticmethod
     def _row_to_provider(row: sqlite3.Row) -> ProviderConfig:
