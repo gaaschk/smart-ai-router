@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import base64
 
+from smart_ai_router import ocr as _ocr
+
 _FILE_ID_PREFIX = "file-"
 _IMAGE_MIME_PREFIX = "image/"
 
@@ -53,16 +55,41 @@ def _referenced_file_id(part: dict) -> str | None:
     return None
 
 
-def _expand(cr, rec) -> dict:
-    """Turn a resolved FileRecord into an inline content part."""
+def _image_part(mime: str, data: bytes) -> dict:
+    b64 = base64.b64encode(data).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+
+
+def _expand(cr, rec) -> list[dict]:
+    """Turn a resolved FileRecord into one or more inline content parts.
+
+    - image → a single image_url part (base64 data URI)
+    - scanned PDF (no text layer) → a text preamble + one image_url part per
+      rendered page, so a vision model can read it (OCR-by-vision)
+    - anything else → a single text part with the extracted text
+    """
     if rec.mime.startswith(_IMAGE_MIME_PREFIX):
-        data = cr.read_file_bytes(rec.id)
-        b64 = base64.b64encode(data).decode("ascii")
-        return {"type": "image_url", "image_url": {"url": f"data:{rec.mime};base64,{b64}"}}
+        return [_image_part(rec.mime, cr.read_file_bytes(rec.id))]
 
     label = rec.filename or rec.id
+
+    # Scanned/image-only PDF: no text was extracted at upload. Rasterize its
+    # pages to images so a vision model can read it. Falls back to the text
+    # path (a clear "couldn't read" note) if pymupdf is unavailable or the
+    # render yields nothing.
+    if _ocr.is_scanned_pdf(rec.mime, rec.extracted_text):
+        pages = _ocr.rasterize_pdf(cr.read_file_bytes(rec.id))
+        if pages:
+            total = _ocr.page_count(cr.read_file_bytes(rec.id))
+            shown = len(pages)
+            preamble = f"[File: {label} — scanned PDF, rendered {shown} page(s) as images"
+            preamble += f" of {total}]" if total and total > shown else "]"
+            parts: list[dict] = [{"type": "text", "text": preamble}]
+            parts.extend(_image_part("image/png", p) for p in pages)
+            return parts
+
     text = rec.extracted_text or f"[Attached file {label} could not be read as text.]"
-    return {"type": "text", "text": f"[File: {label}]\n{text}"}
+    return [{"type": "text", "text": f"[File: {label}]\n{text}"}]
 
 
 def _fetch_owned(cr, file_id: str, *, user: str, is_admin: bool):
@@ -105,7 +132,7 @@ def resolve_file_refs(
                 new_parts.append(part)
                 continue
             rec = _fetch_owned(cr, file_id, user=user, is_admin=is_admin)
-            new_parts.append(_expand(cr, rec))
+            new_parts.extend(_expand(cr, rec))
         resolved.append({**msg, "content": new_parts})
     return resolved
 
