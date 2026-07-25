@@ -140,6 +140,12 @@ class SqliteStore(MatrixStore):
             ).fetchone()
         return self._row_to_spec(row) if row else None
 
+    def delete_model(self, value: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM models WHERE value=?", (value,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
     # ── Provider config ───────────────────────────────────────────────────────
 
     def all_providers(self) -> list[ProviderConfig]:

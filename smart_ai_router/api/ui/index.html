@@ -1213,8 +1213,15 @@ async function doSync() {
   try {
     const r = await fetch(`${API}/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const d = await r.json();
-    document.getElementById('sync-status').textContent =
-      `Synced ${d.total} models (${d.added} new, ${d.updated} updated)${d.errors.length ? ' — ' + d.errors.length + ' error(s)' : ''}`;
+    const parts = [];
+    if (d.added) parts.push(`${d.added} new`);
+    if (d.updated) parts.push(`${d.updated} updated`);
+    if (d.removed) parts.push(`${d.removed} removed`);
+    const changed = (d.added || 0) + (d.updated || 0) + (d.removed || 0);
+    const errs = d.errors.length ? ' — ' + d.errors.length + ' error(s)' : '';
+    document.getElementById('sync-status').textContent = changed
+      ? `Synced — ${parts.join(', ')} (${d.unchanged} unchanged)${errs}`
+      : `Synced — no changes (${d.unchanged} up to date)${errs}`;
     fetchModels();
   } catch(e) {
     document.getElementById('sync-status').textContent = `Error: ${e.message}`;

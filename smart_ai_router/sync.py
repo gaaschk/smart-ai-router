@@ -20,11 +20,53 @@ from smart_ai_router.store.base import MatrixStore
 class SyncResult:
     added: int = 0
     updated: int = 0
+    unchanged: int = 0
+    removed: int = 0
     errors: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
+        """Models that actually changed this sync (new + genuinely updated)."""
         return self.added + self.updated
+
+
+def _apply_spec(
+    store: MatrixStore,
+    spec: ModelSpec,
+    existing: dict[str, ModelSpec],
+    result: SyncResult,
+) -> None:
+    """Upsert one model, counting it as added / updated / unchanged.
+
+    Skips the write entirely when the stored spec already matches, so an
+    unchanged catalog reports zero updates instead of re-touching every row.
+    """
+    prior = existing.get(spec.value)
+    if prior is None:
+        store.upsert_model(spec)
+        result.added += 1
+    elif prior != spec:
+        store.upsert_model(spec)
+        result.updated += 1
+    else:
+        result.unchanged += 1
+
+
+def _prune_missing(
+    store: MatrixStore,
+    provider: str,
+    seen: set[str],
+    existing: dict[str, ModelSpec],
+    result: SyncResult,
+) -> None:
+    """Delete stored models of `provider` that were absent from the fresh
+    catalog. Only call after a *successful* fetch — a failed fetch must never
+    reach here, or a transient outage would wipe the catalog.
+    """
+    for value, spec in existing.items():
+        if spec.provider == provider and value not in seen:
+            if store.delete_model(value):
+                result.removed += 1
 
 
 # ── Cost tier ─────────────────────────────────────────────────────────────────
@@ -114,7 +156,8 @@ _BEDROCK_CLAUDE_MODELS = [
 
 
 def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
-    existing = {s.value for s in store.all_models()}
+    existing = {s.value: s for s in store.all_models()}
+    seen: set[str] = set()
     for mid, ctx_k, cost_input, cost_output, comp in _BEDROCK_CLAUDE_MODELS:
         value = f"bedrock/{mid}"
         spec = ModelSpec(
@@ -129,11 +172,9 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
             cost_output=cost_output,
             competence=comp,
         )
-        store.upsert_model(spec)
-        if value in existing:
-            result.updated += 1
-        else:
-            result.added += 1
+        seen.add(value)
+        _apply_spec(store, spec, existing, result)
+    _prune_missing(store, "bedrock", seen, existing, result)
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
@@ -155,7 +196,8 @@ def _sync_ollama(
         result.errors.append(f"Ollama: {e}")
         return
 
-    existing = {s.value for s in store.all_models()}
+    existing = {s.value: s for s in store.all_models()}
+    seen: set[str] = set()
     for m in tags.get("models", []):
         name = m.get("name", "")
         if not name:
@@ -174,11 +216,9 @@ def _sync_ollama(
             cost_output=0.0,
             competence=infer_competence(value),
         )
-        store.upsert_model(spec)
-        if value in existing:
-            result.updated += 1
-        else:
-            result.added += 1
+        seen.add(value)
+        _apply_spec(store, spec, existing, result)
+    _prune_missing(store, "ollama", seen, existing, result)
 
 
 # ── OpenRouter ────────────────────────────────────────────────────────────────
@@ -203,7 +243,8 @@ def _sync_openrouter(
         result.errors.append(f"OpenRouter: {e}")
         return
 
-    existing = {s.value for s in store.all_models()}
+    existing = {s.value: s for s in store.all_models()}
+    seen: set[str] = set()
     for m in catalog.get("data", []):
         mid = m.get("id", "")
         if not mid or mid.startswith("openrouter/") or "/" not in mid:
@@ -250,8 +291,6 @@ def _sync_openrouter(
             cost_output=cost_output,
             competence=infer_competence(value),
         )
-        store.upsert_model(spec)
-        if value in existing:
-            result.updated += 1
-        else:
-            result.added += 1
+        seen.add(value)
+        _apply_spec(store, spec, existing, result)
+    _prune_missing(store, "openrouter", seen, existing, result)
