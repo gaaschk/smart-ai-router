@@ -336,6 +336,10 @@
   .chat-composer textarea:focus { outline: none; border-color: var(--accent); }
   .chat-composer-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
   .chat-cap-note { font-size: 0.72rem; color: var(--warning); }
+  .chat-agent-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; user-select: none; }
+  .chat-agent-toggle input { cursor: pointer; accent-color: var(--accent); }
+  .chat-agent-toggle.disabled { opacity: 0.4; cursor: not-allowed; }
+  .chat-agent-toggle.disabled input { cursor: not-allowed; }
 
   .btn {
     display: inline-flex;
@@ -855,6 +859,9 @@
       <div class="chat-composer-actions">
         <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
         <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
+        <label class="chat-agent-toggle" id="chat-agent-label" title="Let the assistant read, write, and run commands in your private workspace on the server">
+          <input type="checkbox" id="chat-agent"> 🛠 Agent
+        </label>
         <span class="chat-cap-note" id="chat-cap-note"></span>
         <button class="btn btn-primary btn-sm" id="btn-chat-send" onclick="sendChat()" style="margin-left:auto">
           <span id="spin-chat-send" style="display:none" class="spinner"></span>
@@ -1671,6 +1678,22 @@ async function refreshChatCaps() {
   const note = document.getElementById('chat-cap-note');
   const canVision = _chatCaps && _chatCaps.vision;
   note.textContent = canVision ? '' : 'No vision model available — images can’t be processed.';
+
+  // Agent mode needs a tool-capable model; gate the toggle on it (same
+  // capability-negotiation pattern as vision).
+  const canTools = _chatCaps && _chatCaps.tools;
+  const agentLabel = document.getElementById('chat-agent-label');
+  const agentBox = document.getElementById('chat-agent');
+  if (canTools) {
+    agentLabel.classList.remove('disabled');
+    agentBox.disabled = false;
+    agentLabel.title = 'Let the assistant read, write, and run commands in your private workspace on the server';
+  } else {
+    agentLabel.classList.add('disabled');
+    agentBox.disabled = true;
+    agentBox.checked = false;
+    agentLabel.title = 'No tool-capable model available — agent mode is unavailable for your key.';
+  }
 }
 
 function onChatFilesPicked(ev) {
@@ -1784,7 +1807,7 @@ async function sendChat() {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages }),
+      body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: document.getElementById('chat-agent').checked }),
     });
     if (!res.ok) {
       let detail; try { detail = (await res.json()).detail; } catch(_) { detail = await res.text(); }
