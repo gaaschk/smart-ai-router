@@ -119,6 +119,34 @@ class ApiKeyEnabledRequest(BaseModel):
     enabled: bool
 
 
+# ── Files (uploads) ────────────────────────────────────────────────────────────
+
+class FileResponse(BaseModel):
+    """OpenAI-compatible file object.
+
+    Mirrors the shape returned by OpenAI's Files API so OpenAI-compatible
+    clients (and claudish downstream) can consume it unchanged. `created_at`
+    is a Unix timestamp (seconds), per the OpenAI convention.
+    """
+    id: str
+    object: str = "file"
+    bytes: int = 0
+    created_at: int = 0
+    filename: str = ""
+    purpose: str = "assistants"
+
+
+class FileListResponse(BaseModel):
+    object: str = "list"
+    data: list[FileResponse] = Field(default_factory=list)
+
+
+class FileDeletedResponse(BaseModel):
+    id: str
+    object: str = "file"
+    deleted: bool = True
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 class UpdateStatusResponse(BaseModel):

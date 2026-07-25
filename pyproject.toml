@@ -11,6 +11,8 @@ dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]

@@ -51,6 +51,26 @@ class ApiKey:
 
 
 @dataclass
+class FileRecord:
+    """An uploaded file. Bytes live on disk (path); this row is only metadata.
+
+    Follows the OpenAI Files API shape (id like "file-...", purpose, bytes,
+    filename) so OpenAI-compatible clients work unchanged. `extracted_text` holds
+    server-side-extracted text for documents (PDF/text/code); empty for images,
+    which are inlined as base64 at request time instead.
+    """
+    id: str                          # "file-<token>" — OpenAI-style identifier
+    user: str = ""                   # owner identity (per-user scoping)
+    filename: str = ""               # original client filename
+    purpose: str = "assistants"      # OpenAI purpose label
+    mime: str = "application/octet-stream"
+    bytes: int = 0                   # size on disk
+    path: str = ""                   # absolute path to the stored blob
+    extracted_text: str = ""         # server-extracted text (documents only)
+    created_at: str = ""
+
+
+@dataclass
 class UsageRecord:
     """One proxied request, attributed to a user for logging/quota accounting."""
     user: str = ""

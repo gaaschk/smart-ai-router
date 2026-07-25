@@ -10,3 +10,6 @@ logs/
 .idea/
 .DS_Store
 .claude/settings.local.json
+
+# uv lockfile — deliberately excluded
+uv.lock
