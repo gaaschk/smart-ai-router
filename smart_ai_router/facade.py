@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from smart_ai_router.capabilities import Capabilities, compute_capabilities
-from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -145,6 +145,68 @@ class CapabilityRouter:
 
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         return self._store.recent_usage(user, since_ts)
+
+    # ── Files (uploads) ──────────────────────────────────────────────────────
+
+    def upload_file(
+        self,
+        data: bytes,
+        *,
+        filename: str = "",
+        mime: str = "application/octet-stream",
+        purpose: str = "assistants",
+        user: str = "",
+    ) -> FileRecord:
+        """Store an uploaded file: enforce size, write bytes to disk, extract
+        text (documents only), and persist metadata. Returns the FileRecord.
+
+        Raises ValueError if the payload exceeds the configured size limit.
+        """
+        from smart_ai_router import extract as _extract
+        from smart_ai_router import files as _files
+
+        limit = _files.max_file_bytes()
+        if len(data) > limit:
+            raise ValueError(
+                f"file exceeds maximum size of {limit} bytes ({len(data)} given)"
+            )
+
+        file_id = _files.generate_file_id()
+        path = _files.write_blob(file_id, data)
+        text = _extract.extract_text(data, mime, filename=filename)
+        rec = FileRecord(
+            id=file_id,
+            user=user,
+            filename=filename,
+            purpose=purpose,
+            mime=mime,
+            bytes=len(data),
+            path=str(path),
+            extracted_text=text,
+        )
+        return self._store.create_file(rec)
+
+    def get_file(self, file_id: str) -> FileRecord | None:
+        return self._store.get_file(file_id)
+
+    def list_files(self, user: str | None = None) -> list[FileRecord]:
+        return self._store.list_files(user)
+
+    def read_file_bytes(self, file_id: str) -> bytes:
+        """Return the raw stored bytes for a file (raises if id invalid/missing)."""
+        from smart_ai_router import files as _files
+
+        return _files.read_blob(file_id)
+
+    def delete_file(self, file_id: str) -> bool:
+        """Delete both the stored bytes and the metadata record."""
+        from smart_ai_router import files as _files
+
+        rec = self._store.get_file(file_id)
+        if rec is None:
+            return False
+        _files.delete_blob(file_id)
+        return self._store.delete_file(file_id)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 

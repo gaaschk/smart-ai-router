@@ -1,7 +1,7 @@
 """MatrixStore — interface for persisting the capability matrix and provider config."""
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
 
 
 class MatrixStore(ABC):
@@ -62,3 +62,20 @@ class MatrixStore(ABC):
     @abstractmethod
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         """Usage rows for a user at/after an ISO timestamp (for quota checks)."""
+
+    # ── Files (uploads) ────────────────────────────────────────────────────────
+
+    @abstractmethod
+    def create_file(self, rec: FileRecord) -> FileRecord:
+        """Persist file metadata (bytes are written to disk separately)."""
+
+    @abstractmethod
+    def get_file(self, file_id: str) -> FileRecord | None: ...
+
+    @abstractmethod
+    def list_files(self, user: str | None = None) -> list[FileRecord]:
+        """All file metadata, optionally filtered to one owner."""
+
+    @abstractmethod
+    def delete_file(self, file_id: str) -> bool:
+        """Delete file metadata by id. Returns False if nothing matched."""

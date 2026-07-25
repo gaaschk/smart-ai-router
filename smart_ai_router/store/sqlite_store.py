@@ -4,7 +4,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
 from smart_ai_router.store.base import MatrixStore
 
 
@@ -83,6 +83,22 @@ class SqliteStore(MatrixStore):
             """)
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_usage_user_ts ON usage_log (user, ts)"
+            )
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS files (
+                    id             TEXT PRIMARY KEY,
+                    user           TEXT DEFAULT '',
+                    filename       TEXT DEFAULT '',
+                    purpose        TEXT DEFAULT 'assistants',
+                    mime           TEXT DEFAULT 'application/octet-stream',
+                    bytes          INTEGER DEFAULT 0,
+                    path           TEXT DEFAULT '',
+                    extracted_text TEXT DEFAULT '',
+                    created_at     TEXT DEFAULT ''
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_files_user ON files (user)"
             )
             # Additive migration: vision column added after initial release
             try:
@@ -276,6 +292,61 @@ class SqliteStore(MatrixStore):
                 (user, since_ts),
             ).fetchall()
         return [self._row_to_usage(r) for r in rows]
+
+    # ── Files ──────────────────────────────────────────────────────────────────
+
+    def create_file(self, rec: FileRecord) -> FileRecord:
+        if not rec.created_at:
+            rec.created_at = _utcnow_iso()
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO files
+                   (id, user, filename, purpose, mime, bytes, path, extracted_text, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (rec.id, rec.user, rec.filename, rec.purpose, rec.mime, rec.bytes,
+                 rec.path, rec.extracted_text, rec.created_at),
+            )
+            self._conn.commit()
+        return rec
+
+    def get_file(self, file_id: str) -> FileRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM files WHERE id=?", (file_id,)
+            ).fetchone()
+        return self._row_to_file(row) if row else None
+
+    def list_files(self, user: str | None = None) -> list[FileRecord]:
+        with self._lock:
+            if user is None:
+                rows = self._conn.execute(
+                    "SELECT * FROM files ORDER BY created_at"
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM files WHERE user=? ORDER BY created_at", (user,)
+                ).fetchall()
+        return [self._row_to_file(r) for r in rows]
+
+    def delete_file(self, file_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM files WHERE id=?", (file_id,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_file(row: sqlite3.Row) -> FileRecord:
+        return FileRecord(
+            id=row["id"],
+            user=row["user"] or "",
+            filename=row["filename"] or "",
+            purpose=row["purpose"] or "assistants",
+            mime=row["mime"] or "application/octet-stream",
+            bytes=row["bytes"] or 0,
+            path=row["path"] or "",
+            extracted_text=row["extracted_text"] or "",
+            created_at=row["created_at"] or "",
+        )
 
     @staticmethod
     def _row_to_api_key(row: sqlite3.Row) -> ApiKey:
