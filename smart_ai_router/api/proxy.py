@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router.classifier import classify
+from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     classifier_fallback_model,
@@ -272,6 +273,20 @@ async def chat_completions(request: Request):
     requested_model = str(body.get("model", ""))
     is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
 
+    # Expand any uploaded-file references (file-… ids) into inline content the
+    # backend understands: images → base64 data: URIs, documents → their
+    # server-extracted text. Owner-scoped, so a key can only attach its own
+    # files. Done before classification/routing so document text informs the
+    # classifier and image parts drive the vision decision below.
+    user = getattr(request.state, "user", "") or ""
+    try:
+        messages = resolve_file_refs(
+            messages, cr, user=user, is_admin=(user == "admin")
+        )
+    except FileRefError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    body = {**body, "messages": messages}
+
     # 1. Classify — LLM classifier is primary; the deterministic keyword
     # classifier is the fallback whenever the LLM path is disabled or fails
     # (network error, timeout, malformed output). Classification never blocks
@@ -288,18 +303,28 @@ async def chat_completions(request: Request):
             domain, complexity = classify(prompt_text)
             classifier_used = "keyword"
 
-    # Detect image content in any message
-    needs_vision = any(
-        isinstance(m.get("content"), list) and
-        any(isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"])
-        for m in messages
-    )
+    # Detect image content in any message (after file-ref resolution, so an
+    # image attached by file id counts too).
+    needs_vision = contains_image(messages)
 
     # Enforce per-user quota before doing any routing/forwarding work.
     _enforce_rate_limit(cr, request)
 
     # Per-user model scope (None for admin/open requests).
     scope = _request_scope(request)
+
+    # Capability guard: if the request needs vision but no reachable model
+    # (within this key's scope) accepts images, fail clearly rather than
+    # silently dropping the image and returning a confused answer. This is the
+    # locked no-vision-model behavior — better than claudish's silent strip.
+    if needs_vision and not cr.capabilities(scope=scope).vision:
+        raise HTTPException(
+            status_code=422,
+            detail="This request includes an image, but no image-capable "
+                   "(vision) model is available for your key. Register a "
+                   "vision-capable model (via ollama or openrouter) or remove "
+                   "the image.",
+        )
 
     # 2. Route
     if is_orchestrator:
