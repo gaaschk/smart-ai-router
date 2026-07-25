@@ -261,6 +261,82 @@
   .route-result .route-meta span { display: flex; align-items: center; gap: 0.3rem; }
 
   /* ── Buttons ─────────────────────────────────────────────────────── */
+  /* ── Chat ────────────────────────────────────────────────────────── */
+  .chat-shell {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 56px - 8rem);
+    min-height: 400px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .chat-transcript {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .chat-empty {
+    margin: auto;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .chat-msg { display: flex; flex-direction: column; gap: 0.3rem; max-width: 80%; }
+  .chat-msg.user { align-self: flex-end; align-items: flex-end; }
+  .chat-msg.assistant { align-self: flex-start; align-items: flex-start; }
+
+  .chat-bubble {
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-msg.user .chat-bubble { background: var(--accent-soft); border: 1px solid var(--accent); color: var(--text); }
+  .chat-msg.assistant .chat-bubble { background: var(--surface-raised); border: 1px solid var(--border); color: var(--text); }
+  .chat-msg.error .chat-bubble { background: var(--error-soft); border: 1px solid var(--error); color: var(--text); }
+
+  .chat-meta { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+  .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+
+  .chat-attachments { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0 1rem; }
+  .chat-attachments:not(:empty) { padding: 0.6rem 1rem 0; }
+  .chat-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 0.3rem 0.5rem;
+    font-size: 0.75rem; color: var(--text-secondary);
+  }
+  .chat-chip .chat-chip-x { cursor: pointer; color: var(--text-muted); font-weight: 700; }
+  .chat-chip .chat-chip-x:hover { color: var(--error); }
+  .chat-chip.pending { opacity: 0.55; }
+
+  .chat-composer { border-top: 1px solid var(--border); padding: 0.75rem 1rem; }
+  .chat-composer textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.875rem;
+    padding: 0.6rem 0.7rem;
+    resize: none;
+    max-height: 180px;
+  }
+  .chat-composer textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-composer-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+  .chat-cap-note { font-size: 0.72rem; color: var(--warning); }
+
   .btn {
     display: inline-flex;
     align-items: center;
@@ -682,6 +758,7 @@
   </div>
   <nav>
     <button class="active" onclick="showPage('dashboard')">Dashboard</button>
+    <button onclick="showPage('chat')">Chat</button>
     <button onclick="showPage('models')">Models</button>
     <button onclick="showPage('providers')">Providers</button>
     <button onclick="showPage('keys')">Keys</button>
@@ -758,6 +835,33 @@
       Sync Models
     </button>
     <span style="font-size:0.75rem;color:var(--text-muted)" id="sync-status"></span>
+  </div>
+</div>
+
+<!-- ── Chat ────────────────────────────────────────────────────────── -->
+<div class="page" id="page-chat">
+  <h1 class="page-title">Chat</h1>
+  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — documents are read as text; images need a vision-capable model.</p>
+
+  <div class="chat-shell">
+    <div class="chat-transcript" id="chat-transcript">
+      <div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>
+    </div>
+
+    <div class="chat-attachments" id="chat-attachments"></div>
+
+    <div class="chat-composer">
+      <textarea id="chat-input" rows="1" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)"></textarea>
+      <div class="chat-composer-actions">
+        <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
+        <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
+        <span class="chat-cap-note" id="chat-cap-note"></span>
+        <button class="btn btn-primary btn-sm" id="btn-chat-send" onclick="sendChat()" style="margin-left:auto">
+          <span id="spin-chat-send" style="display:none" class="spinner"></span>
+          Send
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1032,6 +1136,7 @@ function showPage(name) {
   document.querySelectorAll('.topbar nav button').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   if (name === 'models' && _allModels.length === 0) fetchModels();
+  if (name === 'chat') initChat();
   if (name === 'providers') fetchProviders();
   if (name === 'keys') fetchKeys();
   if (name === 'settings') doCheckUpdates();
@@ -1532,6 +1637,200 @@ async function doApiRoute() {
   } catch(e) {
     document.getElementById('api-route-result').textContent = e.message;
   } finally { btn.disabled = false; spin.style.display = 'none'; }
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+// A real chat UI over POST /v1/chat/completions (streaming), with file uploads
+// via POST /v1/files. Capabilities (/api/capabilities) gate the attach button:
+// when no vision model is reachable, images can't be attached and we say so.
+let _chatMessages = [];        // OpenAI-shaped message history sent upstream
+let _chatAttachments = [];     // {id, filename, mime, isImage} uploaded this turn
+let _chatCaps = null;
+let _chatInited = false;
+
+async function initChat() {
+  const input = document.getElementById('chat-input');
+  input.focus();
+  autoGrow(input);
+  if (_chatInited) return;
+  _chatInited = true;
+  input.addEventListener('input', () => autoGrow(input));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+  await refreshChatCaps();
+}
+
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px'; }
+
+async function refreshChatCaps() {
+  try {
+    const r = await fetch(`${API}/capabilities`);
+    _chatCaps = await r.json();
+  } catch(_) { _chatCaps = null; }
+  const note = document.getElementById('chat-cap-note');
+  const canVision = _chatCaps && _chatCaps.vision;
+  note.textContent = canVision ? '' : 'No vision model available — images can’t be processed.';
+}
+
+function onChatFilesPicked(ev) {
+  const files = Array.from(ev.target.files || []);
+  ev.target.value = '';  // allow re-picking the same file
+  files.forEach(uploadChatFile);
+}
+
+async function uploadChatFile(file) {
+  const isImage = (file.type || '').startsWith('image/');
+  if (isImage && !(_chatCaps && _chatCaps.vision)) {
+    alert('This deployment has no vision-capable model, so images can’t be attached. Register a vision model or attach a document instead.');
+    return;
+  }
+  // Optimistic pending chip while the upload is in flight.
+  const tempId = 'pending-' + Math.random().toString(36).slice(2);
+  _chatAttachments.push({ id: tempId, filename: file.name, mime: file.type, isImage, pending: true });
+  renderAttachments();
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('purpose', 'assistants');
+    const r = await fetch('/v1/files', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || `Upload failed (${r.status})`);
+    const rec = await r.json();
+    const att = _chatAttachments.find(a => a.id === tempId);
+    if (att) { att.id = rec.id; att.pending = false; att.bytes = rec.bytes; }
+  } catch(e) {
+    _chatAttachments = _chatAttachments.filter(a => a.id !== tempId);
+    alert(e.message);
+  }
+  renderAttachments();
+}
+
+function removeChatAttachment(id) {
+  _chatAttachments = _chatAttachments.filter(a => a.id !== id);
+  renderAttachments();
+}
+
+function renderAttachments() {
+  const el = document.getElementById('chat-attachments');
+  el.innerHTML = _chatAttachments.map(a =>
+    `<span class="chat-chip ${a.pending ? 'pending' : ''}">${a.isImage ? '🖼' : '📄'} ${escapeHtml(a.filename)}` +
+    (a.pending ? ' …' : ` <span class="chat-chip-x" onclick="removeChatAttachment('${a.id}')">×</span>`) +
+    `</span>`
+  ).join('');
+}
+
+function chatUserContent(text) {
+  // No attachments → a plain string content (simplest OpenAI shape).
+  if (_chatAttachments.length === 0) return text;
+  // With attachments → a content-parts array. Images become image_url file
+  // references; other files become file references. The proxy resolves both.
+  const parts = [];
+  if (text) parts.push({ type: 'text', text });
+  for (const a of _chatAttachments) {
+    if (a.pending) continue;
+    if (a.isImage) parts.push({ type: 'image_url', image_url: { url: a.id } });
+    else parts.push({ type: 'file', file: { file_id: a.id } });
+  }
+  return parts;
+}
+
+function renderChatMsg(role, text, opts = {}) {
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  const t = document.getElementById('chat-transcript');
+  const wrap = document.createElement('div');
+  wrap.className = `chat-msg ${role}${opts.error ? ' error' : ''}`;
+  let inner = '';
+  if (opts.images && opts.images.length) {
+    inner += `<div class="chat-msg-images">` +
+      opts.images.map(n => `<span class="chat-chip">🖼 ${escapeHtml(n)}</span>`).join('') + `</div>`;
+  }
+  if (opts.files && opts.files.length) {
+    inner += `<div class="chat-msg-images">` +
+      opts.files.map(n => `<span class="chat-chip">📄 ${escapeHtml(n)}</span>`).join('') + `</div>`;
+  }
+  inner += `<div class="chat-bubble">${escapeHtml(text)}</div>`;
+  if (opts.meta) inner += `<div class="chat-meta">${escapeHtml(opts.meta)}</div>`;
+  wrap.innerHTML = inner;
+  t.appendChild(wrap);
+  t.scrollTop = t.scrollHeight;
+  return wrap;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text && _chatAttachments.filter(a => !a.pending).length === 0) return;
+  if (_chatAttachments.some(a => a.pending)) { alert('Wait for uploads to finish.'); return; }
+
+  const btn = document.getElementById('btn-chat-send');
+  const spin = document.getElementById('spin-chat-send');
+  btn.disabled = true; spin.style.display = 'inline-block';
+
+  const imgNames = _chatAttachments.filter(a => a.isImage).map(a => a.filename);
+  const docNames = _chatAttachments.filter(a => !a.isImage).map(a => a.filename);
+  renderChatMsg('user', text, { images: imgNames, files: docNames });
+
+  // Append to history using the OpenAI content shape the proxy resolves.
+  _chatMessages.push({ role: 'user', content: chatUserContent(text) });
+  _chatAttachments = [];
+  renderAttachments();
+  input.value = ''; autoGrow(input);
+
+  const bubbleWrap = renderChatMsg('assistant', '');
+  const bubble = bubbleWrap.querySelector('.chat-bubble');
+
+  try {
+    const res = await fetch('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages }),
+    });
+    if (!res.ok) {
+      let detail; try { detail = (await res.json()).detail; } catch(_) { detail = await res.text(); }
+      bubbleWrap.classList.add('error');
+      bubble.textContent = detail || `Request failed (${res.status})`;
+      _chatMessages.pop();  // don't keep a failed turn in history
+      return;
+    }
+    const routed = res.headers.get('X-Routed-Model') || '';
+    const acc = await streamChatInto(res, bubble);
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', `<div class="chat-meta">${escapeHtml(routed)}</div>`);
+    _chatMessages.push({ role: 'assistant', content: acc });
+  } catch(e) {
+    bubbleWrap.classList.add('error');
+    bubble.textContent = e.message;
+    _chatMessages.pop();
+  } finally {
+    btn.disabled = false; spin.style.display = 'none';
+  }
+}
+
+// Parse the SSE stream, appending delta text into the bubble as it arrives.
+async function streamChatInto(res, bubble) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const t = document.getElementById('chat-transcript');
+  let buffer = '', acc = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();  // keep the last partial line
+    for (const line of lines) {
+      const s = line.trim();
+      if (!s || s.startsWith(':')) continue;      // keepalive comment
+      if (!s.startsWith('data:')) continue;
+      const payload = s.slice(5).trim();
+      if (payload === '[DONE]') continue;
+      let obj; try { obj = JSON.parse(payload); } catch(_) { continue; }
+      if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; continue; }
+      const delta = obj.choices && obj.choices[0] && obj.choices[0].delta;
+      if (delta && delta.content) { acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight; }
+    }
+  }
+  return acc;
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
