@@ -45,6 +45,14 @@ class SyncResponse(BaseModel):
     errors: list[str]
 
 
+class CapabilitiesResponse(BaseModel):
+    vision: bool
+    tools: bool
+    max_context_k: int
+    model_count: int
+    providers: list[str]
+
+
 class CostRequest(BaseModel):
     model: str
     prompt_tokens: int

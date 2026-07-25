@@ -7,12 +7,14 @@ from fastapi import APIRouter, HTTPException, Request
 
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
 from smart_ai_router.models import ApiKey, ProviderConfig
+from smart_ai_router.scope import parse_scope
 from smart_ai_router.api.schemas import (
     ApiKeyCreatedResponse,
     ApiKeyCreateRequest,
     ApiKeyEnabledRequest,
     ApiKeyResponse,
     ApplyUpdateResponse,
+    CapabilitiesResponse,
     CostRequest,
     CostResponse,
     ModelSpecResponse,
@@ -85,6 +87,28 @@ def get_model(model_id: str, request: Request):
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Model {model_id!r} not found")
     return _to_response(spec)
+
+
+@api_router.get("/capabilities", response_model=CapabilitiesResponse)
+def capabilities(request: Request):
+    """What this deployment can do right now, derived live from the reachable
+    model matrix. Narrowed to the caller's scope when a per-user key is used, so
+    a scoped client sees only the features its allowed models provide.
+    """
+    cr = _router_instance(request)
+    record = getattr(request.state, "api_key", None)
+    scope = None
+    if record is not None:
+        parsed = parse_scope(record.scope_models, record.max_tier)
+        scope = parsed if parsed.is_restricted else None
+    caps = cr.capabilities(scope=scope)
+    return CapabilitiesResponse(
+        vision=caps.vision,
+        tools=caps.tools,
+        max_context_k=caps.max_context_k,
+        model_count=caps.model_count,
+        providers=list(caps.providers),
+    )
 
 
 @api_router.post("/sync", response_model=SyncResponse)

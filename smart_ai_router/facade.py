@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from smart_ai_router.capabilities import Capabilities, compute_capabilities
 from smart_ai_router.models import ApiKey, ModelSpec, ProviderConfig, UsageRecord
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
@@ -51,6 +52,13 @@ class CapabilityRouter:
             scope=scope,
             thresholds=self._thresholds,
         )
+
+    # ── Capabilities ───────────────────────────────────────────────────────────
+
+    def capabilities(self, *, scope: ModelScope | None = None) -> Capabilities:
+        """What this deployment can do right now (vision/tools/context), derived
+        live from the reachable model matrix and optionally narrowed by scope."""
+        return compute_capabilities(self._store.all_models(), scope=scope)
 
     # ── Sync ─────────────────────────────────────────────────────────────────
 
