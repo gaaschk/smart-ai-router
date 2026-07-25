@@ -14,6 +14,10 @@ class MatrixStore(ABC):
     @abstractmethod
     def get(self, value: str) -> ModelSpec | None: ...
 
+    @abstractmethod
+    def delete_model(self, value: str) -> bool:
+        """Remove a model by value. Returns False if nothing matched."""
+
     # ── Provider config ───────────────────────────────────────────────────────
 
     @abstractmethod

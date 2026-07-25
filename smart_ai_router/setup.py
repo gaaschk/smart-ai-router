@@ -198,7 +198,10 @@ def run_setup() -> None:
         if result.errors:
             for e in result.errors:
                 print(_yellow(f"  Warning: {e}"))
-        print(_green(f"  Synced {result.total} models ({result.added} new, {result.updated} updated)."))
+        print(_green(
+            f"  Synced: {result.added} new, {result.updated} updated, "
+            f"{result.removed} removed ({result.unchanged} unchanged)."
+        ))
         print()
 
     # ── Launchd service ──────────────────────────────────────────────────────

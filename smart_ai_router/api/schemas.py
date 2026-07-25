@@ -39,6 +39,8 @@ class SyncRequest(BaseModel):
 class SyncResponse(BaseModel):
     added: int
     updated: int
+    unchanged: int
+    removed: int
     total: int
     errors: list[str]
 

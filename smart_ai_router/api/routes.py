@@ -98,6 +98,8 @@ def sync(body: SyncRequest, request: Request):
     return SyncResponse(
         added=result.added,
         updated=result.updated,
+        unchanged=result.unchanged,
+        removed=result.removed,
         total=result.total,
         errors=result.errors,
     )

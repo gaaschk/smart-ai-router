@@ -220,6 +220,8 @@ curl -X PUT http://localhost:8001/api/providers/openrouter \
   -d '{"name":"openrouter","kind":"openrouter","enabled":true,"api_key":"sk-or-..."}'
 
 # Trigger a model sync
+# Response counts models added / updated (only those that actually changed) /
+# unchanged / removed. Models absent from a provider's fresh catalog are deleted.
 curl -X POST http://localhost:8001/api/sync -H 'Content-Type: application/json' -d '{}'
 ```
 

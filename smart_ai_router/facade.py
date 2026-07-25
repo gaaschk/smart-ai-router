@@ -91,6 +91,8 @@ class CapabilityRouter:
             )
             result.added += partial.added
             result.updated += partial.updated
+            result.unchanged += partial.unchanged
+            result.removed += partial.removed
             result.errors.extend(partial.errors)
         return result
 
@@ -160,3 +162,6 @@ class CapabilityRouter:
 
     def upsert_model(self, spec: ModelSpec) -> None:
         self._store.upsert_model(spec)
+
+    def delete_model(self, value: str) -> bool:
+        return self._store.delete_model(value)
