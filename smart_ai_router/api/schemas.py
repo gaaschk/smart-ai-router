@@ -119,6 +119,18 @@ class ApiKeyEnabledRequest(BaseModel):
     enabled: bool
 
 
+class WhoAmIResponse(BaseModel):
+    """The identity behind the current request's key, for the UI to display.
+
+    Never includes the secret — only a display label and the safe key prefix.
+    """
+    authenticated: bool          # False in open (no-auth) mode
+    kind: str                    # "admin" | "user" | "open"
+    user: str = ""               # "admin", the per-user label, or "" in open mode
+    key_prefix: str = ""         # short non-secret prefix for a per-user key
+    is_admin: bool = False       # may manage keys (root/env key or first-run)
+
+
 # ── Files (uploads) ────────────────────────────────────────────────────────────
 
 class FileResponse(BaseModel):

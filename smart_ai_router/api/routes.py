@@ -25,6 +25,7 @@ from smart_ai_router.api.schemas import (
     SyncRequest,
     SyncResponse,
     UpdateStatusResponse,
+    WhoAmIResponse,
 )
 
 api_router = APIRouter()
@@ -108,6 +109,39 @@ def capabilities(request: Request):
         max_context_k=caps.max_context_k,
         model_count=caps.model_count,
         providers=list(caps.providers),
+    )
+
+
+@api_router.get("/whoami", response_model=WhoAmIResponse)
+def whoami(request: Request):
+    """Who the current key authenticates as, for the UI to display.
+
+    Reads the identity the auth middleware attached to the request:
+      - "admin"  → the env/root key (SMART_ROUTER_API_KEYS); may manage keys.
+      - a per-user label → a generated DB key; shows the label + key prefix.
+      - ""       → open (no-auth) mode, when no keys are configured at all.
+    Never exposes the secret — only a label and the non-secret prefix.
+    """
+    user = getattr(request.state, "user", "") or ""
+    key_prefix = getattr(request.state, "key_prefix", "") or ""
+
+    if user == "admin":
+        return WhoAmIResponse(
+            authenticated=True, kind="admin", user="admin", is_admin=True
+        )
+    if user:
+        return WhoAmIResponse(
+            authenticated=True, kind="user", user=user, key_prefix=key_prefix
+        )
+    # No identity: either open mode (no keys configured) or an unauthenticated
+    # request that slipped through an open path. Report first-run admin ability
+    # so the UI knows whether the Keys page is usable.
+    no_keys_configured = (
+        not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
+        and not _router_instance(request).all_api_keys()
+    )
+    return WhoAmIResponse(
+        authenticated=False, kind="open", is_admin=no_keys_configured
     )
 
 
