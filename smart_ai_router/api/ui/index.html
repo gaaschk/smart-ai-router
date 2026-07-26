@@ -1220,13 +1220,31 @@ async function initDashboard() {
 
 // ── Models ──────────────────────────────────────────────────────────────────
 async function fetchModels() {
+  const badge = document.getElementById('topbar-model-count');
   try {
     const r = await fetch(`${API}/models`);
-    _allModels = await r.json();
-    document.getElementById('topbar-model-count').textContent = `${_allModels.length} models`;
+    if (!r.ok) {
+      // Surface the real status instead of silently storing the error body as
+      // the model list (which rendered "undefined models" + blank stat cards).
+      let detail = ''; try { detail = (await r.json()).detail || (await r.json()).error || ''; } catch(_) {}
+      badge.textContent = `error ${r.status}`;
+      badge.title = detail || `GET /api/models failed (${r.status})`;
+      _allModels = [];
+      updateStats();
+      renderModels();
+      return;
+    }
+    const body = await r.json();
+    _allModels = Array.isArray(body) ? body : [];   // guard against a non-array body
+    badge.textContent = `${_allModels.length} models`;
+    badge.title = '';
     updateStats();
     renderModels();
-  } catch(e) { console.error(e); }
+  } catch(e) {
+    console.error(e);
+    badge.textContent = 'error';
+    badge.title = String(e && e.message || e);
+  }
 }
 
 function updateStats() {
