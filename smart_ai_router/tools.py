@@ -50,6 +50,11 @@ _EXT_MIME = {
 _MAX_READ_BYTES = 100_000
 _MAX_LIST_ENTRIES = 1000
 
+# Binary document formats write_file must refuse: writing UTF-8 text bytes to
+# one of these always yields a corrupt file. The model must use create_document
+# (which renders real binary) for these instead.
+_BINARY_DOC_EXTS = frozenset({".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"})
+
 
 # ── schemas ─────────────────────────────────────────────────────────────────
 
@@ -87,8 +92,11 @@ _READ_TOOLS = [
 _WRITE_TOOLS = [
     _fn(
         "write_file",
-        "Create or overwrite a text file in your workspace with the given "
-        "content. Parent directories are created as needed.",
+        "Create or overwrite a plain-text file (source code, .txt, .json, .csv, "
+        "config, etc.) in your workspace. Parent directories are created as "
+        "needed. Do NOT use this for documents the user wants to open or "
+        "download — a .pdf, .docx, .pptx, or .xlsx written this way is a corrupt "
+        "file, because those are binary formats. Use create_document for those.",
         {
             "path": {"type": "string", "description": "File path relative to the workspace root."},
             "content": {"type": "string", "description": "Full file contents to write."},
@@ -193,7 +201,19 @@ def _do_read_file(user: str, args: dict) -> str:
 
 
 def _do_write_file(user: str, args: dict) -> str:
-    target = resolve_in_workspace(user, args.get("path", ""))
+    path = args.get("path", "")
+    # Guard: refuse to write text bytes to a binary document format — that
+    # always produces a corrupt file. Steer the model to create_document, whose
+    # result the loop feeds back so the model can retry with the right tool.
+    ext = path[path.rfind("."):].lower() if "." in path else ""
+    if ext in _BINARY_DOC_EXTS:
+        return (
+            f"Error: {ext} is a binary document format — writing text to it with "
+            f"write_file produces a corrupt, unopenable file. Use create_document "
+            f"with path {path!r} instead: it renders a real {ext} the user can "
+            f"download, and returns a download link."
+        )
+    target = resolve_in_workspace(user, path)
     content = args.get("content", "")
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
