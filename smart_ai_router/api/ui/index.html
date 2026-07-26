@@ -184,51 +184,7 @@
     margin-top: 0.25rem;
   }
 
-  /* ── Try it (routing playground) ─────────────────────────────────── */
-  .playground {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-  }
-
-  .playground-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-  }
-
-  .playground-header h3 {
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-
-  .playground textarea {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: 0.85rem;
-    padding: 0.75rem 1rem;
-    font-family: inherit;
-    resize: vertical;
-    min-height: 80px;
-    outline: none;
-    transition: border-color var(--transition);
-  }
-
-  .playground textarea:focus { border-color: var(--accent); }
-
-  .playground-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-top: 0.75rem;
-  }
-
+  /* Result panel — shared by the Keys page (newly-created key display). */
   .route-result {
     display: none;
     margin-top: 1rem;
@@ -239,26 +195,6 @@
     font-family: var(--font-mono);
     font-size: 0.825rem;
   }
-
-  .route-result .route-arrow {
-    color: var(--text-muted);
-    margin: 0 0.5rem;
-  }
-
-  .route-result .route-model {
-    color: var(--accent-text);
-    font-weight: 600;
-  }
-
-  .route-result .route-meta {
-    margin-top: 0.5rem;
-    display: flex;
-    gap: 1rem;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .route-result .route-meta span { display: flex; align-items: center; gap: 0.3rem; }
 
   /* ── Buttons ─────────────────────────────────────────────────────── */
   /* ── Chat ────────────────────────────────────────────────────────── */
@@ -304,6 +240,7 @@
   .chat-msg.error .chat-bubble { background: var(--error-soft); border: 1px solid var(--error); color: var(--text); }
 
   .chat-meta { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); }
+  .chat-routing-escalated { color: var(--warning); }
 
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
@@ -805,33 +742,6 @@
     </div>
   </div>
 
-  <!-- Playground -->
-  <div class="playground">
-    <div class="playground-header">
-      <h3>Try a routing decision</h3>
-    </div>
-    <textarea id="playground-prompt" placeholder="Type a prompt to see which model would be selected... e.g. &quot;Refactor this Python class to use dataclasses&quot;"></textarea>
-    <div class="playground-actions">
-      <button class="btn btn-primary" onclick="doPlayground()" id="btn-playground">
-        <span id="spin-playground" style="display:none" class="spinner"></span>
-        Route &amp; Run
-      </button>
-      <span style="font-size:0.75rem;color:var(--text-muted)">Classifies the prompt, routes to a model, and shows its response</span>
-    </div>
-    <div class="route-result" id="playground-result">
-      <div class="route-line">
-        <span class="route-domain" id="pr-domain"></span>
-        <span class="route-arrow">&rarr;</span>
-        <span class="route-model" id="pr-model"></span>
-      </div>
-      <div class="route-meta">
-        <span id="pr-complexity"></span>
-        <span id="pr-escalated"></span>
-      </div>
-      <div id="pr-response" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:0.85rem;color:var(--text)"></div>
-    </div>
-  </div>
-
   <!-- Quick sync -->
   <div style="display:flex;gap:0.75rem;align-items:center">
     <button class="btn btn-ghost" onclick="doSync()" id="btn-sync-dash">
@@ -1254,69 +1164,6 @@ function sortModels(key) {
 }
 
 // ── Playground ──────────────────────────────────────────────────────────────
-async function doPlayground() {
-  const prompt = document.getElementById('playground-prompt').value.trim();
-  if (!prompt) return;
-  const btn = document.getElementById('btn-playground');
-  const spin = document.getElementById('spin-playground');
-  const respEl = document.getElementById('pr-response');
-  btn.disabled = true; spin.style.display = 'inline-block';
-  try {
-    const res = await fetch('/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ui' },
-      // No max_tokens — inherit the proxy's generous default so reasoning
-      // models have budget for thinking + answer instead of truncating.
-      body: JSON.stringify({ model: 'smart-worker', messages: [{ role: 'user', content: prompt }], stream: false }),
-    });
-    const domain = res.headers.get('x-domain') || '?';
-    const complexity = res.headers.get('x-complexity') || '?';
-    const model = res.headers.get('x-routed-model') || '(unknown)';
-    const escalated = res.headers.get('x-escalated') === 'true';
-
-    document.getElementById('pr-domain').textContent = `${domain} / ${complexity}`;
-    document.getElementById('pr-model').textContent = model;
-    document.getElementById('pr-complexity').innerHTML = `complexity: <strong style="color:var(--text)">${complexity}</strong>`;
-    document.getElementById('pr-escalated').innerHTML = escalated
-      ? '<span style="color:var(--warning)">escalated</span>' : '';
-
-    const data = await res.json().catch(() => null);
-    respEl.style.display = 'block';
-    if (!res.ok) {
-      // Surface the actual failure instead of a silent blank result.
-      let detail = data && (data.detail || data.error);
-      if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
-      respEl.style.color = 'var(--error)';
-      respEl.textContent = `Error ${res.status}: ${detail || 'request failed'}`;
-    } else {
-      const choice = data && data.choices && data.choices[0];
-      const msg = (choice && choice.message) || {};
-      let text = msg.content;
-      // Reasoning models (e.g. qwen3) return an empty `content` and put their
-      // text in `reasoning` / `reasoning_content`. Fall back to that so the
-      // response isn't shown as blank.
-      if (!text && (msg.reasoning || msg.reasoning_content)) {
-        text = '[reasoning — no final answer]\n\n' + (msg.reasoning || msg.reasoning_content);
-      }
-      // If the model hit the output cap mid-generation, flag the truncation
-      // so an empty/partial answer isn't mistaken for the model's real output.
-      if (choice && choice.finish_reason === 'length') {
-        text = (text || '') + '\n\n[truncated: hit max_tokens — increase the budget for a full answer]';
-      }
-      respEl.style.color = 'var(--text)';
-      respEl.textContent = text || '(no content returned)';
-    }
-    document.getElementById('playground-result').style.display = 'block';
-  } catch(e) {
-    respEl.style.display = 'block';
-    respEl.style.color = 'var(--error)';
-    respEl.textContent = `Error: ${e.message}`;
-    document.getElementById('playground-result').style.display = 'block';
-  } finally {
-    btn.disabled = false; spin.style.display = 'none';
-  }
-}
-
 // ── Sync ────────────────────────────────────────────────────────────────────
 async function doSync() {
   const btn = document.getElementById('btn-sync-dash');
@@ -1780,6 +1627,21 @@ function renderChatMsg(role, text, opts = {}) {
   return wrap;
 }
 
+// The routing decision the proxy made for a reply, shown under the bubble.
+// This is the router's core value made visible — which model was picked, for
+// what domain/complexity, by which classifier, and whether it was escalated
+// to a costlier tier. (Replaces the old dashboard "playground" routing panel.)
+function chatRoutingBadge({ routed, domain, complexity, escalated, classifier }) {
+  const parts = [];
+  if (domain && complexity) parts.push(`${escapeHtml(domain)} / ${escapeHtml(complexity)}`);
+  parts.push(`→ ${escapeHtml(routed)}`);
+  if (classifier) parts.push(`via ${escapeHtml(classifier)}`);
+  let html = `<div class="chat-meta chat-routing">${parts.join(' · ')}`;
+  if (escalated) html += ` <span class="chat-routing-escalated" title="No cheaper model met the quality bar — escalated to a costlier tier">⬆ escalated</span>`;
+  html += `</div>`;
+  return html;
+}
+
 async function sendChat() {
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
@@ -1817,8 +1679,12 @@ async function sendChat() {
       return;
     }
     const routed = res.headers.get('X-Routed-Model') || '';
+    const domain = res.headers.get('X-Domain') || '';
+    const complexity = res.headers.get('X-Complexity') || '';
+    const escalated = res.headers.get('X-Escalated') === 'true';
+    const classifier = res.headers.get('X-Classifier') || '';
     const acc = await streamChatInto(res, bubble);
-    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', `<div class="chat-meta">${escapeHtml(routed)}</div>`);
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier }));
     _chatMessages.push({ role: 'assistant', content: acc });
   } catch(e) {
     bubbleWrap.classList.add('error');
