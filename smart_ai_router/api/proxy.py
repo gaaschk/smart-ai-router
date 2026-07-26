@@ -432,15 +432,38 @@ async def chat_completions(request: Request):
     # activity + the final answer back as SSE. The loop reuses this same
     # provider/keys via a non-streaming call_model closure.
     if agent_mode:
-        async def _call_model(req_body: dict) -> dict:
-            fwd = {**req_body, "model": real_model}
+        async def _stream_model(req_body: dict) -> AsyncIterator[dict]:
+            """Stream one model round from the provider, yielding each
+            choices[0].delta dict. The agent loop passes content through live
+            and reassembles tool calls from the fragments."""
+            fwd = {**req_body, "model": real_model, "stream": True}
             if not fwd.get("max_tokens"):
                 fwd["max_tokens"] = _DEFAULT_MAX_TOKENS
             async with httpx.AsyncClient(timeout=_timeout) as client:
-                resp = await client.post(url, headers=_headers(api_key), json=fwd)
-            if resp.status_code >= 400:
-                raise RuntimeError(f"provider {resp.status_code}: {resp.text[:500]}")
-            return resp.json()
+                async with client.stream(
+                    "POST", url, headers=_headers(api_key), json=fwd,
+                ) as resp:
+                    if resp.status_code >= 400:
+                        err = await resp.aread()
+                        raise RuntimeError(
+                            f"provider {resp.status_code}: {err.decode(errors='replace')[:500]}"
+                        )
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = obj.get("choices") or []
+                        if choices and isinstance(choices[0], dict):
+                            delta = choices[0].get("delta")
+                            if isinstance(delta, dict):
+                                yield delta
 
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
                    complexity=complexity, usage=None, status=200)
@@ -462,7 +485,7 @@ async def chat_completions(request: Request):
                 user=user,
                 body={**body, "model": real_model},
                 tool_schemas=_agent_tool_schemas(),
-                call_model=_call_model,
+                stream_model=_stream_model,
                 register_file=_register_file,
             ):
                 yield chunk
