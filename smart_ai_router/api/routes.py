@@ -265,6 +265,28 @@ def delete_api_key(key_prefix: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
 
 
+@api_router.post(
+    "/keys/{key_prefix}/recreate", response_model=ApiKeyCreatedResponse
+)
+def recreate_api_key(key_prefix: str, request: Request):
+    """Rotate a key's secret in place, keeping its user/scope/limits/enabled.
+
+    Mints a fresh plaintext key, replaces the stored hash + prefix, and returns
+    the new plaintext ONCE (same as creation). The old secret immediately stops
+    working — the recovery path for a lost or leaked key, without ever storing
+    plaintext.
+    """
+    _require_admin(request)
+    cr = _router_instance(request)
+    plaintext = generate_key()
+    updated = cr.recreate_api_key(
+        key_prefix, new_hash=hash_key(plaintext), new_prefix=display_prefix(plaintext)
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
+    return ApiKeyCreatedResponse(key=plaintext, **_to_api_key_response(updated).model_dump())
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 @api_router.get("/updates", response_model=UpdateStatusResponse)

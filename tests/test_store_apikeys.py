@@ -47,6 +47,45 @@ def test_disable_and_delete_by_prefix():
     assert store.set_api_key_enabled(prefix, True) is False
 
 
+def test_recreate_rotates_secret_keeping_identity():
+    store = SqliteStore(":memory:")
+    old_plain, key = _key("alice")
+    key.scope_models = '{"allow": ["ollama/"]}'
+    key.max_tier = 2
+    key.enabled = True
+    store.create_api_key(key)
+    store.touch_api_key(hash_key(old_plain))  # give it a last_used_at
+
+    new_plain = generate_key()
+    updated = store.recreate_api_key(
+        key.key_prefix,
+        new_hash=hash_key(new_plain),
+        new_prefix=display_prefix(new_plain),
+    )
+    assert updated is not None
+    # Identity + scope/limits/enabled preserved.
+    assert updated.user == "alice"
+    assert updated.scope_models == '{"allow": ["ollama/"]}'
+    assert updated.max_tier == 2
+    assert updated.enabled is True
+    # last_used_at reset by the rotation.
+    assert updated.last_used_at == ""
+
+    # New secret works; old secret is dead.
+    assert store.get_api_key_by_hash(hash_key(new_plain)) is not None
+    assert store.get_api_key_by_hash(hash_key(old_plain)) is None
+    # Exactly one row remains (rotated in place, not duplicated).
+    assert len(store.all_api_keys()) == 1
+
+
+def test_recreate_unknown_prefix_returns_none():
+    store = SqliteStore(":memory:")
+    new_plain = generate_key()
+    assert store.recreate_api_key(
+        "sk-smart-nope", new_hash=hash_key(new_plain), new_prefix=display_prefix(new_plain)
+    ) is None
+
+
 def test_all_api_keys_ordered():
     store = SqliteStore(":memory:")
     for u in ("a", "b", "c"):

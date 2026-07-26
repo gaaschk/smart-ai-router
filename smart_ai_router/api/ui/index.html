@@ -1007,8 +1007,9 @@
       </button>
     </div>
     <div id="key-created" class="route-result" style="display:none;margin-top:0.75rem">
-      <div style="font-size:0.85rem;color:var(--text)">Save this key now — it will <strong>not</strong> be shown again:</div>
-      <code id="key-created-value" style="display:block;margin-top:0.5rem;word-break:break-all;user-select:all"></code>
+      <div style="font-size:0.85rem;color:var(--text)">Save this <strong>full key</strong> now — it will <strong>not</strong> be shown again:</div>
+      <code id="key-created-value" style="display:block;margin:0.5rem 0;word-break:break-all;user-select:all"></code>
+      <button id="btn-copy-key" class="btn btn-sm" onclick="copyCreatedKey()">Copy key</button>
     </div>
   </div>
 
@@ -1090,6 +1091,14 @@ function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Escape a value for safe interpolation into a single-quoted JS string inside
+// an inline on* handler (e.g. onclick="fn('${jsStr(v)}')").
+function jsStr(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/</g, '\\x3C').replace(/\r?\n/g, '');
 }
 
 // ── API key auth ──────────────────────────────────────────────────────────────
@@ -1511,18 +1520,21 @@ function renderKeys(keys) {
     }
     const detail = limits.length ? limits.join(' · ') : 'unrestricted';
     const last = k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'never';
+    // The badge shows the key PREFIX (a non-secret identifier), never the key
+    // itself — the full key is shown only once, at create/recreate time.
     return `<div class="provider-card">
       <div class="provider-card-header">
         <span class="provider-name">${escapeHtml(k.user)}</span>
-        <span class="provider-kind">${escapeHtml(k.key_prefix)}</span>
+        <span class="provider-kind" title="Key prefix (identifier) — not the full key">${escapeHtml(k.key_prefix)}… <span style="opacity:0.6">(prefix)</span></span>
       </div>
       <div class="provider-card-detail">${detail}<br><span style="color:var(--text-muted)">last used: ${last}</span></div>
       <div class="provider-card-actions">
         <label class="toggle">
-          <input type="checkbox" ${k.enabled ? 'checked' : ''} onchange="toggleKey('${k.key_prefix}', this.checked)">
+          <input type="checkbox" ${k.enabled ? 'checked' : ''} onchange="toggleKey('${jsStr(k.key_prefix)}', this.checked)">
           <span class="toggle-track"></span>
         </label>
-        <button class="btn btn-danger btn-sm" onclick="deleteKey('${k.key_prefix}')">Delete</button>
+        <button class="btn btn-sm btn-ghost" onclick="recreateKey('${jsStr(k.key_prefix)}', '${jsStr(k.user)}')" title="Rotate this key's secret — shows a new key once and invalidates the current one">Recreate</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteKey('${jsStr(k.key_prefix)}')">Delete</button>
       </div>
     </div>`;
   }).join('');
@@ -1564,12 +1576,31 @@ async function createKey() {
       return;
     }
     const created = await r.json();
-    const box = document.getElementById('key-created');
-    document.getElementById('key-created-value').textContent = created.key;
-    box.style.display = '';
+    showCreatedKey(created.key);
     document.getElementById('kf-user').value = '';
     fetchKeys();
   } finally { spin.style.display = 'none'; }
+}
+
+// The plaintext key is returned exactly once (on create or recreate) — never
+// stored server-side. Surface it in the one-time box and scroll it into view so
+// it can't be missed.
+function showCreatedKey(key) {
+  const box = document.getElementById('key-created');
+  document.getElementById('key-created-value').textContent = key;
+  box.style.display = '';
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function copyCreatedKey() {
+  const key = document.getElementById('key-created-value').textContent;
+  try {
+    await navigator.clipboard.writeText(key);
+    const btn = document.getElementById('btn-copy-key');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch(_) { alert('Copy failed — select the key and copy manually.'); }
 }
 
 async function toggleKey(prefix, enabled) {
@@ -1583,6 +1614,21 @@ async function toggleKey(prefix, enabled) {
 async function deleteKey(prefix) {
   if (!confirm(`Delete key "${prefix}"? This cannot be undone.`)) return;
   await fetch(`${API}/keys/${encodeURIComponent(prefix)}`, { method: 'DELETE' });
+  fetchKeys();
+}
+
+// Rotate a key's secret: same user/scope/limits, brand-new key shown once. The
+// old key stops working immediately — the recovery path for a lost key.
+async function recreateKey(prefix, user) {
+  if (!confirm(`Recreate the key for "${user}"?\n\nA new key will be shown once. The current key (${prefix}…) will stop working immediately.`)) return;
+  const r = await fetch(`${API}/keys/${encodeURIComponent(prefix)}/recreate`, { method: 'POST' });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    alert(`Could not recreate key: ${err.detail || r.status}`);
+    return;
+  }
+  const created = await r.json();
+  showCreatedKey(created.key);
   fetchKeys();
 }
 

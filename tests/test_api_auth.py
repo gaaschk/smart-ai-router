@@ -107,6 +107,41 @@ def test_empty_user_rejected(admin_client):
     assert client.post("/api/keys", json={"user": "  "}, headers=_auth(_ADMIN)).status_code == 422
 
 
+def test_recreate_rotates_secret_and_invalidates_old(admin_client):
+    client, _ = admin_client
+    created = client.post(
+        "/api/keys", json={"user": "erin", "max_tier": 2}, headers=_auth(_ADMIN)
+    ).json()
+    old_key, prefix = created["key"], created["key_prefix"]
+    assert client.get("/api/models", headers=_auth(old_key)).status_code == 200
+
+    r = client.post(f"/api/keys/{prefix}/recreate", headers=_auth(_ADMIN))
+    assert r.status_code == 200
+    new = r.json()
+    new_key = new["key"]
+    assert new_key != old_key
+    assert new["user"] == "erin" and new["max_tier"] == 2   # identity/limits kept
+
+    # New key works; old key is dead.
+    assert client.get("/api/models", headers=_auth(new_key)).status_code == 200
+    assert client.get("/api/models", headers=_auth(old_key)).status_code == 401
+
+
+def test_recreate_requires_admin(admin_client):
+    client, _ = admin_client
+    created = client.post("/api/keys", json={"user": "frank"}, headers=_auth(_ADMIN)).json()
+    key, prefix = created["key"], created["key_prefix"]
+    # A per-user key cannot rotate keys (its own or anyone's).
+    assert client.post(f"/api/keys/{prefix}/recreate", headers=_auth(key)).status_code == 403
+
+
+def test_recreate_unknown_prefix_is_404(admin_client):
+    client, _ = admin_client
+    assert client.post(
+        "/api/keys/sk-smart-nope/recreate", headers=_auth(_ADMIN)
+    ).status_code == 404
+
+
 def test_unauthenticated_browser_nav_redirects_to_ui(admin_client):
     client, _ = admin_client
     # A browser hitting an unknown/unauthenticated path (e.g. /login) should be

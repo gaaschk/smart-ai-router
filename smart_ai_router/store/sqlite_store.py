@@ -302,6 +302,23 @@ class SqliteStore(MatrixStore):
             self._conn.commit()
         return cur.rowcount > 0
 
+    def recreate_api_key(
+        self, key_prefix: str, *, new_hash: str, new_prefix: str
+    ) -> ApiKey | None:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE api_keys SET key_hash=?, key_prefix=?, last_used_at=? "
+                "WHERE key_prefix=?",
+                (new_hash, new_prefix, "", key_prefix),
+            )
+            self._conn.commit()
+            if cur.rowcount == 0:
+                return None
+            row = self._conn.execute(
+                "SELECT * FROM api_keys WHERE key_hash=?", (new_hash,)
+            ).fetchone()
+        return self._row_to_api_key(row) if row else None
+
     # ── Usage log ────────────────────────────────────────────────────────────
 
     def record_usage(self, usage: UsageRecord) -> None:
