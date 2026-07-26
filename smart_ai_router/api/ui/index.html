@@ -1086,6 +1086,35 @@ function promptApiKey() {
 }
 
 const _rawFetch = window.fetch.bind(window);
+
+// A page load fires several /api calls at once. If each 401 popped its own
+// window.prompt, you'd see the key dialog N times (the "pops up 3 times" bug),
+// and since a request retries only once, dismissing any later prompt left that
+// request stuck — so parts of the page silently stayed empty ("nothing works").
+// Coalesce instead: the first 401 opens ONE prompt; every other waiting request
+// reuses the entered key. A key already refreshed by another in-flight request
+// is reused without prompting at all.
+let _authPromptOpen = false;
+let _authWaiters = [];
+
+function _obtainApiKey(triedKey) {
+  return new Promise((resolve) => {
+    const cur = getApiKey();
+    if (cur && cur !== triedKey) { resolve(cur); return; }  // refreshed elsewhere
+    _authWaiters.push(resolve);
+    if (_authPromptOpen) return;                            // a prompt is already up
+    _authPromptOpen = true;
+    // Defer one microtask so sibling 401s from the same load register as waiters
+    // before the (blocking) prompt opens, and all share the single dialog.
+    Promise.resolve().then(() => {
+      const k = promptApiKey();
+      _authPromptOpen = false;
+      const waiters = _authWaiters; _authWaiters = [];
+      waiters.forEach((r) => r(k));
+    });
+  });
+}
+
 window.fetch = async function(input, init = {}) {
   const url = typeof input === 'string' ? input : (input && input.url) || '';
   const guarded = url.startsWith('/api') || url.startsWith(API) || url.startsWith('/v1');
@@ -1098,11 +1127,13 @@ window.fetch = async function(input, init = {}) {
     return { ...init, headers };
   };
 
-  let res = await _rawFetch(input, withKey());
-  if (res.status === 401 && promptApiKey() !== null) {
-    res = await _rawFetch(input, withKey());
-  }
-  return res;
+  const sentKey = getApiKey();
+  const res = await _rawFetch(input, withKey());
+  if (res.status !== 401) return res;
+
+  const newKey = await _obtainApiKey(sentKey);
+  if (newKey === null) return res;       // user cancelled — surface the 401
+  return _rawFetch(input, withKey());    // retry once with the obtained key
 };
 
 let _allModels = [];
