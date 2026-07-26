@@ -241,6 +241,13 @@
 
   .chat-meta { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); }
   .chat-routing-escalated { color: var(--warning); }
+  .chat-download-link {
+    display: inline-block; margin-top: 6px; padding: 4px 10px;
+    background: var(--accent-soft); border: 1px solid var(--accent);
+    border-radius: 6px; color: var(--accent); text-decoration: none;
+    font-size: 0.85rem; font-weight: 500;
+  }
+  .chat-download-link:hover { background: var(--accent); color: var(--bg); }
 
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
@@ -755,7 +762,7 @@
 <!-- ── Chat ────────────────────────────────────────────────────────── -->
 <div class="page" id="page-chat">
   <h1 class="page-title">Chat</h1>
-  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model.</p>
+  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Turn on Agent and it can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
 
   <div class="chat-shell">
     <div class="chat-transcript" id="chat-transcript">
@@ -1684,6 +1691,7 @@ async function sendChat() {
     const escalated = res.headers.get('X-Escalated') === 'true';
     const classifier = res.headers.get('X-Classifier') || '';
     const acc = await streamChatInto(res, bubble);
+    finalizeChatBubble(bubble, acc);
     if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier }));
     _chatMessages.push({ role: 'assistant', content: acc });
   } catch(e) {
@@ -1720,6 +1728,23 @@ async function streamChatInto(res, bubble) {
     }
   }
   return acc;
+}
+
+// Once a reply is fully streamed, turn any workspace download links the agent
+// emitted — Markdown `[name](/v1/files/<id>/content)` — into real clickable
+// anchors. Everything is HTML-escaped first; only same-origin /v1/files/…
+// /content hrefs are linkified, so nothing else in the text can inject markup.
+function finalizeChatBubble(bubble, text) {
+  if (!/\/v1\/files\/[^)]+\/content/.test(text || '')) return;  // nothing to do
+  const linkRe = /\[([^\]]+)\]\((\/v1\/files\/[A-Za-z0-9._-]+\/content)\)/g;
+  let html = '', last = 0, m;
+  while ((m = linkRe.exec(text)) !== null) {
+    html += escapeHtml(text.slice(last, m.index));
+    html += `<a href="${escapeHtml(m[2])}" download class="chat-download-link">⬇ ${escapeHtml(m[1])}</a>`;
+    last = m.index + m[0].length;
+  }
+  html += escapeHtml(text.slice(last));
+  bubble.innerHTML = html;
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────

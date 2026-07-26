@@ -57,6 +57,7 @@ async def run_agent_loop(
     tool_schemas: list[dict],
     call_model: Callable[[dict], Any],
     narrate: bool = True,
+    register_file: Callable[[bytes, str, str], str] | None = None,
 ) -> AsyncIterator[bytes]:
     """Drive the tool-calling loop, yielding SSE bytes for the client.
 
@@ -69,6 +70,8 @@ async def run_agent_loop(
                     provider's parsed JSON response (non-streaming). Supplied by
                     the proxy so routing/keys/timeouts are reused.
         narrate: if True, emit human-readable tool-activity deltas to the UI.
+        register_file: optional callback (data, filename, mime) -> file_id, so
+                    create_document can register its output for download.
 
     Yields SSE `data:` frames: tool-activity narration, then the final answer,
     then `[DONE]`.
@@ -107,7 +110,7 @@ async def run_agent_loop(
             args = _tool_args(call)
             if narrate:
                 yield _content_delta(_narration(name, args))
-            result = _tools.execute_tool(user, name, args)
+            result = _tools.execute_tool(user, name, args, register_file=register_file)
             messages.append({
                 "role": "tool",
                 "tool_call_id": call.get("id", ""),
@@ -130,6 +133,8 @@ def _narration(name: str, args: dict) -> str:
         return f"\n\n`✏️ write_file({args.get('path', '')})`\n\n"
     if name == "edit_file":
         return f"\n\n`✏️ edit_file({args.get('path', '')})`\n\n"
+    if name == "create_document":
+        return f"\n\n`📝 create_document({args.get('path', '')})`\n\n"
     if name == "run_bash":
         return f"\n\n`⚡ run_bash: {args.get('command', '')}`\n\n"
     return f"\n\n`🔧 {name}(...)`\n\n"

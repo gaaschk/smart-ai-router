@@ -131,3 +131,74 @@ def test_bash_network_is_denied(monkeypatch):
 def workspace_module():
     from smart_ai_router import workspace
     return workspace
+
+
+# ── create_document ─────────────────────────────────────────────────────────
+
+def test_create_document_in_schema():
+    assert "create_document" in tools.tool_names(allow_write=True, allow_bash=False)
+    assert "create_document" not in tools.tool_names(allow_write=False, allow_bash=False)
+
+
+def test_create_document_writes_to_workspace():
+    out = tools.execute_tool(
+        "alice", "create_document",
+        {"path": "resume.pdf", "content": "# Kevin\n\nSummary text."},
+    )
+    assert "Created resume.pdf" in out
+    ws = workspace_module().user_workspace("alice")
+    data = (ws / "resume.pdf").read_bytes()
+    assert data[:4] == b"%PDF"
+
+
+def test_create_document_registers_and_links():
+    captured = {}
+
+    def register(data, filename, mime):
+        captured.update(data=data, filename=filename, mime=mime)
+        return "file-xyz"
+
+    out = tools.execute_tool(
+        "alice", "create_document",
+        {"path": "report.docx", "content": "# Report\n\nBody."},
+        register_file=register,
+    )
+    assert captured["filename"] == "report.docx"
+    assert "wordprocessingml" in captured["mime"]
+    assert captured["data"][:2] == b"PK"
+    assert "/v1/files/file-xyz/content" in out
+
+
+def test_create_document_rejects_unsupported_type():
+    out = tools.execute_tool(
+        "alice", "create_document",
+        {"path": "page.html", "content": "<h1>hi</h1>"},
+    )
+    assert "unsupported document type" in out.lower()
+
+
+def test_create_document_requires_path():
+    out = tools.execute_tool("alice", "create_document", {"content": "body"})
+    assert "requires a 'path'" in out
+
+
+def test_create_document_path_escape_refused():
+    out = tools.execute_tool(
+        "alice", "create_document",
+        {"path": "../escape.pdf", "content": "# x"},
+    )
+    assert out.lower().startswith("error")
+
+
+def test_create_document_registration_failure_is_soft():
+    def boom(data, filename, mime):
+        raise RuntimeError("db down")
+
+    out = tools.execute_tool(
+        "alice", "create_document",
+        {"path": "a.md", "content": "# hi"},
+        register_file=boom,
+    )
+    # File still created; link replaced by a soft note.
+    assert "Created a.md" in out
+    assert "Could not register" in out
