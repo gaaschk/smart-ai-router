@@ -14,6 +14,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, Form
 
+from smart_ai_router import extract
 from smart_ai_router.api.schemas import (
     FileDeletedResponse,
     FileListResponse,
@@ -77,12 +78,34 @@ async def upload_file(
     purpose: str = Form("assistants"),
 ):
     cr = _router_instance(request)
+    mime = file.content_type or "application/octet-stream"
+    filename = file.filename or ""
+
+    # Refuse files we can neither read as text nor hand to a vision model, so
+    # the user learns immediately instead of getting a confused answer after
+    # sending (the model would otherwise receive a "couldn't read" placeholder).
+    # Images are exempt: they're not "extractable" here but are inlined for
+    # vision at request time. octet-stream is allowed through — extraction
+    # falls back to a text decode for code files that arrive untyped.
+    is_image = mime.lower().startswith("image/")
+    is_octet = mime.lower() in ("", "application/octet-stream")
+    if not is_image and not is_octet and not extract.is_extractable(mime):
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Unsupported file type for {filename or 'upload'!r} ({mime}). "
+                "Supported: PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), "
+                "images, and plain-text/code files. Legacy formats like .doc/.ppt/"
+                ".xls are not supported — save as the modern (OpenXML) format."
+            ),
+        )
+
     data = await file.read()
     try:
         rec = cr.upload_file(
             data,
-            filename=file.filename or "",
-            mime=file.content_type or "application/octet-stream",
+            filename=filename,
+            mime=mime,
             purpose=purpose,
             user=_caller(request),
         )
