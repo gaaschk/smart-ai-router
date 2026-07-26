@@ -129,3 +129,45 @@ def test_admin_sees_all_files(scoped):
 
     all_ids = {f["id"] for f in client.get("/v1/files", headers=_auth(_ADMIN)).json()["data"]}
     assert all_ids == {a_id, b_id}
+
+
+# ── unsupported-type guard (415) ──────────────────────────────────────────────
+
+def _upload_typed(client, name, content, mime, *, headers=None):
+    return client.post(
+        "/v1/files",
+        files={"file": (name, content, mime)},
+        data={"purpose": "assistants"},
+        headers=headers or {},
+    )
+
+
+def test_unsupported_type_is_rejected_415(open_client):
+    # Legacy .doc (binary Word) can't be extracted — refuse at upload.
+    resp = _upload_typed(open_client, "old.doc", b"\xd0\xcf\x11\xe0junk", "application/msword")
+    assert resp.status_code == 415
+    assert ".doc" in resp.json()["detail"]
+
+
+def test_docx_upload_is_accepted(open_client):
+    import io as _io
+    docx = pytest.importorskip("docx")
+    doc = docx.Document(); doc.add_paragraph("hello from docx")
+    buf = _io.BytesIO(); doc.save(buf)
+    resp = _upload_typed(
+        open_client, "r.docx", buf.getvalue(),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    assert resp.status_code == 200
+
+
+def test_image_upload_still_allowed_despite_not_extractable(open_client):
+    # Images aren't "extractable" as text but must upload (they go to vision).
+    resp = _upload_typed(open_client, "pic.png", b"\x89PNG\r\n\x1a\nfake", "image/png")
+    assert resp.status_code == 200
+
+
+def test_untyped_octet_stream_still_allowed(open_client):
+    # Code files often arrive as octet-stream; extraction falls back to decode.
+    resp = _upload_typed(open_client, "script", b"print('hi')", "application/octet-stream")
+    assert resp.status_code == 200
