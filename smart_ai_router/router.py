@@ -37,6 +37,24 @@ def _denylisted() -> tuple[str, ...]:
     return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
 
 
+def _agent_denylisted() -> tuple[str, ...]:
+    """Substrings of model `value`s to never route to *in agent mode*.
+
+    Read from SMART_ROUTER_AGENT_DENYLIST (comma-separated, case-insensitive
+    substring match — same shape as SMART_ROUTER_MODEL_DENYLIST).
+
+    Some models advertise tools=True (so they pass the needs_tools filter) yet
+    are unreliable at driving a streamed, multi-step tool-calling loop: they
+    stall, emit tool calls they never close, or never produce a first token.
+    Routing an agent task to one of those wedges the request. This denylist
+    excludes such models from agent routing only — they stay eligible for plain
+    chat, where single-shot generation is fine. Like the general denylist it is
+    config-driven and survives sync() (which re-seeds reliability=1.0).
+    """
+    raw = os.environ.get("SMART_ROUTER_AGENT_DENYLIST", "")
+    return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
+
+
 def route(
     store: MatrixStore,
     domain: str,
@@ -48,6 +66,7 @@ def route(
     exclude: set[str] | None = None,
     scope: ModelScope | None = None,
     thresholds: dict[str, float] | None = None,
+    agent_mode: bool = False,
 ) -> str:
     """Return the cheapest model string that clears the competence + reliability bars.
 
@@ -64,12 +83,16 @@ def route(
         scope:        Per-user ModelScope; models outside it are ineligible
                       (applies to the fallback pick too).
         thresholds:   Override default competence/reliability thresholds.
+        agent_mode:   If True, also exclude models in SMART_ROUTER_AGENT_DENYLIST
+                      (models that pass needs_tools but can't reliably drive the
+                      streamed multi-step tool loop).
     """
     thr = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     bar: float = thr.get(complexity, 0.70)
     min_rel: float = thr.get("min_reliability", 0.70)
     _exclude = exclude or set()
     _deny = _denylisted()
+    _agent_deny = _agent_denylisted() if agent_mode else ()
 
     models = store.all_models()
 
@@ -77,6 +100,8 @@ def route(
         if spec.value in _exclude:
             return False
         if _deny and any(d in spec.value.lower() for d in _deny):
+            return False
+        if _agent_deny and any(d in spec.value.lower() for d in _agent_deny):
             return False
         if scope is not None and not scope.permits(spec):
             return False

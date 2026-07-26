@@ -92,6 +92,48 @@ def test_empty_denylist_is_noop(monkeypatch):
     assert route(store, "general", "trivial", needs_tools=False) == "ollama/qwen3.6:35b-a3b-coding-mxfp8"
 
 
+def test_agent_denylist_excludes_only_in_agent_mode(monkeypatch):
+    # gpt-5-nano advertises tools=True but can't drive the streamed tool loop.
+    # It stays eligible for plain chat, but is excluded when agent_mode=True.
+    monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
+    store = _store_with(
+        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
+                  tools=True, competence={"coding": 0.95}),
+        ModelSpec("openrouter/openai/gpt-5", cost=5, reliability=1.0,
+                  tools=True, competence={"coding": 0.90}),
+    )
+    # Plain chat: cheapest (nano) is fine.
+    assert route(store, "coding", "trivial", needs_tools=False) == "openrouter/openai/gpt-5-nano"
+    # Agent mode: nano is excluded, so the reliable tool model is picked.
+    assert route(store, "coding", "trivial", needs_tools=True,
+                 agent_mode=True) == "openrouter/openai/gpt-5"
+
+
+def test_agent_denylist_excludes_from_fallback(monkeypatch):
+    # Even when only the denylisted model clears the bar, agent mode must not
+    # fall back to it.
+    monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
+    store = _store_with(
+        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
+                  tools=True, competence={"coding": 0.99}),
+        ModelSpec("openrouter/openai/gpt-5", cost=5, reliability=1.0,
+                  tools=True, competence={"coding": 0.10}),
+    )
+    assert route(store, "coding", "hard", needs_tools=True,
+                 agent_mode=True) == "openrouter/openai/gpt-5"
+
+
+def test_agent_denylist_ignored_when_not_agent_mode(monkeypatch):
+    # The agent denylist must not affect ordinary (non-agent) tool requests.
+    monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
+    store = _store_with(
+        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
+                  tools=True, competence={"coding": 0.95}),
+    )
+    assert route(store, "coding", "trivial", needs_tools=True,
+                 agent_mode=False) == "openrouter/openai/gpt-5-nano"
+
+
 def test_raises_when_matrix_empty():
     store = SqliteStore(":memory:")
     with pytest.raises(RuntimeError, match="no eligible model"):
