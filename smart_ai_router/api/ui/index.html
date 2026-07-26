@@ -198,11 +198,47 @@
 
   /* ── Buttons ─────────────────────────────────────────────────────── */
   /* ── Chat ────────────────────────────────────────────────────────── */
-  .chat-shell {
+  .chat-layout {
     display: flex;
-    flex-direction: column;
+    gap: 0.9rem;
     height: calc(100vh - 56px - 8rem);
     min-height: 400px;
+  }
+
+  .chat-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .chat-sidebar-head { padding: 0.6rem; border-bottom: 1px solid var(--border); }
+  .chat-new-btn { width: 100%; justify-content: center; }
+  .chat-conv-list { flex: 1; overflow-y: auto; padding: 0.4rem; }
+  .chat-conv-empty { color: var(--text-muted); font-size: 0.78rem; padding: 0.6rem; text-align: center; }
+  .chat-conv {
+    display: flex; align-items: center; gap: 0.3rem;
+    padding: 0.45rem 0.5rem; border-radius: var(--radius-sm);
+    cursor: pointer; font-size: 0.82rem; color: var(--text-secondary);
+  }
+  .chat-conv:hover { background: var(--surface-raised); }
+  .chat-conv.active { background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent); }
+  .chat-conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-conv-x {
+    opacity: 0; color: var(--text-muted); font-weight: 700;
+    padding: 0 0.2rem; border-radius: 4px; flex-shrink: 0;
+  }
+  .chat-conv:hover .chat-conv-x { opacity: 1; }
+  .chat-conv-x:hover { color: var(--error); }
+
+  .chat-shell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -770,7 +806,17 @@
   <h1 class="page-title">Chat</h1>
   <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
 
-  <div class="chat-shell">
+  <div class="chat-layout">
+   <aside class="chat-sidebar">
+     <div class="chat-sidebar-head">
+       <button class="btn btn-primary btn-sm chat-new-btn" onclick="newChat()">＋ New chat</button>
+     </div>
+     <div class="chat-conv-list" id="chat-conv-list">
+       <div class="chat-conv-empty">No conversations yet.</div>
+     </div>
+   </aside>
+
+   <div class="chat-shell">
     <div class="chat-transcript" id="chat-transcript">
       <div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>
     </div>
@@ -797,6 +843,7 @@
         </button>
       </div>
     </div>
+   </div>
   </div>
 </div>
 
@@ -1519,18 +1566,134 @@ let _chatMessages = [];        // OpenAI-shaped message history sent upstream
 let _chatAttachments = [];     // {id, filename, mime, isImage} uploaded this turn
 let _chatCaps = null;
 let _chatInited = false;
+let _chatConvId = null;        // id of the conversation being viewed (null = unsaved/new)
+let _chatConvs = [];           // sidebar list of {id, title, updated_at}
 
 async function initChat() {
   const input = document.getElementById('chat-input');
   input.focus();
   autoGrow(input);
-  if (_chatInited) return;
-  _chatInited = true;
-  input.addEventListener('input', () => autoGrow(input));
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
-  });
-  await refreshChatCaps();
+  if (!_chatInited) {
+    _chatInited = true;
+    input.addEventListener('input', () => autoGrow(input));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+    });
+    await refreshChatCaps();
+  }
+  await loadConversations();
+}
+
+// ── Conversation persistence ────────────────────────────────────────────────
+// Chat history lives server-side (/api/conversations) so it survives browser
+// reloads and service restarts. The sidebar lists a user's saved threads; the
+// active thread's messages are loaded into _chatMessages and re-rendered.
+
+async function loadConversations() {
+  try {
+    const r = await fetch(`${API}/conversations`);
+    if (!r.ok) throw new Error();
+    _chatConvs = (await r.json()).data || [];
+  } catch(_) { _chatConvs = []; }
+  renderConvList();
+}
+
+function renderConvList() {
+  const el = document.getElementById('chat-conv-list');
+  if (!_chatConvs.length) {
+    el.innerHTML = '<div class="chat-conv-empty">No conversations yet.</div>';
+    return;
+  }
+  el.innerHTML = _chatConvs.map(c =>
+    `<div class="chat-conv ${c.id === _chatConvId ? 'active' : ''}" onclick="selectConversation('${c.id}')" title="${escapeHtml(c.title)}">
+       <span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>
+       <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
+     </div>`
+  ).join('');
+}
+
+// Render a stored message (content is a string, or an OpenAI content-parts
+// array with text + file/image refs) back into a transcript bubble.
+function renderStoredMsg(role, content) {
+  let text = '', imgs = 0, files = 0;
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const p of content) {
+      if (p && p.type === 'text') text += p.text || '';
+      else if (p && p.type === 'image_url') imgs++;
+      else if (p && p.type === 'file') files++;
+    }
+  }
+  const opts = {};
+  if (imgs) opts.images = Array(imgs).fill('image');
+  if (files) opts.files = Array(files).fill('attachment');
+  const wrap = renderChatMsg(role, text, opts);
+  if (role === 'assistant') finalizeChatBubble(wrap.querySelector('.chat-bubble'), text);
+}
+
+async function selectConversation(id) {
+  if (id === _chatConvId) return;
+  try {
+    const r = await fetch(`${API}/conversations/${id}`);
+    if (!r.ok) throw new Error(`Failed to load conversation (${r.status})`);
+    const conv = await r.json();
+    _chatConvId = id;
+    _chatMessages = [];
+    _chatAttachments = [];
+    renderAttachments();
+    // Reset transcript to the empty placeholder, then replay stored turns.
+    document.getElementById('chat-transcript').innerHTML =
+      '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
+    for (const m of (conv.messages || [])) {
+      _chatMessages.push({ role: m.role, content: m.content });
+      renderStoredMsg(m.role, m.content);
+    }
+    renderConvList();
+  } catch(e) { alert(e.message); }
+}
+
+function newChat() {
+  _chatConvId = null;
+  _chatMessages = [];
+  _chatAttachments = [];
+  renderAttachments();
+  document.getElementById('chat-transcript').innerHTML =
+    '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
+  renderConvList();
+  document.getElementById('chat-input').focus();
+}
+
+async function deleteConversation(id) {
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+  try {
+    await fetch(`${API}/conversations/${id}`, { method: 'DELETE' });
+  } catch(_) { /* best-effort; refresh below reflects truth */ }
+  if (id === _chatConvId) newChat();
+  await loadConversations();
+}
+
+// Persist one turn to the active conversation, creating the conversation on the
+// first turn (titled from the user's message). Returns false on failure so the
+// caller can decide whether to keep going.
+async function persistTurn(role, content) {
+  try {
+    if (_chatConvId === null) {
+      const title = typeof content === 'string'
+        ? content : (Array.isArray(content) ? (content.find(p => p.type === 'text') || {}).text || 'New chat' : 'New chat');
+      const r = await fetch(`${API}/conversations`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.slice(0, 60) }),
+      });
+      if (!r.ok) throw new Error();
+      _chatConvId = (await r.json()).id;
+    }
+    await fetch(`${API}/conversations/${_chatConvId}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, content }),
+    });
+    return true;
+  } catch(_) { return false; }
 }
 
 function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px'; }
@@ -1684,7 +1847,8 @@ async function sendChat() {
   renderChatMsg('user', text, { images: imgNames, files: docNames });
 
   // Append to history using the OpenAI content shape the proxy resolves.
-  _chatMessages.push({ role: 'user', content: chatUserContent(text) });
+  const userContent = chatUserContent(text);
+  _chatMessages.push({ role: 'user', content: userContent });
   _chatAttachments = [];
   renderAttachments();
   input.value = ''; autoGrow(input);
@@ -1720,6 +1884,13 @@ async function sendChat() {
     finalizeChatBubble(bubble, acc);
     if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }));
     _chatMessages.push({ role: 'assistant', content: acc });
+    // Persist both turns only now that the reply succeeded — on failure we drop
+    // the user turn (below), so nothing dangling gets saved. The user turn is
+    // saved first (creating the conversation on the first message), then the
+    // reply; the sidebar refresh reflects the new/renamed thread + recency.
+    await persistTurn('user', userContent);
+    await persistTurn('assistant', acc);
+    await loadConversations();
   } catch(e) {
     bubbleWrap.classList.add('error');
     bubble.textContent = e.message;

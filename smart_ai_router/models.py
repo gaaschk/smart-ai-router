@@ -1,6 +1,12 @@
 """Data containers for the smart-ai-router."""
 from __future__ import annotations
+import secrets
 from dataclasses import dataclass, field
+
+
+def generate_conversation_id() -> str:
+    """Opaque conversation id, e.g. 'conv-9f3a...' (mirrors files.generate_file_id)."""
+    return f"conv-{secrets.token_hex(16)}"
 
 
 @dataclass
@@ -68,6 +74,38 @@ class FileRecord:
     path: str = ""                   # absolute path to the stored blob
     extracted_text: str = ""         # server-extracted text (documents only)
     created_at: str = ""
+
+
+@dataclass
+class Conversation:
+    """A saved chat thread, owned by a user, so history survives reloads and
+    restarts. Messages live in ChatMessage rows keyed on `id`.
+
+    `title` is a short human label (auto-derived from the first user message,
+    editable). `created_at`/`updated_at` are ISO-8601 UTC; `updated_at` bumps
+    whenever a message is appended, so the conversation list can sort by recency.
+    """
+    id: str                          # "conv-<token>" — opaque identifier
+    user: str = ""                   # owner identity (per-user scoping)
+    title: str = "New chat"          # short display label
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
+class ChatMessage:
+    """One turn in a Conversation, in OpenAI shape. `content` is stored as text;
+    when a turn carries structured content (content-parts array with file/image
+    refs) the API layer JSON-encodes it and sets `content_json=True` so it can
+    round-trip back to the same shape the client sent.
+    """
+    conversation_id: str             # FK → Conversation.id
+    role: str = "user"               # "user" | "assistant" | "system"
+    content: str = ""                # message text (or JSON when content_json)
+    content_json: bool = False       # True → `content` is a JSON-encoded parts array
+    id: int = 0                      # autoincrement
+    ordinal: int = 0                 # per-conversation sequence (stable ordering)
+    ts: str = ""
 
 
 @dataclass

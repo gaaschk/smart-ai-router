@@ -147,6 +147,54 @@ class FileDeletedResponse(BaseModel):
     deleted: bool = True
 
 
+# ── Chat history (conversations) ─────────────────────────────────────────────────
+
+class ConversationResponse(BaseModel):
+    """A saved chat thread's metadata (no messages)."""
+    id: str
+    title: str = "New chat"
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class ConversationListResponse(BaseModel):
+    object: str = "list"
+    data: list[ConversationResponse] = Field(default_factory=list)
+
+
+class ConversationCreateRequest(BaseModel):
+    title: str = "New chat"
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: str = Field(..., description="New title for the conversation")
+
+
+class ChatMessageResponse(BaseModel):
+    """One turn. `content` is a plain string, or a content-parts array/object
+    when the original turn carried file/image refs."""
+    role: str
+    content: object = ""
+    ts: str = ""
+
+
+class ChatMessageCreateRequest(BaseModel):
+    role: str = Field(..., description="user | assistant | system")
+    # A plain string, or an OpenAI content-parts array (text + file/image refs).
+    content: object = ""
+
+
+class ConversationDetailResponse(ConversationResponse):
+    """A conversation plus its full message list (for loading into the UI)."""
+    messages: list[ChatMessageResponse] = Field(default_factory=list)
+
+
+class ConversationDeletedResponse(BaseModel):
+    id: str
+    object: str = "conversation"
+    deleted: bool = True
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 class UpdateStatusResponse(BaseModel):

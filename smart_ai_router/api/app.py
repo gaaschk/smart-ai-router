@@ -14,6 +14,7 @@ from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
 from smart_ai_router.api.files_routes import files_router
+from smart_ai_router.api.conversations_routes import conversations_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -103,6 +104,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         )
 
     app.include_router(api_router, prefix="/api")
+    app.include_router(conversations_router, prefix="/api")
     app.include_router(proxy_router)
     app.include_router(files_router)
 
