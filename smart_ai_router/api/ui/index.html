@@ -140,6 +140,24 @@
     color: var(--text-secondary);
   }
 
+  .whoami {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .whoami:hover { border-color: var(--accent); color: var(--text); }
+  .whoami.admin { color: var(--accent); border-color: var(--accent); }
+  .whoami .whoami-icon { font-size: 0.85em; opacity: 0.85; }
+
   /* ── Page sections ───────────────────────────────────────────────── */
   .page { display: none; padding: 2rem; max-width: 1200px; margin: 0 auto; }
   .page.active { display: block; }
@@ -756,6 +774,8 @@
   </nav>
   <div class="status-group">
     <span class="model-count" id="topbar-model-count">—</span>
+    <span class="whoami" id="topbar-whoami" title="Signed-in identity — click to sign out and enter a different key"
+          onclick="signOut()" style="display:none"></span>
     <span class="status-label"><span class="status-dot"></span> Running</span>
   </div>
 </div>
@@ -1085,6 +1105,41 @@ function promptApiKey() {
   return getApiKey();
 }
 
+// ── Identity badge ────────────────────────────────────────────────────────────
+// Show who the stored key authenticates as (root/admin, a per-user label, or
+// open mode) so it's never a mystery which key is in use. /api/whoami reads the
+// identity the server attached to the request — it never returns the secret.
+async function loadWhoAmI() {
+  const el = document.getElementById('topbar-whoami');
+  if (!el) return;
+  try {
+    const r = await fetch(`${API}/whoami`);
+    if (!r.ok) throw new Error();
+    const me = await r.json();
+    el.classList.toggle('admin', me.kind === 'admin');
+    if (me.kind === 'admin') {
+      el.innerHTML = `<span class="whoami-icon">🔑</span> root (admin)`;
+      el.title = 'Signed in with the root/admin key — click to sign out';
+    } else if (me.kind === 'user') {
+      const px = me.key_prefix ? ` · ${escapeHtml(me.key_prefix)}…` : '';
+      el.innerHTML = `<span class="whoami-icon">👤</span> ${escapeHtml(me.user)}${px}`;
+      el.title = 'Signed in with a per-user key — click to sign out';
+    } else {
+      el.innerHTML = `<span class="whoami-icon">🔓</span> open (no key)`;
+      el.title = 'No API key required by this router';
+    }
+    el.style.display = 'inline-flex';
+  } catch(_) {
+    el.style.display = 'none';   // e.g. still unauthenticated; the prompt handles it
+  }
+}
+
+function signOut() {
+  if (!confirm('Sign out and clear the stored API key from this browser?')) return;
+  setApiKey('');
+  location.reload();   // reload re-triggers the key prompt on the next 401
+}
+
 const _rawFetch = window.fetch.bind(window);
 window.fetch = async function(input, init = {}) {
   const url = typeof input === 'string' ? input : (input && input.url) || '';
@@ -1127,6 +1182,7 @@ function showPage(name) {
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
   await fetchModels();
+  loadWhoAmI();
   fetchProviders();
   doCheckUpdates();
 }
