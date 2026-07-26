@@ -4,7 +4,15 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import (
+    ApiKey,
+    ChatMessage,
+    Conversation,
+    FileRecord,
+    ModelSpec,
+    ProviderConfig,
+    UsageRecord,
+)
 from smart_ai_router.store.base import MatrixStore
 
 
@@ -99,6 +107,34 @@ class SqliteStore(MatrixStore):
             """)
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_files_user ON files (user)"
+            )
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id         TEXT PRIMARY KEY,
+                    user       TEXT DEFAULT '',
+                    title      TEXT DEFAULT 'New chat',
+                    created_at TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT ''
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversations_user "
+                "ON conversations (user, updated_at)"
+            )
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id TEXT NOT NULL,
+                    ordinal         INTEGER DEFAULT 0,
+                    role            TEXT DEFAULT 'user',
+                    content         TEXT DEFAULT '',
+                    content_json    INTEGER DEFAULT 0,
+                    ts              TEXT DEFAULT ''
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv "
+                "ON chat_messages (conversation_id, ordinal)"
             )
             # Additive migration: vision column added after initial release
             try:
@@ -333,6 +369,121 @@ class SqliteStore(MatrixStore):
             cur = self._conn.execute("DELETE FROM files WHERE id=?", (file_id,))
             self._conn.commit()
         return cur.rowcount > 0
+
+    # ── Chat history ─────────────────────────────────────────────────────────────
+
+    def create_conversation(self, conv: Conversation) -> Conversation:
+        now = _utcnow_iso()
+        if not conv.created_at:
+            conv.created_at = now
+        if not conv.updated_at:
+            conv.updated_at = conv.created_at
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO conversations (id, user, title, created_at, updated_at)
+                   VALUES (?,?,?,?,?)""",
+                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at),
+            )
+            self._conn.commit()
+        return conv
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+        return self._row_to_conversation(row) if row else None
+
+    def list_conversations(self, user: str | None = None) -> list[Conversation]:
+        with self._lock:
+            if user is None:
+                rows = self._conn.execute(
+                    "SELECT * FROM conversations ORDER BY updated_at DESC"
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM conversations WHERE user=? ORDER BY updated_at DESC",
+                    (user,),
+                ).fetchall()
+        return [self._row_to_conversation(r) for r in rows]
+
+    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                (title, _utcnow_iso(), conversation_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,)
+            )
+            cur = self._conn.execute(
+                "DELETE FROM conversations WHERE id=?", (conversation_id,)
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
+        ts = msg.ts or _utcnow_iso()
+        with self._lock:
+            # Next ordinal = current max + 1 (0 for the first message).
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(ordinal), -1) + 1 AS n FROM chat_messages "
+                "WHERE conversation_id=?",
+                (msg.conversation_id,),
+            ).fetchone()
+            ordinal = row["n"] if msg.ordinal == 0 else msg.ordinal
+            cur = self._conn.execute(
+                """INSERT INTO chat_messages
+                   (conversation_id, ordinal, role, content, content_json, ts)
+                   VALUES (?,?,?,?,?,?)""",
+                (msg.conversation_id, ordinal, msg.role, msg.content,
+                 1 if msg.content_json else 0, ts),
+            )
+            # Appending a message bumps the conversation's recency.
+            self._conn.execute(
+                "UPDATE conversations SET updated_at=? WHERE id=?",
+                (ts, msg.conversation_id),
+            )
+            self._conn.commit()
+            msg.id = cur.lastrowid
+        msg.ordinal = ordinal
+        msg.ts = ts
+        return msg
+
+    def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM chat_messages WHERE conversation_id=? ORDER BY ordinal",
+                (conversation_id,),
+            ).fetchall()
+        return [self._row_to_chat_message(r) for r in rows]
+
+    @staticmethod
+    def _row_to_conversation(row: sqlite3.Row) -> Conversation:
+        return Conversation(
+            id=row["id"],
+            user=row["user"] or "",
+            title=row["title"] or "New chat",
+            created_at=row["created_at"] or "",
+            updated_at=row["updated_at"] or "",
+        )
+
+    @staticmethod
+    def _row_to_chat_message(row: sqlite3.Row) -> ChatMessage:
+        return ChatMessage(
+            id=row["id"],
+            conversation_id=row["conversation_id"],
+            ordinal=row["ordinal"] or 0,
+            role=row["role"] or "user",
+            content=row["content"] or "",
+            content_json=bool(row["content_json"]),
+            ts=row["ts"] or "",
+        )
 
     @staticmethod
     def _row_to_file(row: sqlite3.Row) -> FileRecord:

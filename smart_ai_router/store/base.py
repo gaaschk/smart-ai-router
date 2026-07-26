@@ -1,7 +1,15 @@
 """MatrixStore — interface for persisting the capability matrix and provider config."""
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import (
+    ApiKey,
+    ChatMessage,
+    Conversation,
+    FileRecord,
+    ModelSpec,
+    ProviderConfig,
+    UsageRecord,
+)
 
 
 class MatrixStore(ABC):
@@ -79,3 +87,33 @@ class MatrixStore(ABC):
     @abstractmethod
     def delete_file(self, file_id: str) -> bool:
         """Delete file metadata by id. Returns False if nothing matched."""
+
+    # ── Chat history (conversations) ─────────────────────────────────────────────
+
+    @abstractmethod
+    def create_conversation(self, conv: Conversation) -> Conversation:
+        """Persist a new conversation (fills created_at/updated_at if empty)."""
+
+    @abstractmethod
+    def get_conversation(self, conversation_id: str) -> Conversation | None: ...
+
+    @abstractmethod
+    def list_conversations(self, user: str | None = None) -> list[Conversation]:
+        """Conversations, optionally filtered to one owner, newest-updated first."""
+
+    @abstractmethod
+    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
+        """Rename a conversation. Returns False if nothing matched."""
+
+    @abstractmethod
+    def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation and all its messages. False if nothing matched."""
+
+    @abstractmethod
+    def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
+        """Append a message to a conversation (assigns ordinal + ts, bumps the
+        conversation's updated_at)."""
+
+    @abstractmethod
+    def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
+        """All messages in a conversation, in send order (by ordinal)."""

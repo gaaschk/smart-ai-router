@@ -6,7 +6,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from smart_ai_router.capabilities import Capabilities, compute_capabilities
-from smart_ai_router.models import ApiKey, FileRecord, ModelSpec, ProviderConfig, UsageRecord
+from smart_ai_router.models import (
+    ApiKey,
+    ChatMessage,
+    Conversation,
+    FileRecord,
+    ModelSpec,
+    ProviderConfig,
+    UsageRecord,
+)
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -209,6 +217,29 @@ class CapabilityRouter:
             return False
         _files.delete_blob(file_id)
         return self._store.delete_file(file_id)
+
+    # ── Chat history (conversations) ─────────────────────────────────────────────
+
+    def create_conversation(self, conv: Conversation) -> Conversation:
+        return self._store.create_conversation(conv)
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        return self._store.get_conversation(conversation_id)
+
+    def list_conversations(self, user: str | None = None) -> list[Conversation]:
+        return self._store.list_conversations(user)
+
+    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
+        return self._store.update_conversation(conversation_id, title=title)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        return self._store.delete_conversation(conversation_id)
+
+    def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
+        return self._store.add_chat_message(msg)
+
+    def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
+        return self._store.list_chat_messages(conversation_id)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 
