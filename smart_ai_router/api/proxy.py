@@ -17,6 +17,7 @@ Supported provider prefixes in the routed model value:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from typing import Any, AsyncIterator
@@ -62,6 +63,33 @@ _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 # (unbounded up to context), but many providers here default low, so we set a
 # generous floor that leaves room for a reasoning budget plus a real answer.
 _DEFAULT_MAX_TOKENS = 4096
+
+# Seconds of silence in an SSE stream before we emit a keepalive comment. A
+# model round (especially the first token of a slow reasoning model) can take
+# many seconds during which the agent loop yields nothing; without a heartbeat
+# the client's bubble looks frozen. An SSE comment line (":\n\n") is ignored by
+# the OpenAI wire format but proves the connection is alive.
+_HEARTBEAT_SECS = 10.0
+
+
+async def _with_heartbeat(
+    gen: AsyncIterator[bytes], interval: float = _HEARTBEAT_SECS
+) -> AsyncIterator[bytes]:
+    """Yield from `gen`, injecting an SSE keepalive comment after every
+    `interval` seconds of silence so a slow round never looks like a hang."""
+    ait = gen.__aiter__()
+    while True:
+        nxt = asyncio.ensure_future(ait.__anext__())
+        while True:
+            try:
+                chunk = await asyncio.wait_for(asyncio.shield(nxt), timeout=interval)
+            except asyncio.TimeoutError:
+                yield b": keepalive\n\n"
+                continue
+            except StopAsyncIteration:
+                return
+            break
+        yield chunk
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -406,6 +434,7 @@ async def chat_completions(request: Request):
                 needs_vision=needs_vision,
                 est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
                 scope=scope,
+                agent_mode=agent_mode,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
@@ -513,7 +542,7 @@ async def chat_completions(request: Request):
                 yield chunk
 
         return StreamingResponse(
-            _agent_generator(),
+            _with_heartbeat(_agent_generator()),
             media_type="text/event-stream",
             headers={
                 **routing_headers,

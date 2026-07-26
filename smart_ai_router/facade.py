@@ -36,6 +36,7 @@ class CapabilityRouter:
         est_tokens: int = 0,
         exclude: set[str] | None = None,
         scope: ModelScope | None = None,
+        agent_mode: bool = False,
     ) -> str:
         """Return the optimal model string for the given hints.
 
@@ -51,6 +52,7 @@ class CapabilityRouter:
             exclude=exclude,
             scope=scope,
             thresholds=self._thresholds,
+            agent_mode=agent_mode,
         )
 
     # ── Capabilities ───────────────────────────────────────────────────────────
