@@ -8,8 +8,10 @@ proxy executes them here and feeds results back until the model stops calling
 Every tool operates strictly inside the caller's workspace (workspace.py):
   list_dir(path)                 — list a directory
   read_file(path)                — read a text file
-  write_file(path, content)      — create/overwrite a file
+  write_file(path, content)      — create/overwrite a text file
   edit_file(path, old, new)      — replace an exact substring
+  create_document(path, content) — render Markdown into a downloadable
+                                   PDF/Word/PowerPoint/Excel/Markdown file
   run_bash(command)              — run a shell command (sandboxed; opt-in)
 
 Execution never raises for user-caused errors (missing file, bad path, non-zero
@@ -19,9 +21,29 @@ the agent loop robust — a tool error is a turn, not a crash.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
+from smart_ai_router import docgen as _docgen
 from smart_ai_router import sandbox as _sandbox
 from smart_ai_router.workspace import WorkspaceError, resolve_in_workspace
+
+# A callback the proxy supplies so a created file is also registered in the
+# Files API (downloadable from the chat and listed in the Files tab). Signature:
+# (data, filename, mime) -> file_id.  None when unavailable (e.g. unit tests),
+# in which case create_document still writes to the workspace.
+RegisterFile = Callable[[bytes, str, str], str]
+
+# Extension → MIME for files we generate, so a registered file downloads with
+# the right type.
+_EXT_MIME = {
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".txt": "text/plain",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 # Cap on bytes returned by read_file / a listing, so one tool result can't blow
 # the model's context or the response size.
@@ -83,6 +105,28 @@ _WRITE_TOOLS = [
             "new_text": {"type": "string", "description": "Text to replace it with."},
         },
         ["path", "old_text", "new_text"],
+    ),
+    _fn(
+        "create_document",
+        "Create a downloadable document (PDF, Word .docx, PowerPoint .pptx, "
+        "Excel .xlsx, or Markdown/text) from Markdown content, and give the "
+        "user a link to download it. Use this whenever the user asks for a file "
+        "they can save or open — a resume, report, slide deck, spreadsheet, etc. "
+        "Write the body as Markdown: '# ' headings, '- ' bullets, '**bold**', "
+        "and pipe tables. For .pptx each '# ' heading starts a new slide; for "
+        ".xlsx use a pipe table or comma-separated lines for rows.",
+        {
+            "path": {
+                "type": "string",
+                "description": "Output file name/path relative to the workspace root; "
+                               "the extension picks the format (.pdf/.docx/.pptx/.xlsx/.md/.txt).",
+            },
+            "content": {
+                "type": "string",
+                "description": "The document body as Markdown.",
+            },
+        },
+        ["path", "content"],
     ),
 ]
 
@@ -175,6 +219,46 @@ def _do_edit_file(user: str, args: dict) -> str:
     return f"Edited {args.get('path', '')} (1 replacement)"
 
 
+def _do_create_document(user: str, args: dict, register_file: RegisterFile | None) -> str:
+    path = args.get("path", "")
+    content = args.get("content", "")
+    if not path:
+        return "Error: create_document requires a 'path' (with an extension)."
+    if not _docgen.is_supported(path):
+        return (
+            f"Error: unsupported document type for {path!r}. Supported extensions: "
+            + ", ".join(sorted(_docgen.SUPPORTED_EXTS))
+        )
+    # Resolve inside the jail first so a bad path is refused before rendering.
+    target = resolve_in_workspace(user, path)
+    try:
+        data = _docgen.render(path, content)
+    except _docgen.DocGenError as exc:
+        return f"Error: {exc}"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+    filename = target.name
+    ext = filename[filename.rfind("."):].lower() if "." in filename else ""
+    mime = _EXT_MIME.get(ext, "application/octet-stream")
+    result = f"Created {filename} ({len(data)} bytes) in your workspace."
+    if register_file is not None:
+        try:
+            file_id = register_file(data, filename, mime)
+            # A relative link the chat UI resolves against the router origin;
+            # the Files API serves it as a download.
+            result += (
+                f" Download it here: [{filename}](/v1/files/{file_id}/content) "
+                f"(also available in the Files tab)."
+            )
+        except Exception as exc:  # noqa: BLE001 — registration is best-effort
+            result += f" (Could not register for download: {exc})"
+    return result
+
+
 def _do_run_bash(user: str, args: dict) -> str:
     from smart_ai_router.workspace import user_workspace
     try:
@@ -199,17 +283,28 @@ _DISPATCH = {
 }
 
 
-def execute_tool(user: str, name: str, args: dict) -> str:
+def execute_tool(
+    user: str,
+    name: str,
+    args: dict,
+    *,
+    register_file: RegisterFile | None = None,
+) -> str:
     """Run one tool call for `user` and return a text result for the model.
 
     All user-caused failures (bad path, missing file, escape attempt, non-zero
     exit) return an error string rather than raising — the model reads it and
     adapts. Only an unknown tool name is treated as a hard error string too.
+
+    `register_file`, when provided, lets create_document register its output in
+    the Files API so the user can download it.
     """
-    handler = _DISPATCH.get(name)
-    if handler is None:
-        return f"Error: unknown tool {name!r}"
     try:
+        if name == "create_document":
+            return _do_create_document(user, args or {}, register_file)
+        handler = _DISPATCH.get(name)
+        if handler is None:
+            return f"Error: unknown tool {name!r}"
         return handler(user, args or {})
     except WorkspaceError as exc:
         return f"Error: {exc}"

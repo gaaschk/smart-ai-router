@@ -445,6 +445,15 @@ async def chat_completions(request: Request):
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
                    complexity=complexity, usage=None, status=200)
 
+        def _register_file(data: bytes, filename: str, mime: str) -> str:
+            """Register an agent-created file in the Files API, owned by the
+            caller, so it downloads from the chat and shows in the Files tab."""
+            rec = cr.upload_file(
+                data, filename=filename, mime=mime,
+                purpose="assistants", user=user,
+            )
+            return rec.id
+
         async def _agent_generator() -> AsyncIterator[bytes]:
             yield b": smart-ai-router connected\n\n"
             if escalated:
@@ -454,6 +463,7 @@ async def chat_completions(request: Request):
                 body={**body, "model": real_model},
                 tool_schemas=_agent_tool_schemas(),
                 call_model=_call_model,
+                register_file=_register_file,
             ):
                 yield chunk
 
