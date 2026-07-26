@@ -295,6 +295,26 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_MODEL_DENYLIST` | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
+| `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |
+| `SMART_ROUTER_ENABLE_BASH` | `0` | If `1` (and `sandbox-exec` is present), the agent's `run_bash` tool is offered. Off by default — see the security note below. |
+| `SMART_ROUTER_BASH_TIMEOUT_S` | `30` | Wall-clock ceiling for a single `run_bash` call. |
+
+**Agent (filesystem) mode.** The chat UI's 🛠 Agent toggle lets a tool-capable
+model read, write, and edit files in the caller's own workspace (and, when
+enabled, run shell commands). It's gated by capability negotiation just like
+vision — the toggle only lights up when a reachable in-scope model supports
+function calling. Each authenticated identity gets its own path-jailed
+workspace directory; the tools cannot escape it (`..`, absolute paths, and
+symlink escapes are all rejected).
+
+> **`run_bash` security.** Shell access is opt-in (`SMART_ROUTER_ENABLE_BASH=1`)
+> and, on macOS, runs under a `sandbox-exec` (seatbelt) profile that **denies
+> all network**, blocks reads of the server's home directory (so `.env` keys,
+> `~/.ssh`, the SQLite DB, and *other users'* workspaces are unreadable), and
+> confines writes to the caller's workspace. If `sandbox-exec` is unavailable
+> the tool is simply not offered — the router never runs an unsandboxed shell.
+> On a box behind a public tunnel, keep this off unless you understand the
+> shared-kernel blast radius; the read/write tools need no such flag.
 
 **Prompt classification** is a fallback chain, tried in order:
 

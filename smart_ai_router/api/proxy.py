@@ -25,6 +25,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
 from smart_ai_router.llm_classifier import (
@@ -36,8 +37,18 @@ from smart_ai_router.llm_classifier import (
 from smart_ai_router.models import UsageRecord
 from smart_ai_router.ratelimit import check_rate_limit, window_start_for
 from smart_ai_router.scope import ModelScope, parse_scope
+from smart_ai_router.tools import tool_schemas as _tool_schemas
 
 proxy_router = APIRouter()
+
+
+def _agent_tool_schemas() -> list[dict]:
+    """Tools advertised to the model in agent mode.
+
+    Read + write are always offered; bash is included only when the OS sandbox
+    is actually available (tools.tool_schemas gates it on sandbox.available()).
+    """
+    return _tool_schemas(allow_write=True, allow_bash=None)
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
@@ -273,6 +284,12 @@ async def chat_completions(request: Request):
     requested_model = str(body.get("model", ""))
     is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
 
+    # Agent mode: the client asks the assistant to use the filesystem tools
+    # (read/write/bash over its per-user workspace). Signaled by a non-standard
+    # `agent` flag in the body; stripped before forwarding so providers never
+    # see it. Requires a tool-capable model (guarded after scope is known).
+    agent_mode = bool(body.pop("agent", False))
+
     # Expand any uploaded-file references (file-… ids) into inline content the
     # backend understands: images → base64 data: URIs, documents → their
     # server-extracted text. Owner-scoped, so a key can only attach its own
@@ -326,6 +343,18 @@ async def chat_completions(request: Request):
                    "the image.",
         )
 
+    # Capability guard for agent mode: filesystem tools need a tool-calling
+    # model. Same negotiation as vision — enabled iff a reachable in-scope model
+    # supports function calling. Fail clearly rather than silently ignoring the
+    # tools and answering without ever touching the workspace.
+    if agent_mode and not cr.capabilities(scope=scope).tools:
+        raise HTTPException(
+            status_code=422,
+            detail="Agent (filesystem) mode needs a tool-capable model, but "
+                   "none is available for your key. Register a model that "
+                   "supports function calling (via ollama or openrouter).",
+        )
+
     # 2. Route
     if is_orchestrator:
         # Orchestration layer: force a Claude model for reliable skill/workflow
@@ -351,7 +380,7 @@ async def chat_completions(request: Request):
             routed_model = cr.route(
                 domain,
                 complexity,
-                needs_tools=bool(body.get("tools")),
+                needs_tools=bool(body.get("tools")) or agent_mode,
                 needs_vision=needs_vision,
                 est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
                 scope=scope,
@@ -397,6 +426,42 @@ async def chat_completions(request: Request):
     # connect short, read/write/pool long — the read budget covers slow
     # time-to-first-token and long generations.
     _timeout = httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=600.0)
+
+    # 4a. Agent mode: run the tool-calling loop server-side, executing the
+    # filesystem tools against the caller's workspace and streaming tool
+    # activity + the final answer back as SSE. The loop reuses this same
+    # provider/keys via a non-streaming call_model closure.
+    if agent_mode:
+        async def _call_model(req_body: dict) -> dict:
+            fwd = {**req_body, "model": real_model}
+            if not fwd.get("max_tokens"):
+                fwd["max_tokens"] = _DEFAULT_MAX_TOKENS
+            async with httpx.AsyncClient(timeout=_timeout) as client:
+                resp = await client.post(url, headers=_headers(api_key), json=fwd)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"provider {resp.status_code}: {resp.text[:500]}")
+            return resp.json()
+
+        _log_usage(cr, request, routed_model=routed_model, domain=domain,
+                   complexity=complexity, usage=None, status=200)
+
+        async def _agent_generator() -> AsyncIterator[bytes]:
+            yield b": smart-ai-router connected\n\n"
+            if escalated:
+                yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': _ESCALATION_NOTE}, 'finish_reason': None}]})}\n\n".encode()
+            async for chunk in run_agent_loop(
+                user=user,
+                body={**body, "model": real_model},
+                tool_schemas=_agent_tool_schemas(),
+                call_model=_call_model,
+            ):
+                yield chunk
+
+        return StreamingResponse(
+            _agent_generator(),
+            media_type="text/event-stream",
+            headers={**routing_headers, "X-Agent": "true"},
+        )
 
     # 4. Forward with async httpx
     if stream:
