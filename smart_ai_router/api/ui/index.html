@@ -745,6 +745,46 @@
     opacity: 0.5;
   }
 
+  /* ── Modal (one-time key reveal) ─────────────────────────────────── */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    width: 100%;
+    max-width: 560px;
+    padding: 1.5rem;
+  }
+  .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .modal-body { font-size: 0.85rem; color: var(--text-secondary); }
+  .modal-key {
+    display: block;
+    margin: 0.9rem 0;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    word-break: break-all;
+    user-select: all;
+    color: var(--accent-text);
+  }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+  .modal-warn { color: var(--warning); }
+
   /* ── Responsive ──────────────────────────────────────────────────── */
   @media (max-width: 768px) {
     .topbar { padding: 0 1rem; }
@@ -1005,11 +1045,6 @@
         <span id="spin-create-key" style="display:none" class="spinner"></span>
         Mint key
       </button>
-    </div>
-    <div id="key-created" class="route-result" style="display:none;margin-top:0.75rem">
-      <div style="font-size:0.85rem;color:var(--text)">Save this <strong>full key</strong> now — it will <strong>not</strong> be shown again:</div>
-      <code id="key-created-value" style="display:block;margin:0.5rem 0;word-break:break-all;user-select:all"></code>
-      <button id="btn-copy-key" class="btn btn-sm" onclick="copyCreatedKey()">Copy key</button>
     </div>
   </div>
 
@@ -1583,20 +1618,24 @@ async function createKey() {
 }
 
 // The plaintext key is returned exactly once (on create or recreate) — never
-// stored server-side. Surface it in the one-time box and scroll it into view so
-// it can't be missed.
+// stored server-side. Show it in a center-screen modal so it can't be missed,
+// no matter where on the page the action was triggered (create form at top,
+// recreate buttons on cards below).
 function showCreatedKey(key) {
-  const box = document.getElementById('key-created');
-  document.getElementById('key-created-value').textContent = key;
-  box.style.display = '';
-  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('key-modal-value').textContent = key;
+  document.getElementById('key-modal').classList.add('open');
 }
 
-async function copyCreatedKey() {
-  const key = document.getElementById('key-created-value').textContent;
+function closeKeyModal() {
+  document.getElementById('key-modal').classList.remove('open');
+  document.getElementById('key-modal-value').textContent = '';  // don't leave it in the DOM
+}
+
+async function copyModalKey() {
+  const key = document.getElementById('key-modal-value').textContent;
   try {
     await navigator.clipboard.writeText(key);
-    const btn = document.getElementById('btn-copy-key');
+    const btn = document.getElementById('btn-modal-copy');
     const orig = btn.textContent;
     btn.textContent = 'Copied ✓';
     setTimeout(() => { btn.textContent = orig; }, 1500);
@@ -2096,7 +2135,28 @@ function finalizeChatBubble(bubble, text) {
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('key-modal').classList.contains('open')) {
+    closeKeyModal();
+  }
+});
 initDashboard();
 </script>
+
+<!-- ── One-time key reveal modal ──────────────────────────────────────── -->
+<div class="modal-backdrop" id="key-modal" onclick="if(event.target===this)closeKeyModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-modal-title">
+    <div class="modal-title" id="key-modal-title">Your new API key</div>
+    <div class="modal-body">
+      Copy this <strong>full key</strong> now — <span class="modal-warn">it will not be shown again.</span>
+      Only its hash is stored on the server.
+      <code class="modal-key" id="key-modal-value"></code>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="btn-modal-copy" onclick="copyModalKey()">Copy key</button>
+      <button class="btn btn-sm btn-primary" onclick="closeKeyModal()">Done</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
