@@ -241,6 +241,7 @@
 
   .chat-meta { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); }
   .chat-routing-escalated { color: var(--warning); }
+  .chat-routing-agent { color: var(--accent); }
   .chat-download-link {
     display: inline-block; margin-top: 6px; padding: 4px 10px;
     background: var(--accent-soft); border: 1px solid var(--accent);
@@ -283,7 +284,12 @@
   .chat-agent-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; user-select: none; }
   .chat-agent-toggle input { cursor: pointer; accent-color: var(--accent); }
   .chat-agent-toggle.disabled { opacity: 0.4; cursor: not-allowed; }
-  .chat-agent-toggle.disabled input { cursor: not-allowed; }
+  .chat-agent-toggle.disabled input, .chat-agent-toggle.disabled select { cursor: not-allowed; }
+  .chat-agent-select {
+    background: var(--surface-raised); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 1px 4px; font-size: 0.78rem; cursor: pointer;
+  }
 
   .btn {
     display: inline-flex;
@@ -762,7 +768,7 @@
 <!-- ── Chat ────────────────────────────────────────────────────────── -->
 <div class="page" id="page-chat">
   <h1 class="page-title">Chat</h1>
-  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Turn on Agent and it can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
+  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
 
   <div class="chat-shell">
     <div class="chat-transcript" id="chat-transcript">
@@ -776,8 +782,13 @@
       <div class="chat-composer-actions">
         <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
         <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
-        <label class="chat-agent-toggle" id="chat-agent-label" title="Let the assistant read, write, and run commands in your private workspace on the server">
-          <input type="checkbox" id="chat-agent"> 🛠 Agent
+        <label class="chat-agent-toggle" id="chat-agent-label" title="Agent mode lets the assistant read, write, and create files in your private workspace. Auto turns it on only when your request asks for a file or filesystem work.">
+          🛠 Agent
+          <select id="chat-agent" class="chat-agent-select">
+            <option value="auto" selected>Auto</option>
+            <option value="true">On</option>
+            <option value="false">Off</option>
+          </select>
         </label>
         <span class="chat-cap-note" id="chat-cap-note"></span>
         <button class="btn btn-primary btn-sm" id="btn-chat-send" onclick="sendChat()" style="margin-left:auto">
@@ -1533,19 +1544,21 @@ async function refreshChatCaps() {
   const canVision = _chatCaps && _chatCaps.vision;
   note.textContent = canVision ? '' : 'No vision model available — images can’t be processed.';
 
-  // Agent mode needs a tool-capable model; gate the toggle on it (same
-  // capability-negotiation pattern as vision).
+  // Agent mode needs a tool-capable model; gate the control on it (same
+  // capability-negotiation pattern as vision). With a tool-capable model the
+  // control defaults to Auto — the server enters agent mode only for requests
+  // that ask for a file or filesystem work, so plain chat stays cheap.
   const canTools = _chatCaps && _chatCaps.tools;
   const agentLabel = document.getElementById('chat-agent-label');
-  const agentBox = document.getElementById('chat-agent');
+  const agentSel = document.getElementById('chat-agent');
   if (canTools) {
     agentLabel.classList.remove('disabled');
-    agentBox.disabled = false;
-    agentLabel.title = 'Let the assistant read, write, and run commands in your private workspace on the server';
+    agentSel.disabled = false;
+    agentLabel.title = 'Agent mode lets the assistant read, write, and create files in your private workspace. Auto turns it on only when your request asks for a file or filesystem work.';
   } else {
     agentLabel.classList.add('disabled');
-    agentBox.disabled = true;
-    agentBox.checked = false;
+    agentSel.disabled = true;
+    agentSel.value = 'false';
     agentLabel.title = 'No tool-capable model available — agent mode is unavailable for your key.';
   }
 }
@@ -1638,13 +1651,20 @@ function renderChatMsg(role, text, opts = {}) {
 // This is the router's core value made visible — which model was picked, for
 // what domain/complexity, by which classifier, and whether it was escalated
 // to a costlier tier. (Replaces the old dashboard "playground" routing panel.)
-function chatRoutingBadge({ routed, domain, complexity, escalated, classifier }) {
+function chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }) {
   const parts = [];
   if (domain && complexity) parts.push(`${escapeHtml(domain)} / ${escapeHtml(complexity)}`);
   parts.push(`→ ${escapeHtml(routed)}`);
   if (classifier) parts.push(`via ${escapeHtml(classifier)}`);
   let html = `<div class="chat-meta chat-routing">${parts.join(' · ')}`;
   if (escalated) html += ` <span class="chat-routing-escalated" title="No cheaper model met the quality bar — escalated to a costlier tier">⬆ escalated</span>`;
+  if (agentOn) {
+    const label = agentAuto ? '🛠 agent (auto)' : '🛠 agent';
+    const tip = agentAuto
+      ? 'Your request asked for a file or filesystem work, so agent mode turned on automatically.'
+      : 'Agent mode was on for this request.';
+    html += ` <span class="chat-routing-agent" title="${escapeHtml(tip)}">${label}</span>`;
+  }
   html += `</div>`;
   return html;
 }
@@ -1672,11 +1692,15 @@ async function sendChat() {
   const bubbleWrap = renderChatMsg('assistant', '');
   const bubble = bubbleWrap.querySelector('.chat-bubble');
 
+  // Tri-state agent flag: "auto" (classifier decides) / true (on) / false (off).
+  const agentSel = document.getElementById('chat-agent').value;
+  const agentFlag = agentSel === 'auto' ? 'auto' : (agentSel === 'true');
+
   try {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: document.getElementById('chat-agent').checked }),
+      body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: agentFlag }),
     });
     if (!res.ok) {
       let detail; try { detail = (await res.json()).detail; } catch(_) { detail = await res.text(); }
@@ -1690,9 +1714,11 @@ async function sendChat() {
     const complexity = res.headers.get('X-Complexity') || '';
     const escalated = res.headers.get('X-Escalated') === 'true';
     const classifier = res.headers.get('X-Classifier') || '';
+    const agentOn = res.headers.get('X-Agent') === 'true';
+    const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
     const acc = await streamChatInto(res, bubble);
     finalizeChatBubble(bubble, acc);
-    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier }));
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }));
     _chatMessages.push({ role: 'assistant', content: acc });
   } catch(e) {
     bubbleWrap.classList.add('error');
