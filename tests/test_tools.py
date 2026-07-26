@@ -46,6 +46,27 @@ def test_write_then_read_roundtrip():
     assert got == "hello"
 
 
+@pytest.mark.parametrize("path", [
+    "resume.docx", "report.pdf", "deck.pptx", "data.xlsx",
+    "old.doc", "old.ppt", "old.xls", "sub/dir/thing.PDF",
+])
+def test_write_file_refuses_binary_doc_extensions(path):
+    # write_file must never write text bytes into a binary document format —
+    # that yields a corrupt file. It returns an error steering to create_document.
+    out = tools.execute_tool("alice", "write_file", {"path": path, "content": "plain text"})
+    assert out.startswith("Error")
+    assert "create_document" in out
+    # And it must NOT have written anything to the workspace.
+    listing = tools.execute_tool("alice", "list_dir", {"path": ""})
+    assert path.split("/")[0] not in listing.split("\n") if "/" not in path else True
+
+
+def test_write_file_still_allows_text_extensions():
+    for path in ("notes.txt", "data.csv", "config.json", "README.md", "script.py"):
+        out = tools.execute_tool("alice", "write_file", {"path": path, "content": "x"})
+        assert "Wrote" in out
+
+
 def test_list_dir_shows_written_files():
     tools.execute_tool("alice", "write_file", {"path": "a.txt", "content": "x"})
     tools.execute_tool("alice", "write_file", {"path": "sub/b.txt", "content": "y"})
