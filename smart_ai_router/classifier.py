@@ -12,6 +12,65 @@ Complexity: "trivial" | "moderate" | "hard"
 """
 from __future__ import annotations
 
+import re
+
+# ── Actionable-intent signals (agent-mode auto-detection) ─────────────────────
+#
+# is_actionable(prompt) decides whether a request should auto-enter agent mode:
+# does the user want the assistant to *produce a file* or *do filesystem work*,
+# rather than just answer? It is deliberately CONSERVATIVE — a false positive
+# routes a plain question onto a pricier tool-capable model and runs the tool
+# loop needlessly, undercutting the router's cost story. So it fires only on a
+# strong signal: an action verb paired with a file/artifact noun, an explicit
+# file extension, or an unambiguous filesystem verb phrase.
+
+# Verbs that signal "produce/modify an artifact".
+_ACTION_VERBS = frozenset({
+    "create", "make", "generate", "build", "draft", "produce", "write",
+    "save", "export", "download", "compile", "assemble", "put together",
+    "prepare", "turn", "convert",
+})
+
+# Nouns naming a downloadable artifact. Paired with an action verb these mean
+# "make me this file" — the core create_document use case.
+_ARTIFACT_NOUNS = frozenset({
+    "pdf", "document", "doc", "docx", "word doc", "resume", "cv",
+    "cover letter", "spreadsheet", "excel", "xlsx", "workbook", "csv",
+    "powerpoint", "pptx", "presentation", "slide deck", "slides", "slide",
+    "report", "markdown file", "text file", "file", "handout", "worksheet",
+})
+
+# Unambiguous filesystem/agent phrases — actionable on their own (no noun pair
+# needed) because they describe operating on the workspace directly.
+_FS_PHRASES = (
+    "list files", "list the files", "in my workspace", "read the file",
+    "edit the file", "update the file", "open the file", "run this script",
+    "run the script", "save it to", "save this to", "write it to a file",
+    "write to a file", "save as a", "save as an",
+)
+
+# An explicit downloadable-file extension anywhere in the prompt.
+_FILE_EXT_RE = re.compile(
+    r"\.(pdf|docx?|pptx?|xlsx?|md|markdown|txt|csv)\b", re.IGNORECASE
+)
+
+
+def is_actionable(prompt: str) -> bool:
+    """True if the prompt asks the assistant to produce a file or do filesystem
+    work — i.e. it should auto-enter agent mode. Conservative by design."""
+    if not prompt:
+        return False
+    lower = prompt.lower()
+
+    if _FILE_EXT_RE.search(lower):
+        return True
+    if any(phrase in lower for phrase in _FS_PHRASES):
+        return True
+    has_verb = any(v in lower for v in _ACTION_VERBS)
+    has_noun = any(n in lower for n in _ARTIFACT_NOUNS)
+    return has_verb and has_noun
+
+
 # ── Domain keyword signals ────────────────────────────────────────────────────
 
 _CODING_HINTS = frozenset({

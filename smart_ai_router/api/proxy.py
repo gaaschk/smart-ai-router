@@ -26,7 +26,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router.agent_loop import run_agent_loop
-from smart_ai_router.classifier import classify
+from smart_ai_router.classifier import classify, is_actionable
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
@@ -287,8 +287,11 @@ async def chat_completions(request: Request):
     # Agent mode: the client asks the assistant to use the filesystem tools
     # (read/write/bash over its per-user workspace). Signaled by a non-standard
     # `agent` flag in the body; stripped before forwarding so providers never
-    # see it. Requires a tool-capable model (guarded after scope is known).
-    agent_mode = bool(body.pop("agent", False))
+    # see it. The flag is tri-state:
+    #   True / False  — explicit opt-in / opt-out (honored as given)
+    #   "auto" / absent — let the classifier decide (default)
+    # Resolved to a concrete bool below, once prompt text and scope are known.
+    agent_flag = body.pop("agent", "auto")
 
     # Expand any uploaded-file references (file-… ids) into inline content the
     # backend understands: images → base64 data: URIs, documents → their
@@ -343,17 +346,36 @@ async def chat_completions(request: Request):
                    "the image.",
         )
 
-    # Capability guard for agent mode: filesystem tools need a tool-calling
-    # model. Same negotiation as vision — enabled iff a reachable in-scope model
-    # supports function calling. Fail clearly rather than silently ignoring the
-    # tools and answering without ever touching the workspace.
-    if agent_mode and not cr.capabilities(scope=scope).tools:
-        raise HTTPException(
-            status_code=422,
-            detail="Agent (filesystem) mode needs a tool-capable model, but "
-                   "none is available for your key. Register a model that "
-                   "supports function calling (via ollama or openrouter).",
-        )
+    # Resolve the tri-state agent flag into a concrete decision.
+    #
+    #   explicit True    → agent mode; hard-fail (422) if no tool-capable model,
+    #                      because the caller asked for it and a silent downgrade
+    #                      would be surprising.
+    #   explicit False   → never agent mode.
+    #   "auto" / absent  → enter agent mode only if the prompt is *actionable*
+    #                      (wants a file produced / filesystem work) AND a
+    #                      tool-capable model is in scope. Otherwise fall back
+    #                      silently to plain chat — auto must never lock a user
+    #                      out or needlessly escalate a plain question.
+    tools_available = cr.capabilities(scope=scope).tools
+    agent_auto = isinstance(agent_flag, str) and agent_flag.lower() == "auto"
+    if agent_flag is True:
+        if not tools_available:
+            raise HTTPException(
+                status_code=422,
+                detail="Agent (filesystem) mode needs a tool-capable model, but "
+                       "none is available for your key. Register a model that "
+                       "supports function calling (via ollama or openrouter).",
+            )
+        agent_mode = True
+    elif agent_auto:
+        agent_mode = tools_available and is_actionable(prompt_text)
+    else:
+        agent_mode = False
+
+    if agent_auto and agent_mode:
+        print(f"[proxy] agent auto-detected for actionable prompt",
+              file=sys.stderr, flush=True)
 
     # 2. Route
     if is_orchestrator:
@@ -493,7 +515,11 @@ async def chat_completions(request: Request):
         return StreamingResponse(
             _agent_generator(),
             media_type="text/event-stream",
-            headers={**routing_headers, "X-Agent": "true"},
+            headers={
+                **routing_headers,
+                "X-Agent": "true",
+                "X-Agent-Auto": "true" if agent_auto else "false",
+            },
         )
 
     # 4. Forward with async httpx
