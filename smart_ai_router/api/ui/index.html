@@ -2117,17 +2117,43 @@ async function streamChatInto(res, bubble) {
   return acc;
 }
 
+// Fetch a workspace file through the auth-injecting fetch wrapper and hand the
+// bytes to the browser as a download. A plain <a href="/v1/files/…"> click can't
+// be used: browser navigation carries no Authorization header, so the auth
+// middleware 401s it (and, lacking an identity, ownership would 404). Fetching
+// via window.fetch attaches the Bearer key, then a blob URL triggers the save.
+async function downloadWorkspaceFile(ev, href, filename) {
+  ev.preventDefault();
+  try {
+    const res = await fetch(href);              // wrapped fetch → adds auth
+    if (!res.ok) { alert(`Download failed (${res.status}). Try signing in again.`); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename || 'download';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(`Download failed: ${e}`);
+  }
+}
+
 // Once a reply is fully streamed, turn any workspace download links the agent
 // emitted — Markdown `[name](/v1/files/<id>/content)` — into real clickable
 // anchors. Everything is HTML-escaped first; only same-origin /v1/files/…
 // /content hrefs are linkified, so nothing else in the text can inject markup.
+// The click is intercepted (see downloadWorkspaceFile) so the file is fetched
+// with the API key rather than via a bare, auth-less navigation.
 function finalizeChatBubble(bubble, text) {
   if (!/\/v1\/files\/[^)]+\/content/.test(text || '')) return;  // nothing to do
   const linkRe = /\[([^\]]+)\]\((\/v1\/files\/[A-Za-z0-9._-]+\/content)\)/g;
   let html = '', last = 0, m;
   while ((m = linkRe.exec(text)) !== null) {
     html += escapeHtml(text.slice(last, m.index));
-    html += `<a href="${escapeHtml(m[2])}" download class="chat-download-link">⬇ ${escapeHtml(m[1])}</a>`;
+    const href = escapeHtml(m[2]), name = escapeHtml(m[1]);
+    html += `<a href="${href}" download class="chat-download-link" `
+          + `onclick="downloadWorkspaceFile(event, '${jsStr(m[2])}', '${jsStr(m[1])}')">`
+          + `⬇ ${name}</a>`;
     last = m.index + m[0].length;
   }
   html += escapeHtml(text.slice(last));
