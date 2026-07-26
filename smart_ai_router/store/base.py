@@ -62,6 +62,17 @@ class MatrixStore(ABC):
     @abstractmethod
     def delete_api_key(self, key_prefix: str) -> bool: ...
 
+    @abstractmethod
+    def recreate_api_key(
+        self, key_prefix: str, *, new_hash: str, new_prefix: str
+    ) -> ApiKey | None:
+        """Rotate the secret of an existing key, keyed by its current prefix.
+
+        Replaces key_hash + key_prefix with the new values and resets
+        last_used_at, preserving user/scope/limits/enabled. Returns the updated
+        record, or None if no key matched. The old secret stops working.
+        """
+
     # ── Usage log ────────────────────────────────────────────────────────────
 
     @abstractmethod

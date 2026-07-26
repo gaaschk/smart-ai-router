@@ -148,6 +148,13 @@ class CapabilityRouter:
     def delete_api_key(self, key_prefix: str) -> bool:
         return self._store.delete_api_key(key_prefix)
 
+    def recreate_api_key(
+        self, key_prefix: str, *, new_hash: str, new_prefix: str
+    ) -> ApiKey | None:
+        return self._store.recreate_api_key(
+            key_prefix, new_hash=new_hash, new_prefix=new_prefix
+        )
+
     # ── Usage log ────────────────────────────────────────────────────────────
 
     def record_usage(self, usage: UsageRecord) -> None:
