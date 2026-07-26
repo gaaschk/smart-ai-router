@@ -294,6 +294,10 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
 
 def _headers(api_key: str) -> dict[str, str]:
     h = {"Content-Type": "application/json",
+         # Ask the upstream not to compress: the streaming path forwards raw
+         # socket bytes verbatim (aiter_raw) for immediate token delivery, and
+         # raw bytes must be uncompressed or the browser would see garbage.
+         "Accept-Encoding": "identity",
          "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router"}
     if api_key:
         h["Authorization"] = f"Bearer {api_key}"
@@ -587,7 +591,13 @@ async def chat_completions(request: Request):
                                 }],
                             }
                             yield f"data: {json.dumps(note_chunk)}\n\n".encode()
-                        async for chunk in resp.aiter_bytes(4096):
+                        # Forward each network chunk the instant it arrives.
+                        # aiter_bytes(4096) *buffers* until 4 KB accumulates
+                        # before yielding, which stalls SSE token-by-token
+                        # streaming into visible ~4 KB bursts ("a line every few
+                        # seconds"). aiter_raw() hands us bytes as they land on
+                        # the socket, so tokens reach the browser immediately.
+                        async for chunk in resp.aiter_raw():
                             yield chunk
             except httpx.RequestError as exc:
                 yield f"data: {json.dumps({'error': f'proxy upstream error: {exc}'})}\n\n".encode()
