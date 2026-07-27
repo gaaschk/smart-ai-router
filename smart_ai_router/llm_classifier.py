@@ -142,7 +142,14 @@ async def classify_llm(
         ],
         "stream": False,
         "temperature": 0,
-        "max_tokens": 40,  # a tiny JSON object; no room needed for chatter
+        # Force JSON output. Without this, chatty instruct models (e.g.
+        # llama3.1:8b) ignore the "reply with ONLY JSON" instruction and start
+        # answering the prompt, so the reply has no {...} to parse and the whole
+        # classifier chain silently falls through to the keyword classifier.
+        # response_format json_object is OpenAI-standard and honored by Ollama's
+        # OpenAI-compatible endpoint and OpenRouter alike.
+        "response_format": {"type": "json_object"},
+        "max_tokens": 128,  # a small JSON object; headroom so JSON isn't truncated
     }
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
     url = f"{base_url.rstrip('/')}/chat/completions"

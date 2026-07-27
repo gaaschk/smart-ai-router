@@ -1,5 +1,8 @@
 """Tests for the LLM classifier parsing + config (no network)."""
 import asyncio
+import json
+
+import httpx
 
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
@@ -70,6 +73,37 @@ def test_classify_llm_returns_none_when_disabled(monkeypatch):
 def test_classify_llm_returns_none_on_empty_prompt():
     result = asyncio.run(classify_llm("", base_url="http://localhost:11434/v1"))
     assert result is None
+
+
+def test_classify_llm_requests_json_object(monkeypatch):
+    # The request MUST ask for JSON output — without response_format, chatty
+    # instruct models answer the prompt instead of classifying, and the whole
+    # chain silently falls through to the keyword classifier (the live bug this
+    # fixes). Capture the outgoing payload via a mock transport.
+    import smart_ai_router.llm_classifier as lc
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"domain":"coding","complexity":"hard"}'}}]},
+        )
+
+    real_client = httpx.AsyncClient
+
+    def fake_client(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(lc.httpx, "AsyncClient", fake_client)
+    result = asyncio.run(
+        classify_llm("write a parser", base_url="http://localhost:11434/v1", model="llama3.1:8b")
+    )
+    assert result == ("coding", "hard")
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["body"]["max_tokens"] >= 40
 
 
 def test_default_fallback_model(monkeypatch):
