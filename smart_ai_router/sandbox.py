@@ -24,22 +24,18 @@ so seatbelt is the pragmatic isolation actually available here.
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
-# Wall-clock ceiling for a single bash tool call. A runaway command must not
-# wedge a request forever. Override with SMART_ROUTER_BASH_TIMEOUT_S.
-_DEFAULT_TIMEOUT_S = 30
+from smart_ai_router import settings as _settings
 
 
 def bash_timeout_s() -> int:
-    try:
-        t = int(os.environ.get("SMART_ROUTER_BASH_TIMEOUT_S", _DEFAULT_TIMEOUT_S))
-    except ValueError:
-        t = _DEFAULT_TIMEOUT_S
-    return max(1, t)
+    """Wall-clock ceiling for a single bash tool call. A runaway command must
+    not wedge a request forever. UI-managed (Settings page) with
+    SMART_ROUTER_BASH_TIMEOUT_S as env fallback."""
+    return max(1, _settings.get_int("bash_timeout_s"))
 
 
 def sandbox_exec_path() -> str | None:
@@ -50,10 +46,11 @@ def sandbox_exec_path() -> str | None:
 def available() -> bool:
     """True if bash can be run under an OS sandbox on this host.
 
-    Gated behind SMART_ROUTER_ENABLE_BASH so the powerful (and highest blast
+    Gated behind the "enable_bash" setting so the powerful (and highest blast
     radius) tool is opt-in per deployment, even where sandbox-exec exists.
+    UI-managed (Settings page) with SMART_ROUTER_ENABLE_BASH as env fallback.
     """
-    if os.environ.get("SMART_ROUTER_ENABLE_BASH", "").strip().lower() not in {"1", "true", "yes"}:
+    if not _settings.get_bool("enable_bash"):
         return False
     return sandbox_exec_path() is not None
 

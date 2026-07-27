@@ -136,6 +136,12 @@ class SqliteStore(MatrixStore):
                 "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv "
                 "ON chat_messages (conversation_id, ordinal)"
             )
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT DEFAULT ''
+                )
+            """)
             # Additive migration: vision column added after initial release
             try:
                 self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
@@ -247,6 +253,29 @@ class SqliteStore(MatrixStore):
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    # ── Settings (UI-managed runtime config) ────────────────────────────────────
+
+    def get_setting(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM settings WHERE key=?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO settings (key, value) VALUES (?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (key, value),
+            )
+            self._conn.commit()
+
+    def all_settings(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT key, value FROM settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
 
     # ── API keys ────────────────────────────────────────────────────────────
 

@@ -13,15 +13,17 @@ import os
 import secrets
 from pathlib import Path
 
-_FILE_PREFIX = "file-"
+from smart_ai_router import settings as _settings
 
-# Generous default ceiling; disk is cheap but we still guard against a runaway
-# upload filling the volume. Override with SMART_ROUTER_MAX_FILE_MB.
-_DEFAULT_MAX_FILE_MB = 512
+_FILE_PREFIX = "file-"
 
 
 def files_dir() -> Path:
-    """Root directory for stored blobs (created on first use)."""
+    """Root directory for stored blobs (created on first use).
+
+    Env-only (SMART_ROUTER_FILES_DIR): a filesystem path is intrinsic to the
+    machine, not application policy, so it stays out of the UI settings.
+    """
     raw = os.environ.get("SMART_ROUTER_FILES_DIR", "~/.smart_ai_router_files")
     d = Path(raw).expanduser()
     d.mkdir(parents=True, exist_ok=True)
@@ -29,12 +31,9 @@ def files_dir() -> Path:
 
 
 def max_file_bytes() -> int:
-    """Upload size ceiling in bytes (SMART_ROUTER_MAX_FILE_MB, default 512)."""
-    try:
-        mb = int(os.environ.get("SMART_ROUTER_MAX_FILE_MB", _DEFAULT_MAX_FILE_MB))
-    except ValueError:
-        mb = _DEFAULT_MAX_FILE_MB
-    return max(1, mb) * 1024 * 1024
+    """Upload size ceiling in bytes. UI-managed (Settings page) with
+    SMART_ROUTER_MAX_FILE_MB as env fallback (default 512)."""
+    return max(1, _settings.get_int("max_file_mb")) * 1024 * 1024
 
 
 def generate_file_id() -> str:

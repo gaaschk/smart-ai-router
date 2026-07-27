@@ -6,8 +6,7 @@ No role knowledge. No pricing tables. The caller supplies explicit hints.
 """
 from __future__ import annotations
 
-import os
-
+from smart_ai_router import settings as _settings
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
@@ -32,8 +31,10 @@ def _denylisted() -> tuple[str, ...]:
     which re-seeds models with reliability=1.0. Use it to route away from a
     model that's installed but broken in this environment (e.g. an MLX-quant
     model whose runtime can't load) without deleting it from the catalog.
+
+    UI-managed (Settings page) with SMART_ROUTER_MODEL_DENYLIST as env fallback.
     """
-    raw = os.environ.get("SMART_ROUTER_MODEL_DENYLIST", "")
+    raw = _settings.get_str("model_denylist")
     return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
 
 
@@ -50,8 +51,10 @@ def _agent_denylisted() -> tuple[str, ...]:
     excludes such models from agent routing only — they stay eligible for plain
     chat, where single-shot generation is fine. Like the general denylist it is
     config-driven and survives sync() (which re-seeds reliability=1.0).
+
+    UI-managed (Settings page) with SMART_ROUTER_AGENT_DENYLIST as env fallback.
     """
-    raw = os.environ.get("SMART_ROUTER_AGENT_DENYLIST", "")
+    raw = _settings.get_str("agent_denylist")
     return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
 
 

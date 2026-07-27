@@ -354,6 +354,13 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 
 ### Environment variables
 
+Most application *behavior* (the ⚙ marked rows below) is now managed from the
+**Settings** page in the web UI — persisted in the database, applied live with no
+restart. For those, the environment variable is only a fallback: the effective
+value is **DB (set in the UI) → environment variable → built-in default**. The
+unmarked rows are intrinsic to a machine/deployment (port, paths, the bootstrap
+admin secret) and stay environment-only.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SMART_ROUTER_PORT` | `8001` | Port the server listens on |
@@ -361,14 +368,19 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
 | `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
-| `SMART_ROUTER_CLASSIFIER_MODEL` | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
-| `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
-| `SMART_ROUTER_MODEL_DENYLIST` | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
+| `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
+| `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
+| `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
+| `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |
 | `SMART_ROUTER_FILES_DIR` | `~/.smart_ai_router_files` | Root for uploaded/generated file blobs (metadata lives in SQLite). |
-| `SMART_ROUTER_MAX_FILE_MB` | `512` | Upload size ceiling in MB; larger uploads get `413`. |
-| `SMART_ROUTER_ENABLE_BASH` | `0` | If `1` (and `sandbox-exec` is present), the agent's `run_bash` tool is offered. Off by default — see the security note below. |
-| `SMART_ROUTER_BASH_TIMEOUT_S` | `30` | Wall-clock ceiling for a single `run_bash` call. |
+| `SMART_ROUTER_MAX_FILE_MB` ⚙ | `512` | Upload size ceiling in MB; larger uploads get `413`. |
+| `SMART_ROUTER_OCR_MAX_PAGES` ⚙ | `10` | Max PDF pages rasterized for OCR text extraction. |
+| `SMART_ROUTER_OCR_DPI` ⚙ | `150` | Rasterization resolution for OCR; higher is sharper but slower. |
+| `SMART_ROUTER_ENABLE_BASH` ⚙ | `0` | If `1` (and `sandbox-exec` is present), the agent's `run_bash` tool is offered. Off by default — see the security note below. |
+| `SMART_ROUTER_BASH_TIMEOUT_S` ⚙ | `30` | Wall-clock ceiling for a single `run_bash` call. |
+
+Rows marked ⚙ are editable from the Settings page (env value is the fallback).
 
 **Agent (filesystem) mode.** The chat UI's 🛠 Agent toggle lets a tool-capable
 model read, write, and edit files in the caller's own workspace (and, when

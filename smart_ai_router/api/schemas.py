@@ -110,6 +110,31 @@ class ProviderResponse(BaseModel):
     timeout: int
 
 
+# ── Settings (UI-managed runtime config) ────────────────────────────────────────
+
+class SettingResponse(BaseModel):
+    key: str
+    label: str
+    group: str
+    help: str = ""
+    type: str = Field(..., description="str | int | bool")
+    value: object = Field(..., description="Current effective value (typed)")
+    default: object
+    env: str = Field(..., description="Env var that serves as the fallback")
+    source: str = Field(..., description="db | env | default — where value came from")
+    sensitive: bool = False
+
+
+class SettingsResponse(BaseModel):
+    settings: list[SettingResponse]
+
+
+class SettingsUpdateRequest(BaseModel):
+    updates: dict[str, object] = Field(
+        ..., description="Map of setting key → new value (typed per its spec)"
+    )
+
+
 # ── API keys (per-user auth) ────────────────────────────────────────────────────
 
 class ApiKeyCreateRequest(BaseModel):

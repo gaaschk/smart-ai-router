@@ -1301,6 +1301,23 @@
   <h1 class="page-title">Settings</h1>
   <p class="page-subtitle">Service configuration and maintenance.</p>
 
+  <div class="section-title">Runtime Settings</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 1rem">
+      Application behavior — applied live, no restart. Each falls back to its
+      environment variable, then a built-in default, when unset here.
+    </p>
+    <div id="settings-runtime"><div class="empty-state">Loading settings…</div></div>
+    <div id="settings-runtime-actions" style="display:none;justify-content:flex-end;gap:0.5rem;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:1rem">
+      <span id="settings-runtime-status" style="align-self:center;font-size:0.78rem;color:var(--text-muted);margin-right:auto"></span>
+      <button class="btn btn-ghost btn-sm" onclick="fetchRuntimeSettings()">Reset</button>
+      <button class="btn btn-primary btn-sm" id="btn-save-settings" onclick="saveRuntimeSettings()">
+        <span id="spin-save-settings" style="display:none" class="spinner"></span>
+        Save changes
+      </button>
+    </div>
+  </div>
+
   <div class="section-title">Source Updates</div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
     <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1496,7 +1513,7 @@ function showPage(name) {
   if (name === 'usage') fetchUsage();
   if (name === 'providers') fetchProviders();
   if (name === 'keys') fetchKeys();
-  if (name === 'settings') doCheckUpdates();
+  if (name === 'settings') { doCheckUpdates(); fetchRuntimeSettings(); }
 }
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
@@ -2018,6 +2035,141 @@ async function recreateKey(prefix, user) {
   const created = await r.json();
   showCreatedKey(created.key);
   fetchKeys();
+}
+
+// ── Runtime settings ──────────────────────────────────────────────────────────
+let _settingsSpecs = [];
+
+async function fetchRuntimeSettings() {
+  const host = document.getElementById('settings-runtime');
+  const actions = document.getElementById('settings-runtime-actions');
+  try {
+    const r = await fetch(`${API}/settings`);
+    if (r.status === 403) {
+      _settingsSpecs = [];
+      host.innerHTML = '<div class="empty-state">Managing settings requires an admin key (SMART_ROUTER_API_KEYS). Enter it at the key prompt (reload if needed).</div>';
+      actions.style.display = 'none';
+      return;
+    }
+    if (!r.ok) throw new Error(`GET /api/settings failed (${r.status})`);
+    const body = await r.json();
+    _settingsSpecs = Array.isArray(body.settings) ? body.settings : [];
+    renderRuntimeSettings();
+    actions.style.display = 'flex';
+    setSettingsStatus('');
+  } catch (e) {
+    console.error(e);
+    host.innerHTML = `<div class="empty-state">Could not load settings: ${escapeHtml(String(e && e.message || e))}</div>`;
+    actions.style.display = 'none';
+  }
+}
+
+function renderRuntimeSettings() {
+  const host = document.getElementById('settings-runtime');
+  const groups = [];
+  const byGroup = {};
+  for (const s of _settingsSpecs) {
+    if (!byGroup[s.group]) { byGroup[s.group] = []; groups.push(s.group); }
+    byGroup[s.group].push(s);
+  }
+  host.innerHTML = groups.map(g => `
+    <div style="margin-bottom:1.5rem">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600;margin-bottom:0.6rem">${escapeHtml(g)}</div>
+      ${byGroup[g].map(renderSettingField).join('')}
+    </div>`).join('');
+}
+
+function renderSettingField(s) {
+  const id = `set-${s.key}`;
+  const srcNote = s.source === 'db'
+    ? '<span style="color:var(--accent)">saved here</span>'
+    : `using ${escapeHtml(s.source)} &middot; ${escapeHtml(s.env)}`;
+  const warn = s.sensitive
+    ? '<span style="color:var(--danger,#e06c5a)" title="Security-sensitive">&#9888;</span> '
+    : '';
+  let control;
+  if (s.type === 'bool') {
+    control = `<label class="toggle">
+        <input type="checkbox" id="${id}" ${s.value ? 'checked' : ''} onchange="onSettingChanged()">
+        <span class="toggle-track"></span>
+      </label>`;
+  } else {
+    const inputType = s.type === 'int' ? 'number' : 'text';
+    control = `<input type="${inputType}" id="${id}" value="${escapeHtml(s.value)}"
+        oninput="onSettingChanged()" style="min-width:16rem">`;
+  }
+  return `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:0.6rem 0;border-bottom:1px solid var(--border)">
+      <div style="max-width:60%">
+        <div style="font-size:0.85rem;font-weight:500">${warn}${escapeHtml(s.label)}</div>
+        <div style="font-size:0.73rem;color:var(--text-muted);margin-top:0.2rem">${escapeHtml(s.help)}</div>
+        <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.25rem;font-family:var(--font-mono)">${srcNote}</div>
+      </div>
+      <div style="flex-shrink:0;padding-top:0.15rem">${control}</div>
+    </div>`;
+}
+
+function _readSettingInput(s) {
+  const el = document.getElementById(`set-${s.key}`);
+  if (!el) return s.value;
+  if (s.type === 'bool') return el.checked;
+  if (s.type === 'int') return el.value;   // sent as string; server coerces/validates
+  return el.value;
+}
+
+function onSettingChanged() {
+  // Only send fields the admin actually changed from their current value.
+  const changed = _collectChangedSettings();
+  setSettingsStatus(Object.keys(changed).length
+    ? `${Object.keys(changed).length} unsaved change(s)`
+    : '');
+}
+
+function _collectChangedSettings() {
+  const changed = {};
+  for (const s of _settingsSpecs) {
+    const now = _readSettingInput(s);
+    if (s.type === 'bool') {
+      if (Boolean(now) !== Boolean(s.value)) changed[s.key] = Boolean(now);
+    } else if (s.type === 'int') {
+      if (String(now) !== String(s.value)) changed[s.key] = now;
+    } else {
+      if (String(now) !== String(s.value)) changed[s.key] = now;
+    }
+  }
+  return changed;
+}
+
+function setSettingsStatus(text) {
+  const el = document.getElementById('settings-runtime-status');
+  if (el) el.textContent = text;
+}
+
+async function saveRuntimeSettings() {
+  const updates = _collectChangedSettings();
+  if (!Object.keys(updates).length) { setSettingsStatus('No changes to save.'); return; }
+  const spin = document.getElementById('spin-save-settings');
+  spin.style.display = 'inline-block';
+  try {
+    const r = await fetch(`${API}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    });
+    if (!r.ok) {
+      let detail = ''; try { detail = (await r.json()).detail || ''; } catch (_) {}
+      setSettingsStatus(`Save failed: ${detail || r.status}`);
+      return;
+    }
+    const body = await r.json();
+    _settingsSpecs = Array.isArray(body.settings) ? body.settings : _settingsSpecs;
+    renderRuntimeSettings();
+    setSettingsStatus('Saved.');
+  } catch (e) {
+    setSettingsStatus(`Save failed: ${String(e && e.message || e)}`);
+  } finally {
+    spin.style.display = 'none';
+  }
 }
 
 // ── Updates ─────────────────────────────────────────────────────────────────
