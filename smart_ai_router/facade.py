@@ -163,6 +163,13 @@ class CapabilityRouter:
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         return self._store.recent_usage(user, since_ts)
 
+    def usage_summary(
+        self, *, user: str | None = None, since_ts: str = ""
+    ) -> dict:
+        """Aggregated usage for the dashboard. user=None → all users (admin);
+        a value → that user's rows only. since_ts ("" = unbounded) bounds it."""
+        return self._store.usage_summary(user=user, since_ts=since_ts)
+
     # ── Files (uploads) ──────────────────────────────────────────────────────
 
     def upload_file(

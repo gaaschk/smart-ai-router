@@ -13,3 +13,4 @@ logs/
 
 # uv lockfile — deliberately excluded
 uv.lock
+.gstack/

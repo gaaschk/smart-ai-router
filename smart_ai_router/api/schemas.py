@@ -64,6 +64,32 @@ class CostResponse(BaseModel):
     cost_usd: float | None
 
 
+# ── Usage summary (dashboard) ─────────────────────────────────────────────────
+
+class UsageBucket(BaseModel):
+    """Aggregated counters, shared by the totals block and every group-by row."""
+    requests: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost_usd: float = 0.0
+    estimated_rows: int = 0  # rows whose tokens were locally estimated
+
+
+class UsageGroupRow(UsageBucket):
+    """One group-by row: `key` is the model / date / user / dom/complexity."""
+    key: str = ""
+
+
+class UsageSummaryResponse(BaseModel):
+    """Dashboard rollup. `by_user` is present only for the admin (all-users)
+    view; a per-user request omits it."""
+    totals: UsageBucket
+    by_model: list[UsageGroupRow] = Field(default_factory=list)
+    by_day: list[UsageGroupRow] = Field(default_factory=list)
+    by_domain: list[UsageGroupRow] = Field(default_factory=list)
+    by_user: list[UsageGroupRow] | None = None
+
+
 # ── Provider config ───────────────────────────────────────────────────────────
 
 class ProviderRequest(BaseModel):

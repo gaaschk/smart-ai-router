@@ -202,6 +202,53 @@
     margin-top: 0.25rem;
   }
 
+  /* ── Usage day-bars (dependency-free chart) ──────────────────────── */
+  .usage-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 140px;
+    padding: 0.5rem 0;
+    overflow-x: auto;
+  }
+  .usage-bar {
+    flex: 1 0 8px;
+    min-width: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+  }
+  .usage-bar .bar-fill {
+    width: 100%;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    transition: background var(--transition);
+  }
+  .usage-bar:hover .bar-fill { background: var(--accent-text, var(--accent)); }
+  .usage-bar .bar-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+    white-space: nowrap;
+    transform: rotate(-45deg);
+    transform-origin: center;
+  }
+  .usage-section { margin-bottom: 2rem; }
+  .usage-est-note {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .usage-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 2rem 0;
+    text-align: center;
+  }
+
   /* Result panel — shared by the Keys page (newly-created key display). */
   .route-result {
     display: none;
@@ -866,6 +913,7 @@
     <button class="active" onclick="showPage('dashboard')">Dashboard</button>
     <button onclick="showPage('chat')">Chat</button>
     <button onclick="showPage('models')">Models</button>
+    <button onclick="showPage('usage')">Usage</button>
     <button onclick="showPage('providers')">Providers</button>
     <button onclick="showPage('keys')">Keys</button>
     <button onclick="showPage('settings')">Settings</button>
@@ -1002,6 +1050,96 @@
       <div class="empty-icon">&#x1f50d;</div>
       No models match your filters.
     </div>
+  </div>
+</div>
+
+<!-- ── Usage ───────────────────────────────────────────────────────── -->
+<div class="page" id="page-usage">
+  <h1 class="page-title">Usage</h1>
+  <p class="page-subtitle">Requests, tokens, and cost routed through this deployment. Admins see all users; a per-user key sees only its own activity. Streamed requests report exact tokens when the provider supports it, otherwise an estimate (~).</p>
+
+  <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:1.5rem">
+    <label style="font-size:0.8rem;color:var(--text-muted)">Window
+      <select id="usage-days" onchange="fetchUsage()" style="margin-left:0.4rem">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365">Last year</option>
+      </select>
+    </label>
+    <button class="btn btn-ghost btn-sm" onclick="fetchUsage()">
+      <span id="spin-usage" style="display:none" class="spinner"></span>
+      Refresh
+    </button>
+    <span class="usage-est-note" id="usage-est-note"></span>
+  </div>
+
+  <div id="usage-content">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Requests</div>
+        <div class="stat-value" id="usage-requests">—</div>
+        <div class="stat-sub" id="usage-requests-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Tokens</div>
+        <div class="stat-value" id="usage-tokens">—</div>
+        <div class="stat-sub" id="usage-tokens-sub">prompt + completion</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Cost</div>
+        <div class="stat-value" id="usage-cost">—</div>
+        <div class="stat-sub">USD, estimated from token pricing</div>
+      </div>
+    </div>
+
+    <div class="usage-section">
+      <div class="section-title">Requests per day</div>
+      <div class="usage-bars" id="usage-daybars"></div>
+    </div>
+
+    <div class="usage-section">
+      <div class="section-title">By model</div>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>Model</th><th>Requests</th><th>Prompt</th>
+            <th>Completion</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-by-model"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="usage-section">
+      <div class="section-title">By task type</div>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>Domain / Complexity</th><th>Requests</th>
+            <th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-by-domain"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Admin-only: per-user breakdown, shown only when the API returns by_user. -->
+    <div class="usage-section" id="usage-by-user-section" style="display:none">
+      <div class="section-title">By user</div>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>User</th><th>Requests</th><th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-by-user"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="usage-empty" id="usage-empty" style="display:none">
+    No usage recorded in this window yet. Send a chat message to start tracking.
   </div>
 </div>
 
@@ -1307,6 +1445,7 @@ function showPage(name) {
   event.target.classList.add('active');
   if (name === 'models' && _allModels.length === 0) fetchModels();
   if (name === 'chat') initChat();
+  if (name === 'usage') fetchUsage();
   if (name === 'providers') fetchProviders();
   if (name === 'keys') fetchKeys();
   if (name === 'settings') doCheckUpdates();
@@ -1360,6 +1499,110 @@ function updateStats() {
   const free = _allModels.filter(m => m.cost <= 1).length;
   document.getElementById('stat-cheapest').textContent = free;
   document.getElementById('stat-cheapest-sub').textContent = 'free or local models';
+}
+
+// ── Usage dashboard ───────────────────────────────────────────────────────────
+function _fmtInt(n) { return (n || 0).toLocaleString(); }
+function _fmtCost(n) {
+  n = n || 0;
+  // Sub-cent costs are common with cheap models — show more precision so they
+  // don't all collapse to "$0.00".
+  if (n > 0 && n < 0.01) return '$' + n.toFixed(4);
+  return '$' + n.toFixed(2);
+}
+function _tokens(row) { return (row.prompt_tokens || 0) + (row.completion_tokens || 0); }
+
+async function fetchUsage() {
+  const spin = document.getElementById('spin-usage');
+  const days = document.getElementById('usage-days').value || '30';
+  if (spin) spin.style.display = 'inline-block';
+  try {
+    const r = await fetch(`${API}/usage?days=${encodeURIComponent(days)}`);
+    if (!r.ok) throw new Error(`GET /api/usage failed (${r.status})`);
+    renderUsage(await r.json());
+  } catch (e) {
+    console.error(e);
+    // Treat a failure like empty so the page isn't left showing stale dashes.
+    renderUsage({ totals: {}, by_model: [], by_day: [], by_domain: [] });
+  } finally {
+    if (spin) spin.style.display = 'none';
+  }
+}
+
+function renderUsage(data) {
+  const t = data.totals || {};
+  const empty = (t.requests || 0) === 0;
+  document.getElementById('usage-content').style.display = empty ? 'none' : 'block';
+  document.getElementById('usage-empty').style.display = empty ? 'block' : 'none';
+  if (empty) return;
+
+  // Headline totals.
+  document.getElementById('usage-requests').textContent = _fmtInt(t.requests);
+  document.getElementById('usage-tokens').textContent = _fmtInt(_tokens(t));
+  document.getElementById('usage-cost').textContent = _fmtCost(t.cost_usd);
+  document.getElementById('usage-tokens-sub').textContent =
+    `${_fmtInt(t.prompt_tokens)} prompt · ${_fmtInt(t.completion_tokens)} completion`;
+
+  // Estimated-tokens caveat, shown only when some rows were estimated.
+  const est = t.estimated_rows || 0;
+  const note = document.getElementById('usage-est-note');
+  note.textContent = est > 0
+    ? `~ ${_fmtInt(est)} of ${_fmtInt(t.requests)} requests have estimated token counts`
+    : '';
+
+  renderUsageDayBars(data.by_day || []);
+
+  // By-model table.
+  document.getElementById('usage-by-model').innerHTML =
+    (data.by_model || []).map(row => `
+      <tr>
+        <td class="model-name">${escapeHtml(row.key)}</td>
+        <td>${_fmtInt(row.requests)}</td>
+        <td>${_fmtInt(row.prompt_tokens)}</td>
+        <td>${_fmtInt(row.completion_tokens)}</td>
+        <td>${_fmtCost(row.cost_usd)}</td>
+      </tr>`).join('');
+
+  // By task type (domain/complexity).
+  document.getElementById('usage-by-domain').innerHTML =
+    (data.by_domain || []).map(row => `
+      <tr>
+        <td>${escapeHtml(row.key)}</td>
+        <td>${_fmtInt(row.requests)}</td>
+        <td>${_fmtInt(_tokens(row))}</td>
+        <td>${_fmtCost(row.cost_usd)}</td>
+      </tr>`).join('');
+
+  // By user — admin only; the API omits by_user for a per-user key.
+  const userSection = document.getElementById('usage-by-user-section');
+  if (Array.isArray(data.by_user)) {
+    userSection.style.display = 'block';
+    document.getElementById('usage-by-user').innerHTML =
+      data.by_user.map(row => `
+        <tr>
+          <td>${escapeHtml(row.key || '(open)')}</td>
+          <td>${_fmtInt(row.requests)}</td>
+          <td>${_fmtInt(_tokens(row))}</td>
+          <td>${_fmtCost(row.cost_usd)}</td>
+        </tr>`).join('');
+  } else {
+    userSection.style.display = 'none';
+  }
+}
+
+function renderUsageDayBars(byDay) {
+  const el = document.getElementById('usage-daybars');
+  if (!byDay.length) { el.innerHTML = ''; return; }
+  const max = Math.max(...byDay.map(d => d.requests || 0), 1);
+  el.innerHTML = byDay.map(d => {
+    const pct = Math.round(((d.requests || 0) / max) * 100);
+    const label = (d.key || '').slice(5);   // MM-DD from YYYY-MM-DD
+    const title = `${d.key}: ${_fmtInt(d.requests)} req · ${_fmtInt(_tokens(d))} tokens · ${_fmtCost(d.cost_usd)}`;
+    return `<div class="usage-bar" title="${escapeHtml(title)}">
+      <div class="bar-fill" style="height:${pct}%"></div>
+      <div class="bar-label">${escapeHtml(label)}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderModels() {

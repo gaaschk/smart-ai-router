@@ -120,5 +120,9 @@ class UsageRecord:
     completion_tokens: int = 0
     cost_usd: float = 0.0
     status: int = 200
+    # True when tokens were estimated locally (char/4) rather than reported by
+    # the provider — e.g. a streamed response whose backend ignored
+    # stream_options.include_usage. Lets the dashboard flag approximate figures.
+    tokens_estimated: bool = False
     id: int = 0
     ts: str = ""
