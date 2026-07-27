@@ -1055,6 +1055,9 @@
           <span id="spin-chat-send" style="display:none" class="spinner"></span>
           Send
         </button>
+        <button class="btn btn-danger btn-sm" id="btn-chat-stop" onclick="stopChat()" style="display:none">
+          Stop
+        </button>
       </div>
     </div>
    </div>
@@ -2259,6 +2262,10 @@ let _chatCaps = null;
 let _chatInited = false;
 let _chatConvId = null;        // id of the conversation being viewed (null = unsaved/new)
 let _chatConvs = [];           // sidebar list of {id, title, updated_at}
+let _chatAbort = null;         // AbortController for the in-flight reply, if any
+
+// Max messages replayed upstream per turn (see trimChatHistory). ~20 turns.
+const _CHAT_HISTORY_MAX = 40;
 
 async function initChat() {
   const input = document.getElementById('chat-input');
@@ -2529,10 +2536,6 @@ async function sendChat() {
   if (!text && _chatAttachments.filter(a => !a.pending).length === 0) return;
   if (_chatAttachments.some(a => a.pending)) { alert('Wait for uploads to finish.'); return; }
 
-  const btn = document.getElementById('btn-chat-send');
-  const spin = document.getElementById('spin-chat-send');
-  btn.disabled = true; spin.style.display = 'inline-block';
-
   const imgNames = _chatAttachments.filter(a => a.isImage).map(a => a.filename);
   const docNames = _chatAttachments.filter(a => !a.isImage).map(a => a.filename);
   renderChatMsg('user', text, { images: imgNames, files: docNames });
@@ -2551,11 +2554,17 @@ async function sendChat() {
   const agentSel = document.getElementById('chat-agent').value;
   const agentFlag = agentSel === 'auto' ? 'auto' : (agentSel === 'true');
 
+  // Expose an abort handle so the Stop button can cancel a wedged request
+  // instead of leaving the user staring at a frozen bubble.
+  _chatAbort = new AbortController();
+  setChatBusy(true);
+
   try {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: agentFlag }),
+      signal: _chatAbort.signal,
     });
     if (!res.ok) {
       let detail; try { detail = (await res.json()).detail; } catch(_) { detail = await res.text(); }
@@ -2571,32 +2580,83 @@ async function sendChat() {
     const classifier = res.headers.get('X-Classifier') || '';
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
-    const acc = await streamChatInto(res, bubble);
+    const { text: acc, truncated, streamError } = await streamChatInto(res, bubble);
+
+    // A reply with no text is a failed turn, not a valid empty answer. Show it
+    // as an error and keep it OUT of history: an empty assistant message gets
+    // replayed upstream on every later turn and degrades the whole thread —
+    // which is what made a single bad reply look like "the chat stopped
+    // responding" for the rest of the conversation.
+    if (!acc.trim()) {
+      bubbleWrap.classList.add('error');
+      bubble.textContent = 'No response from the model. Nothing was added to this conversation — try again.';
+      _chatMessages.pop();
+      return;
+    }
+
     finalizeChatBubble(bubble, acc);
+    if (truncated) {
+      bubbleWrap.insertAdjacentHTML('beforeend',
+        `<div class="chat-meta" style="color:var(--error)">⚠ Reply was cut off at the output token limit — it may be incomplete.</div>`);
+    }
     if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }));
     _chatMessages.push({ role: 'assistant', content: acc });
+    trimChatHistory();
     // Persist both turns only now that the reply succeeded — on failure we drop
     // the user turn (below), so nothing dangling gets saved. The user turn is
     // saved first (creating the conversation on the first message), then the
     // reply; the sidebar refresh reflects the new/renamed thread + recency.
-    await persistTurn('user', userContent);
-    await persistTurn('assistant', acc);
-    await loadConversations();
+    if (!streamError) {
+      await persistTurn('user', userContent);
+      await persistTurn('assistant', acc);
+      await loadConversations();
+    }
   } catch(e) {
     bubbleWrap.classList.add('error');
-    bubble.textContent = e.message;
+    // An abort is a deliberate user action, not a failure to apologize for.
+    bubble.textContent = e.name === 'AbortError' ? 'Stopped.' : e.message;
     _chatMessages.pop();
   } finally {
-    btn.disabled = false; spin.style.display = 'none';
+    _chatAbort = null;
+    setChatBusy(false);
   }
 }
 
+// Cancel an in-flight reply. The server sees the disconnect and tears down its
+// provider stream (see _with_heartbeat's finally block in proxy.py).
+function stopChat() {
+  if (_chatAbort) _chatAbort.abort();
+}
+
+// Toggle send/stop affordances together so exactly one is actionable.
+function setChatBusy(busy) {
+  const btn = document.getElementById('btn-chat-send');
+  const spin = document.getElementById('spin-chat-send');
+  const stop = document.getElementById('btn-chat-stop');
+  if (btn) btn.disabled = busy;
+  if (spin) spin.style.display = busy ? 'inline-block' : 'none';
+  if (stop) stop.style.display = busy ? 'inline-block' : 'none';
+}
+
+// Cap how much history we replay upstream. _chatMessages otherwise grows without
+// bound: est_tokens climbs, router.route() progressively disqualifies models on
+// ctx_k until it falls back to an ill-suited one (or 422s), and cost per turn
+// rises. Keeping the most recent turns is the cheap, predictable policy; the
+// full thread is still on the server for reload.
+function trimChatHistory() {
+  if (_chatMessages.length <= _CHAT_HISTORY_MAX) return;
+  _chatMessages = _chatMessages.slice(-_CHAT_HISTORY_MAX);
+}
+
 // Parse the SSE stream, appending delta text into the bubble as it arrives.
+// Returns { text, truncated, streamError } — the caller decides whether the
+// turn is fit to keep in history.
 async function streamChatInto(res, bubble) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   const t = document.getElementById('chat-transcript');
   let buffer = '', acc = '';
+  let truncated = false, streamError = false;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -2610,12 +2670,16 @@ async function streamChatInto(res, bubble) {
       const payload = s.slice(5).trim();
       if (payload === '[DONE]') continue;
       let obj; try { obj = JSON.parse(payload); } catch(_) { continue; }
-      if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; continue; }
-      const delta = obj.choices && obj.choices[0] && obj.choices[0].delta;
+      if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; streamError = true; continue; }
+      const choice = obj.choices && obj.choices[0];
+      const delta = choice && choice.delta;
       if (delta && delta.content) { acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight; }
+      // "length" means the provider stopped at the output cap rather than
+      // finishing its thought — the reply on screen is incomplete.
+      if (choice && choice.finish_reason === 'length') truncated = true;
     }
   }
-  return acc;
+  return { text: acc, truncated, streamError };
 }
 
 // Fetch a workspace file through the auth-injecting fetch wrapper and hand the

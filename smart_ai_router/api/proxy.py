@@ -26,6 +26,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify, is_actionable
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
@@ -56,13 +57,19 @@ _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # Model-name markers that force the orchestrator (Claude) path.
 _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 
-# Default output-token ceiling applied when a caller omits max_tokens.
-# max_tokens caps *output* only (for reasoning models: thinking + answer), so
-# a stingy default silently truncates responses — the common empty-content /
-# finish_reason:"length" failure. OpenAI/ChatGPT treat max_tokens as optional
-# (unbounded up to context), but many providers here default low, so we set a
-# generous floor that leaves room for a reasoning budget plus a real answer.
-_DEFAULT_MAX_TOKENS = 4096
+def _default_max_tokens() -> int:
+    """Output-token ceiling applied when a caller omits max_tokens.
+
+    max_tokens caps *output* only (for reasoning models: thinking + answer), so
+    a stingy default silently truncates responses — the common empty-content /
+    finish_reason:"length" failure. OpenAI/ChatGPT treat max_tokens as optional
+    (unbounded up to context), but many providers here default low, so we set a
+    generous floor that leaves room for a reasoning budget plus a real answer.
+
+    UI-managed (Settings page) with SMART_ROUTER_DEFAULT_MAX_TOKENS as env
+    fallback, so a deployment hitting truncation can raise it without a deploy.
+    """
+    return max(1, _settings.get_int("default_max_tokens"))
 
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
@@ -76,20 +83,72 @@ async def _with_heartbeat(
     gen: AsyncIterator[bytes], interval: float = _HEARTBEAT_SECS
 ) -> AsyncIterator[bytes]:
     """Yield from `gen`, injecting an SSE keepalive comment after every
-    `interval` seconds of silence so a slow round never looks like a hang."""
-    ait = gen.__aiter__()
-    while True:
-        nxt = asyncio.ensure_future(ait.__anext__())
+    `interval` seconds of silence so a slow round never looks like a hang.
+
+    Implementation note — why a pump task and a queue instead of the obvious
+    `wait_for(shield(anext(...)))`:
+
+    `asyncio.shield` deliberately leaves the inner `__anext__()` task *running*
+    when the outer `wait_for` times out (that's the point — we don't want a
+    heartbeat tick to cancel an in-flight provider read). But an async
+    generator may not be closed while one of its `__anext__()` calls is still
+    in flight: when the client disconnects mid-stream, Starlette calls
+    `aclose()` on us, that propagates to the shielded generator, and CPython
+    raises
+
+        RuntimeError: aclose(): asynchronous generator is already running
+
+    The generator then never unwinds, so the underlying httpx stream is never
+    released and the response wedges — the client's bubble stops updating and
+    the request hangs until the read timeout. (Observed in production as
+    "Task exception was never retrieved ... aclose(): asynchronous generator is
+    already running".)
+
+    Instead we drain `gen` in a dedicated task that owns it exclusively, and
+    communicate over a queue. Only the pump ever calls `__anext__`, so a
+    heartbeat tick can never overlap iteration, and cancellation has exactly
+    one owner: on client disconnect our `finally` cancels the pump and awaits
+    it, which closes `gen` from the same task that was iterating it.
+    """
+    queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(maxsize=1)
+
+    async def _pump() -> None:
+        """Drain `gen` into the queue, then post a terminal sentinel."""
+        try:
+            async for chunk in gen:
+                await queue.put(("chunk", chunk))
+            await queue.put(("end", None))
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 — forwarded to the consumer
+            await queue.put(("error", exc))
+
+    pump = asyncio.ensure_future(_pump())
+    try:
         while True:
             try:
-                chunk = await asyncio.wait_for(asyncio.shield(nxt), timeout=interval)
+                kind, payload = await asyncio.wait_for(queue.get(), timeout=interval)
             except asyncio.TimeoutError:
+                # Silence from the provider — prove the connection is alive.
                 yield b": keepalive\n\n"
                 continue
-            except StopAsyncIteration:
+            if kind == "chunk":
+                yield payload
+            elif kind == "end":
                 return
-            break
-        yield chunk
+            else:
+                raise payload
+    finally:
+        # Client disconnect, downstream error, or normal completion: make sure
+        # the pump (and therefore `gen`) is torn down before we return, so the
+        # provider connection is released rather than leaked.
+        if not pump.done():
+            pump.cancel()
+        try:
+            await pump
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+        await gen.aclose()
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -528,7 +587,7 @@ async def chat_completions(request: Request):
     # Apply a generous output-token default when the caller omits one, so
     # reasoning models have budget for thinking + answer instead of truncating.
     if not forward_body.get("max_tokens"):
-        forward_body["max_tokens"] = _DEFAULT_MAX_TOKENS
+        forward_body["max_tokens"] = _default_max_tokens()
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
@@ -562,7 +621,7 @@ async def chat_completions(request: Request):
             and reassembles tool calls from the fragments."""
             fwd = {**req_body, "model": real_model, "stream": True}
             if not fwd.get("max_tokens"):
-                fwd["max_tokens"] = _DEFAULT_MAX_TOKENS
+                fwd["max_tokens"] = _default_max_tokens()
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 async with client.stream(
                     "POST", url, headers=_headers(api_key), json=fwd,
@@ -697,7 +756,10 @@ async def chat_completions(request: Request):
                 _record(200)
 
         return StreamingResponse(
-            _stream_generator(),
+            # Same keepalive treatment as agent mode: a slow time-to-first-token
+            # on a reasoning model can otherwise leave the bubble silent long
+            # enough to look like a hang.
+            _with_heartbeat(_stream_generator()),
             media_type="text/event-stream",
             headers=routing_headers,
         )

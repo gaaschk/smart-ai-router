@@ -21,6 +21,7 @@ their tool activity is surfaced.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, AsyncIterator, Callable
 
@@ -29,6 +30,16 @@ from smart_ai_router import tools as _tools
 # Hard ceiling on tool-call rounds per request. Generous enough for real
 # multi-step tasks, low enough to bound cost and stop runaway loops.
 _MAX_ROUNDS = 12
+
+# Shown when a model round returns no content and no tool calls. Emitting
+# *something* matters: a blank assistant bubble is indistinguishable from a
+# crashed stream, and the empty turn used to be appended to the conversation
+# history, degrading every later turn.
+_EMPTY_ANSWER_NOTE = (
+    "_[no answer returned — the model produced no output. This usually means "
+    "the output token budget was exhausted (often by a reasoning model's "
+    "thinking tokens). Try again, or raise max_tokens.]_"
+)
 
 
 def _sse(obj: dict) -> bytes:
@@ -137,6 +148,13 @@ async def run_agent_loop(
                 content = message.get("content") or ""
                 if content:
                     yield _content_delta(content)
+                else:
+                    # The round produced neither tool calls nor text. Left
+                    # silent this renders as an empty bubble that looks like the
+                    # chat died; say so instead. Most common cause is the output
+                    # budget being consumed by a reasoning model's thinking
+                    # tokens (finish_reason "length").
+                    yield _content_delta(_EMPTY_ANSWER_NOTE)
             yield _sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
             yield b"data: [DONE]\n\n"
             return
@@ -149,7 +167,15 @@ async def run_agent_loop(
             args = _tool_args(call)
             if narrate:
                 yield _content_delta(_narration(name, args))
-            result = _tools.execute_tool(user, name, args, register_file=register_file)
+            # execute_tool is synchronous and can block for a long time
+            # (run_bash shells out with a wall-clock timeout; file tools do real
+            # disk IO). Calling it directly would stall the whole event loop —
+            # freezing every other user's stream *and* preventing the SSE
+            # heartbeat from firing, which reads to the client as a hang. Run it
+            # on a worker thread so the loop stays responsive.
+            result = await asyncio.to_thread(
+                _tools.execute_tool, user, name, args, register_file=register_file
+            )
             messages.append({
                 "role": "tool",
                 "tool_call_id": call.get("id", ""),

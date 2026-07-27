@@ -1,6 +1,8 @@
 """Agent tool-calling loop: executes tools and terminates on a plain answer."""
 import asyncio
 import json
+import time
+from unittest import mock
 
 import pytest
 
@@ -207,3 +209,101 @@ def test_stream_provider_error_surfaced():
     )
     frames, raw = asyncio.run(_collect(gen))
     assert any("stream-boom" in json.dumps(f) for f in frames)
+
+
+def test_stream_empty_answer_emits_note_not_silence():
+    """A round with neither content nor tool calls must say something.
+
+    Silence here renders as a blank assistant bubble that is indistinguishable
+    from a dead stream, and the empty turn used to be appended to the client's
+    history — poisoning every later turn in the conversation.
+    """
+    # A provider that returns a single contentless delta (the shape seen when a
+    # reasoning model burns its whole output budget on thinking tokens).
+    gen = agent_loop.run_agent_loop(
+        user="alice",
+        body={"messages": [{"role": "user", "content": "hi"}], "model": "x"},
+        tool_schemas=[],
+        stream_model=_deltas({"role": "assistant"}),
+    )
+    frames, raw = asyncio.run(_collect(gen))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "")
+        for f in frames if f.get("choices")
+    )
+    assert "no answer returned" in text
+    assert b"data: [DONE]" in raw
+
+
+def test_nonstreaming_empty_answer_emits_note():
+    """Same guarantee on the non-streaming call_model fallback path."""
+    async def call_model(body):
+        return {"choices": [{"message": {"role": "assistant", "content": ""}}]}
+
+    gen = agent_loop.run_agent_loop(
+        user="alice",
+        body={"messages": [{"role": "user", "content": "hi"}], "model": "x"},
+        tool_schemas=[],
+        call_model=call_model,
+    )
+    frames, _ = asyncio.run(_collect(gen))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "")
+        for f in frames if f.get("choices")
+    )
+    assert "no answer returned" in text
+
+
+def test_tool_execution_does_not_block_the_event_loop():
+    """Tools run on a worker thread, so the loop keeps serving other work.
+
+    Regression: execute_tool is synchronous (run_bash shells out; file tools do
+    disk IO). Called directly from the async loop it froze every other user's
+    stream and stopped the SSE heartbeat from firing — which reads to the client
+    as a hang.
+    """
+    ticks = []
+
+    # A tool whose handler blocks the thread it runs on, like subprocess.run.
+    def _slow_read(user, args):
+        time.sleep(0.2)
+        return "done"
+
+    async def scenario(monkeypatched_gen):
+        async def heartbeat():
+            # Stands in for the keepalive: must keep running during the tool.
+            for _ in range(8):
+                await asyncio.sleep(0.02)
+                ticks.append(1)
+
+        beat = asyncio.ensure_future(heartbeat())
+        await _collect(monkeypatched_gen)
+        beat.cancel()
+
+    with mock.patch.dict(agent_loop._tools._DISPATCH, {"read_file": _slow_read}):
+        stream_model = _deltas(
+            {"tool_calls": [{"index": 0, "id": "c1", "type": "function",
+                             "function": {"name": "read_file",
+                                          "arguments": '{"path": "a.txt"}'}}]},
+        )
+        # Round 2 answers plainly so the loop terminates.
+        calls = {"n": 0}
+
+        async def two_rounds(body):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                async for d in stream_model(body):
+                    yield d
+            else:
+                yield {"content": "finished"}
+
+        gen = agent_loop.run_agent_loop(
+            user="alice",
+            body={"messages": [{"role": "user", "content": "hi"}], "model": "x"},
+            tool_schemas=[],
+            stream_model=two_rounds,
+        )
+        asyncio.run(scenario(gen))
+
+    # If the tool had blocked the loop, the heartbeat would have been starved.
+    assert len(ticks) >= 5, f"event loop was blocked during tool call: {ticks} ticks"
