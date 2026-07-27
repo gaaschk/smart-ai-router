@@ -351,6 +351,54 @@
   }
   .chat-download-link:hover { background: var(--accent); color: var(--bg); }
 
+  /* Rendered Markdown inside a finalized assistant bubble. `pre-wrap` is off
+     here (the block tags carry their own spacing); it stays on the raw bubble
+     so streaming plain text still honors newlines. */
+  .chat-bubble.md { white-space: normal; }
+  .chat-bubble.md > *:first-child { margin-top: 0; }
+  .chat-bubble.md > *:last-child { margin-bottom: 0; }
+  .chat-bubble.md p { margin: 0.5rem 0; }
+  .chat-bubble.md h1, .chat-bubble.md h2, .chat-bubble.md h3,
+  .chat-bubble.md h4, .chat-bubble.md h5, .chat-bubble.md h6 {
+    margin: 0.9rem 0 0.4rem; font-weight: 600; line-height: 1.3;
+  }
+  .chat-bubble.md h1 { font-size: 1.3rem; }
+  .chat-bubble.md h2 { font-size: 1.15rem; }
+  .chat-bubble.md h3 { font-size: 1.02rem; }
+  .chat-bubble.md h4, .chat-bubble.md h5, .chat-bubble.md h6 { font-size: 0.9rem; }
+  .chat-bubble.md ul, .chat-bubble.md ol { margin: 0.5rem 0; padding-left: 1.4rem; }
+  .chat-bubble.md li { margin: 0.2rem 0; }
+  .chat-bubble.md li > ul, .chat-bubble.md li > ol { margin: 0.2rem 0; }
+  .chat-bubble.md code {
+    font-family: var(--font-mono); font-size: 0.82em;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.1em 0.35em;
+  }
+  .chat-bubble.md pre {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 0.7rem 0.9rem;
+    margin: 0.6rem 0; overflow-x: auto;
+  }
+  .chat-bubble.md pre code {
+    background: none; border: none; padding: 0; font-size: 0.82em;
+    white-space: pre; display: block;
+  }
+  .chat-bubble.md blockquote {
+    margin: 0.6rem 0; padding: 0.1rem 0.9rem;
+    border-left: 3px solid var(--border); color: var(--text-muted);
+  }
+  .chat-bubble.md hr {
+    border: none; border-top: 1px solid var(--border); margin: 0.9rem 0;
+  }
+  .chat-bubble.md a { color: var(--accent); }
+  .chat-bubble.md table {
+    border-collapse: collapse; margin: 0.6rem 0; font-size: 0.85em;
+  }
+  .chat-bubble.md th, .chat-bubble.md td {
+    border: 1px solid var(--border); padding: 0.3rem 0.6rem; text-align: left;
+  }
+  .chat-bubble.md th { background: var(--bg); font-weight: 600; }
+
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 
@@ -2439,26 +2487,174 @@ async function downloadWorkspaceFile(ev, href, filename) {
   }
 }
 
-// Once a reply is fully streamed, turn any workspace download links the agent
-// emitted — Markdown `[name](/v1/files/<id>/content)` — into real clickable
-// anchors. Everything is HTML-escaped first; only same-origin /v1/files/…
-// /content hrefs are linkified, so nothing else in the text can inject markup.
-// The click is intercepted (see downloadWorkspaceFile) so the file is fetched
-// with the API key rather than via a bare, auth-less navigation.
+// Once a reply is fully streamed, render its Markdown to HTML. We only do this
+// on finalize (not per-delta) because partial Markdown renders badly mid-stream.
+// The renderer escapes ALL text before emitting any tag, so nothing in a reply
+// can inject markup — see renderMarkdown. Workspace download links the agent
+// emitted (`[name](/v1/files/<id>/content)`) become styled download anchors.
 function finalizeChatBubble(bubble, text) {
-  if (!/\/v1\/files\/[^)]+\/content/.test(text || '')) return;  // nothing to do
-  const linkRe = /\[([^\]]+)\]\((\/v1\/files\/[A-Za-z0-9._-]+\/content)\)/g;
-  let html = '', last = 0, m;
-  while ((m = linkRe.exec(text)) !== null) {
-    html += escapeHtml(text.slice(last, m.index));
-    const href = escapeHtml(m[2]), name = escapeHtml(m[1]);
-    html += `<a href="${href}" download class="chat-download-link" `
-          + `onclick="downloadWorkspaceFile(event, '${jsStr(m[2])}', '${jsStr(m[1])}')">`
-          + `⬇ ${name}</a>`;
-    last = m.index + m[0].length;
+  if (!text) return;
+  bubble.classList.add('md');
+  bubble.innerHTML = renderMarkdown(text);
+}
+
+// A small, dependency-free Markdown → HTML renderer matching the no-build UI.
+// Supports headings, bold/italic, inline + fenced code, ordered/unordered lists
+// (with nesting by indent), blockquotes, horizontal rules, GFM tables, and
+// links. SECURITY: every run of literal text passes through escapeHtml before
+// any tag is emitted, and only hrefs we construct are inserted — so a reply
+// cannot inject HTML/script. Raw HTML in the source is shown as text.
+function renderMarkdown(src) {
+  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  let html = '', i = 0;
+
+  const isDivider = (s) => /^(\s*)([*_-])(\s*\2){2,}\s*$/.test(s);
+
+  while (i < lines.length) {
+    let line = lines[i];
+
+    // Fenced code block: ``` or ~~~ (language after the fence is ignored).
+    const fence = line.match(/^\s*(```+|~~~+)(.*)$/);
+    if (fence) {
+      const marker = fence[1][0], body = [];
+      i++;
+      while (i < lines.length && !new RegExp('^\\s*' + marker + '{3,}\\s*$').test(lines[i])) {
+        body.push(lines[i]); i++;
+      }
+      i++;  // consume the closing fence
+      html += `<pre><code>${escapeHtml(body.join('\n'))}</code></pre>`;
+      continue;
+    }
+
+    // Blank line — nothing to emit; block spacing comes from CSS margins.
+    if (!line.trim()) { i++; continue; }
+
+    // Horizontal rule.
+    if (isDivider(line)) { html += '<hr>'; i++; continue; }
+
+    // ATX heading (# … ######).
+    const h = line.match(/^\s*(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (h) {
+      const level = h[1].length;
+      html += `<h${level}>${renderInline(h[2])}</h${level}>`;
+      i++; continue;
+    }
+
+    // Blockquote — gather consecutive `>` lines, strip the marker, recurse.
+    if (/^\s*>/.test(line)) {
+      const quoted = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        quoted.push(lines[i].replace(/^\s*>\s?/, '')); i++;
+      }
+      html += `<blockquote>${renderMarkdown(quoted.join('\n'))}</blockquote>`;
+      continue;
+    }
+
+    // GFM table: a header row, a |---|---| separator, then body rows.
+    if (line.includes('|') && i + 1 < lines.length &&
+        /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+      const splitRow = (r) => r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+      const headers = splitRow(line);
+      i += 2;  // skip header + separator
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        rows.push(splitRow(lines[i])); i++;
+      }
+      html += '<table><thead><tr>' +
+        headers.map(c => `<th>${renderInline(c)}</th>`).join('') +
+        '</tr></thead><tbody>' +
+        rows.map(r => '<tr>' + headers.map((_, c) => `<td>${renderInline(r[c] || '')}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table>';
+      continue;
+    }
+
+    // List (ordered or unordered), possibly nested by indentation.
+    if (/^\s*([*+-]|\d+[.)])\s+/.test(line)) {
+      const parsed = parseList(lines, i, 0);
+      html += parsed.html;
+      i = parsed.next;
+      continue;
+    }
+
+    // Paragraph — gather until a blank line or a block-level starter.
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !isDivider(lines[i]) &&
+           !/^\s*(#{1,6}\s|>|```+|~~~+|[*+-]\s|\d+[.)]\s)/.test(lines[i])) {
+      para.push(lines[i]); i++;
+    }
+    if (para.length) html += `<p>${renderInline(para.join('\n'))}</p>`;
+    else { html += `<p>${renderInline(line)}</p>`; i++; }
   }
-  html += escapeHtml(text.slice(last));
-  bubble.innerHTML = html;
+  return html;
+}
+
+// Parse a (possibly nested) list starting at `start`. `minIndent` is the indent
+// of the enclosing list; deeper-indented items become a nested sub-list.
+function parseList(lines, start, minIndent) {
+  const first = lines[start].match(/^(\s*)([*+-]|\d+[.)])\s+/);
+  const ordered = /\d/.test(first[2]);
+  const baseIndent = first[1].length;
+  let i = start, items = '';
+
+  while (i < lines.length) {
+    const m = lines[i].match(/^(\s*)([*+-]|\d+[.)])\s+(.*)$/);
+    if (!m) break;
+    const indent = m[1].length;
+    if (indent < baseIndent) break;               // belongs to an outer list
+    if (indent > baseIndent) {                    // deeper → nested list
+      const sub = parseList(lines, i, baseIndent);
+      items = items.replace(/<\/li>$/, sub.html + '</li>');
+      i = sub.next;
+      continue;
+    }
+    items += `<li>${renderInline(m[3])}</li>`;
+    i++;
+  }
+  return { html: ordered ? `<ol>${items}</ol>` : `<ul>${items}</ul>`, next: i };
+}
+
+// Render inline Markdown within a single block of text. Escapes first, then
+// applies inline patterns to the already-escaped string (the patterns only use
+// ASCII markers that escapeHtml leaves intact). Order matters: code spans are
+// pulled out first so their contents aren't re-formatted.
+function renderInline(text) {
+  const codes = [];
+  // Extract inline code spans, swapping in private-use sentinels (U+E000/E001)
+  // so their contents aren't re-formatted as emphasis/links. These code points
+  // never occur in normal text and pass through escapeHtml unchanged.
+  let s = String(text).replace(/`([^`]+)`/g, (_, c) => {
+    codes.push(c);
+    return `${codes.length - 1}`;
+  });
+  s = escapeHtml(s);
+
+  // Links: [text](href). Only http(s), mailto, and same-origin /v1/files/…
+  // /content hrefs are allowed. File downloads are intercepted by
+  // downloadWorkspaceFile so the fetch carries the API key rather than a bare,
+  // auth-less navigation (which the auth middleware 401s). href/label are
+  // already HTML-escaped; the file pattern only matches [A-Za-z0-9._-] so the
+  // href is safe to embed in the onclick JS string.
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) => {
+    if (/^\/v1\/files\/[A-Za-z0-9._-]+\/content$/.test(href)) {
+      return `<a href="${href}" download class="chat-download-link" `
+           + `onclick="downloadWorkspaceFile(event, '${jsStr(href)}', '${jsStr(label)}')">`
+           + `⬇ ${label}</a>`;
+    }
+    if (/^(https?:\/\/|mailto:)/i.test(href)) {
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
+    return m;  // unsupported scheme — leave the literal text
+  });
+
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+       .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+       .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+       .replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
+       .replace(/\n/g, '<br>');
+
+  // Restore code spans (escaped) now that formatting is done.
+  s = s.replace(/(\d+)/g, (_, n) => `<code>${escapeHtml(codes[+n])}</code>`);
+  return s;
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
