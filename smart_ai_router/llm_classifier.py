@@ -15,26 +15,26 @@ reason a request fails.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 
 import httpx
+
+from smart_ai_router import settings as _settings
 
 # Valid label vocabularies — must match classifier.py exactly so the two paths
 # are interchangeable and the router thresholds/competence keys line up.
 _DOMAINS = frozenset({"coding", "docs", "reasoning", "general"})
 _COMPLEXITIES = frozenset({"trivial", "moderate", "hard"})
 
-# Default classifier model. Small + fast is the priority — classification is a
-# trivial task on the hot path of every request, so avoid "thinking" models.
-# Empty string (via env) disables the LLM path entirely → always fall back.
-_DEFAULT_MODEL = "llama3.1:8b"
-
-# Default fallback classifier: a small, free OpenRouter model tried when the
-# local model fails/times out, before giving up to the keyword classifier.
-# Free-tier is rate-limited and sends prompts off-box, so it's a resilience
-# backstop, not the primary. Empty (via env) disables the fallback.
-_DEFAULT_FALLBACK_MODEL = "nvidia/nemotron-nano-9b-v2:free"
+# Classifier models are UI-managed (see settings.py "classifier_model" /
+# "classifier_fallback", which hold the canonical defaults). Design notes:
+#   - primary: small + fast is the priority — classification is a trivial task
+#     on the hot path of every request, so avoid "thinking" models. Empty
+#     disables the LLM path entirely → always fall back.
+#   - fallback: a small, free OpenRouter model tried when the local model
+#     fails/times out, before giving up to the keyword classifier. Free-tier is
+#     rate-limited and sends prompts off-box, so it's a resilience backstop, not
+#     the primary. Empty disables the fallback.
 
 # Read budget covers a cold model load: Ollama unloads an idle model after a
 # few minutes, and the first request then pays a one-time load cost (~8s for an
@@ -73,15 +73,16 @@ class ClassifierTarget:
 
 
 def classifier_model() -> str:
-    """The configured primary classifier model, or "" if disabled."""
-    return os.environ.get("SMART_ROUTER_CLASSIFIER_MODEL", _DEFAULT_MODEL).strip()
+    """The configured primary classifier model, or "" if disabled. UI-managed
+    (Settings page) with SMART_ROUTER_CLASSIFIER_MODEL as env fallback."""
+    return _settings.get_str("classifier_model").strip()
 
 
 def classifier_fallback_model() -> str:
-    """The configured free/remote fallback classifier model, or "" if disabled."""
-    return os.environ.get(
-        "SMART_ROUTER_CLASSIFIER_FALLBACK", _DEFAULT_FALLBACK_MODEL
-    ).strip()
+    """The configured free/remote fallback classifier model, or "" if disabled.
+    UI-managed (Settings page) with SMART_ROUTER_CLASSIFIER_FALLBACK as env
+    fallback."""
+    return _settings.get_str("classifier_fallback").strip()
 
 
 def _parse_classification(text: str) -> tuple[str, str] | None:

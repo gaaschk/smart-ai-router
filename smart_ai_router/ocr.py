@@ -16,29 +16,20 @@ isn't importable, rendering is a no-op ([]) and the caller degrades to a clear
 """
 from __future__ import annotations
 
-import os
-
-# Default page ceiling — a scanned book shouldn't explode one request into
-# hundreds of images. Override with SMART_ROUTER_OCR_MAX_PAGES.
-_DEFAULT_MAX_PAGES = 10
-# Render resolution. 150 DPI is a good legibility/size trade for vision OCR.
-_DEFAULT_DPI = 150
+from smart_ai_router import settings as _settings
 
 
 def ocr_max_pages() -> int:
-    try:
-        n = int(os.environ.get("SMART_ROUTER_OCR_MAX_PAGES", _DEFAULT_MAX_PAGES))
-    except ValueError:
-        n = _DEFAULT_MAX_PAGES
-    return max(1, n)
+    """Page ceiling — a scanned book shouldn't explode one request into
+    hundreds of images. UI-managed (Settings page) with
+    SMART_ROUTER_OCR_MAX_PAGES as env fallback."""
+    return max(1, _settings.get_int("ocr_max_pages"))
 
 
 def ocr_dpi() -> int:
-    try:
-        d = int(os.environ.get("SMART_ROUTER_OCR_DPI", _DEFAULT_DPI))
-    except ValueError:
-        d = _DEFAULT_DPI
-    return max(72, d)
+    """Render resolution; 150 DPI is a good legibility/size trade for vision
+    OCR. UI-managed (Settings page) with SMART_ROUTER_OCR_DPI as env fallback."""
+    return max(72, _settings.get_int("ocr_dpi"))
 
 
 def available() -> bool:

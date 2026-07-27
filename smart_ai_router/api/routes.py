@@ -23,6 +23,9 @@ from smart_ai_router.api.schemas import (
     ProviderResponse,
     RouteRequest,
     RouteResponse,
+    SettingResponse,
+    SettingsResponse,
+    SettingsUpdateRequest,
     SyncRequest,
     SyncResponse,
     UpdateStatusResponse,
@@ -233,6 +236,40 @@ def delete_provider(name: str, request: Request):
     found = cr.delete_provider(name)
     if not found:
         raise HTTPException(status_code=404, detail=f"Provider {name!r} not found")
+
+
+# ── Settings (UI-managed runtime config) ────────────────────────────────────────
+
+@api_router.get("/settings", response_model=SettingsResponse)
+def get_settings(request: Request):
+    """Effective runtime settings + metadata for the Settings page.
+
+    Admin-gated (same rule as key management): these change application behavior
+    for everyone, and a per-user key must not read/alter deployment policy.
+    """
+    _require_admin(request)
+    from smart_ai_router import settings as _settings
+    return SettingsResponse(
+        settings=[SettingResponse(**s) for s in _settings.effective()]
+    )
+
+
+@api_router.put("/settings", response_model=SettingsResponse)
+def update_settings(body: SettingsUpdateRequest, request: Request):
+    """Persist a batch of setting changes; applied live (no restart).
+
+    Values are validated/coerced per each setting's type; an unknown key or a
+    value that doesn't fit its type is a 422.
+    """
+    _require_admin(request)
+    from smart_ai_router import settings as _settings
+    try:
+        _settings.apply(body.updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return SettingsResponse(
+        settings=[SettingResponse(**s) for s in _settings.effective()]
+    )
 
 
 # ── API keys (per-user auth) ────────────────────────────────────────────────────

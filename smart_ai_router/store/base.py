@@ -40,6 +40,20 @@ class MatrixStore(ABC):
     @abstractmethod
     def delete_provider(self, name: str) -> bool: ...
 
+    # ── Settings (UI-managed runtime config) ────────────────────────────────────
+
+    @abstractmethod
+    def get_setting(self, key: str) -> str | None:
+        """Raw stored value for a setting key, or None if unset."""
+
+    @abstractmethod
+    def set_setting(self, key: str, value: str) -> None:
+        """Persist a setting value (upsert)."""
+
+    @abstractmethod
+    def all_settings(self) -> dict[str, str]:
+        """All persisted settings as a key→value map."""
+
     # ── API keys (per-user auth) ────────────────────────────────────────────────
 
     @abstractmethod

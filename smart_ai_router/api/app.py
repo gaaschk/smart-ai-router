@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from smart_ai_router import settings as _settings
 from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
@@ -48,6 +49,9 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.capability_router = capability_router or CapabilityRouter()
+    # Bind the settings layer to the live router so UI-managed settings resolve
+    # DB → env → default. The router exposes get/set/all_setting passthroughs.
+    _settings.bind_store(app.state.capability_router)
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):

@@ -128,6 +128,17 @@ class CapabilityRouter:
     def delete_provider(self, name: str) -> bool:
         return self._store.delete_provider(name)
 
+    # ── Settings (UI-managed runtime config) ────────────────────────────────────
+
+    def get_setting(self, key: str) -> str | None:
+        return self._store.get_setting(key)
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._store.set_setting(key, value)
+
+    def all_settings(self) -> dict[str, str]:
+        return self._store.all_settings()
+
     # ── API keys (per-user auth) ────────────────────────────────────────────────
 
     def all_api_keys(self) -> list[ApiKey]:
