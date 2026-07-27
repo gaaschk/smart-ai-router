@@ -82,6 +82,17 @@ class MatrixStore(ABC):
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         """Usage rows for a user at/after an ISO timestamp (for quota checks)."""
 
+    @abstractmethod
+    def usage_summary(
+        self, *, user: str | None = None, since_ts: str = ""
+    ) -> dict:
+        """Aggregated usage for the dashboard (totals + group-bys).
+
+        user=None aggregates all users and includes a by_user breakdown;
+        a specific user scopes to their rows and omits by_user. since_ts
+        ("" = unbounded) bounds the window.
+        """
+
     # ── Files (uploads) ────────────────────────────────────────────────────────
 
     @abstractmethod

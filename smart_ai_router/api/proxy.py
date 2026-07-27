@@ -94,6 +94,72 @@ async def _with_heartbeat(
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+def _estimate_tokens(text: str) -> int:
+    """Rough token count from character length (~4 chars/token), the same
+    heuristic used for est_tokens routing below. Used as a fallback when a
+    streaming provider doesn't return a usage block."""
+    return max(0, len(str(text)) // 4)
+
+
+class _StreamUsageScanner:
+    """Incrementally scans an OpenAI SSE byte stream (fed a copy of the raw
+    chunks) to recover token usage without disturbing the forwarded bytes.
+
+    OpenAI-compatible backends, when sent stream_options.include_usage, emit a
+    final data chunk carrying a top-level `usage` block (with choices: []). We
+    remember it. Providers that ignore the flag emit none, so we also accumulate
+    streamed delta content length as an estimate fallback.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self.usage: dict | None = None
+        self._content_len = 0
+
+    def feed(self, chunk: bytes) -> None:
+        """Feed one raw network chunk. Parses only whole lines; a partial
+        trailing line is retained until the rest arrives."""
+        self._buf += chunk.decode("utf-8", errors="replace")
+        # Keep the last (possibly partial) line in the buffer.
+        *lines, self._buf = self._buf.split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                obj = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                u = obj.get("usage")
+                if isinstance(u, dict):
+                    self.usage = u
+                for choice in obj.get("choices") or []:
+                    if isinstance(choice, dict):
+                        delta = choice.get("delta") or {}
+                        piece = delta.get("content")
+                        if isinstance(piece, str):
+                            self._content_len += len(piece)
+
+    def resolve(self, messages: list[dict]) -> tuple[dict, bool]:
+        """Return (usage_block, tokens_estimated). Prefers the provider's real
+        usage; otherwise estimates prompt tokens from the request messages and
+        completion tokens from accumulated delta content."""
+        if self.usage is not None:
+            return self.usage, False
+        prompt_tokens = sum(
+            len(str(m.get("content", ""))) // 4 for m in messages
+        )
+        return (
+            {"prompt_tokens": prompt_tokens,
+             "completion_tokens": max(0, self._content_len // 4)},
+            True,
+        )
+
+
 def _extract_prompt(messages: list[dict]) -> str:
     for msg in reversed(messages):
         if msg.get("role") == "user":
@@ -261,12 +327,14 @@ def _request_scope(request: Request) -> ModelScope | None:
 
 
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
-               complexity: str, usage: dict | None, status: int) -> None:
+               complexity: str, usage: dict | None, status: int,
+               tokens_estimated: bool = False) -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
-    succeeded. `usage` is the provider's OpenAI-style token block, absent for
-    streaming responses (tokens aren't tallied until a later phase).
+    succeeded. `usage` is an OpenAI-style token block: for non-streaming calls
+    it's the provider's; for streams it's either the provider's trailing
+    include_usage chunk or a locally estimated one (tokens_estimated=True).
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
@@ -287,6 +355,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             domain=domain, complexity=complexity,
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=cost_usd, status=status,
+            tokens_estimated=tokens_estimated,
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
@@ -557,10 +626,31 @@ async def chat_completions(request: Request):
 
     # 4. Forward with async httpx
     if stream:
+        # Ask OpenAI-compatible backends to emit a trailing usage chunk so
+        # streamed requests can be token-accounted. Providers that ignore this
+        # fall back to a local estimate (see _StreamUsageScanner).
+        forward_body["stream_options"] = {"include_usage": True}
+
         async def _stream_generator() -> AsyncIterator[bytes]:
             # Emit an SSE comment immediately so the client sees the stream is
             # alive while we wait for the upstream provider's first token.
             yield b": smart-ai-router connected\n\n"
+            scanner = _StreamUsageScanner()
+            logged = False  # guard: log usage exactly once (drain or error)
+
+            def _record(status: int) -> None:
+                nonlocal logged
+                if logged:
+                    return
+                logged = True
+                usage, estimated = scanner.resolve(messages)
+                _log_usage(
+                    cr, request,
+                    routed_model=routed_model, domain=domain,
+                    complexity=complexity, usage=usage,
+                    status=status, tokens_estimated=estimated,
+                )
+
             try:
                 async with httpx.AsyncClient(timeout=_timeout) as client:
                     async with client.stream(
@@ -571,16 +661,10 @@ async def chat_completions(request: Request):
                         if resp.status_code >= 400:
                             error = await resp.aread()
                             yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
+                            # Record the failed attempt for attribution/quotas
+                            # (no tokens, but the request count matters).
+                            _record(resp.status_code)
                             return
-                        # Record the request for attribution + request-count
-                        # quotas. Token counts aren't tallied for streams yet
-                        # (usage isn't emitted mid-stream), so they log as 0.
-                        _log_usage(
-                            cr, request,
-                            routed_model=routed_model, domain=domain,
-                            complexity=complexity, usage=None,
-                            status=resp.status_code,
-                        )
                         # Prepend escalation note as a synthetic first delta chunk
                         if escalated:
                             note_chunk = {
@@ -596,12 +680,21 @@ async def chat_completions(request: Request):
                         # before yielding, which stalls SSE token-by-token
                         # streaming into visible ~4 KB bursts ("a line every few
                         # seconds"). aiter_raw() hands us bytes as they land on
-                        # the socket, so tokens reach the browser immediately.
+                        # the socket, so tokens reach the browser immediately. We
+                        # forward each chunk verbatim and feed a copy to the
+                        # scanner to recover the trailing usage block.
                         async for chunk in resp.aiter_raw():
+                            scanner.feed(chunk)
                             yield chunk
+                        _record(resp.status_code)
             except httpx.RequestError as exc:
                 yield f"data: {json.dumps({'error': f'proxy upstream error: {exc}'})}\n\n".encode()
                 yield b"data: [DONE]\n\n"
+                _record(502)
+            finally:
+                # Client disconnect / cancellation mid-drain still records what
+                # streamed (no-ops if _record already ran on drain/error).
+                _record(200)
 
         return StreamingResponse(
             _stream_generator(),

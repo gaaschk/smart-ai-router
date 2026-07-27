@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -25,6 +26,7 @@ from smart_ai_router.api.schemas import (
     SyncRequest,
     SyncResponse,
     UpdateStatusResponse,
+    UsageSummaryResponse,
     WhoAmIResponse,
 )
 
@@ -168,6 +170,24 @@ def cost(body: CostRequest, request: Request):
     cr = _router_instance(request)
     cost_usd = cr.cost_for(body.model, body.prompt_tokens, body.completion_tokens)
     return CostResponse(model=body.model, cost_usd=cost_usd)
+
+
+@api_router.get("/usage", response_model=UsageSummaryResponse)
+def usage(request: Request, days: int = 30):
+    """Aggregated usage for the dashboard.
+
+    Scoped like conversations: the admin identity sees all users (with a
+    by_user breakdown); a per-user key sees only its own rows. Open (no-auth)
+    mode has caller "", which matches the ""-owner rows written in that mode.
+    `days` bounds the window (clamped 1–365).
+    """
+    cr = _router_instance(request)
+    caller = getattr(request.state, "user", "") or ""
+    is_admin = caller == "admin"
+    days = max(1, min(days, 365))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    scope_user = None if is_admin else caller
+    return cr.usage_summary(user=scope_user, since_ts=since)
 
 
 # ── Providers ─────────────────────────────────────────────────────────────────

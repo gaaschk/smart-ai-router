@@ -141,6 +141,14 @@ class SqliteStore(MatrixStore):
                 self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: flag rows whose tokens were estimated locally
+            # (streamed responses without a provider usage block) vs measured.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN tokens_estimated INTEGER DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -327,13 +335,15 @@ class SqliteStore(MatrixStore):
             self._conn.execute(
                 """INSERT INTO usage_log (
                     ts, user, key_prefix, routed_model, domain, complexity,
-                    prompt_tokens, completion_tokens, cost_usd, status
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    prompt_tokens, completion_tokens, cost_usd, status,
+                    tokens_estimated
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.user, usage.key_prefix, usage.routed_model,
                     usage.domain, usage.complexity,
                     usage.prompt_tokens, usage.completion_tokens,
                     usage.cost_usd, usage.status,
+                    1 if usage.tokens_estimated else 0,
                 ),
             )
             self._conn.commit()
@@ -345,6 +355,82 @@ class SqliteStore(MatrixStore):
                 (user, since_ts),
             ).fetchall()
         return [self._row_to_usage(r) for r in rows]
+
+    def usage_summary(
+        self, *, user: str | None = None, since_ts: str = ""
+    ) -> dict:
+        """Aggregate usage_log for the dashboard, computed in SQL (GROUP BY).
+
+        user=None → all users (admin view, includes a by_user breakdown);
+        a value → only that user's rows, and by_user is omitted. since_ts
+        (ISO-8601) bounds the window; "" means no lower bound. Cost/token sums
+        coalesce NULLs to 0 so an empty window returns zeroed totals, not None.
+        """
+        # WHERE clause shared by every aggregate query below.
+        where = "WHERE ts >= ?"
+        params: list = [since_ts or ""]
+        if user is not None:
+            where += " AND user = ?"
+            params.append(user)
+
+        def _agg(select: str, group_by: str = "") -> list[sqlite3.Row]:
+            sql = f"SELECT {select} FROM usage_log {where}"
+            if group_by:
+                sql += f" {group_by}"
+            return self._conn.execute(sql, params).fetchall()
+
+        _sums = (
+            "COUNT(*) AS requests, "
+            "COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
+            "COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "
+            "COALESCE(SUM(cost_usd), 0.0) AS cost_usd, "
+            "COALESCE(SUM(tokens_estimated), 0) AS estimated_rows"
+        )
+
+        with self._lock:
+            total = _agg(_sums)[0]
+            by_model = _agg(
+                f"routed_model AS key, {_sums}",
+                "GROUP BY routed_model ORDER BY cost_usd DESC, requests DESC",
+            )
+            by_day = _agg(
+                f"substr(ts, 1, 10) AS key, {_sums}",
+                "GROUP BY substr(ts, 1, 10) ORDER BY key",
+            )
+            by_domain = _agg(
+                f"(domain || '/' || complexity) AS key, {_sums}",
+                "GROUP BY key ORDER BY requests DESC",
+            )
+            by_user = (
+                _agg(
+                    f"user AS key, {_sums}",
+                    "GROUP BY user ORDER BY cost_usd DESC, requests DESC",
+                )
+                if user is None
+                else None
+            )
+
+        def _row(r: sqlite3.Row) -> dict:
+            return {
+                "requests": r["requests"] or 0,
+                "prompt_tokens": r["prompt_tokens"] or 0,
+                "completion_tokens": r["completion_tokens"] or 0,
+                "cost_usd": r["cost_usd"] or 0.0,
+                "estimated_rows": r["estimated_rows"] or 0,
+            }
+
+        def _keyed(rows: list[sqlite3.Row]) -> list[dict]:
+            return [{"key": r["key"] or "", **_row(r)} for r in rows]
+
+        result = {
+            "totals": _row(total),
+            "by_model": _keyed(by_model),
+            "by_day": _keyed(by_day),
+            "by_domain": _keyed(by_domain),
+        }
+        if by_user is not None:
+            result["by_user"] = _keyed(by_user)
+        return result
 
     # ── Files ──────────────────────────────────────────────────────────────────
 
@@ -547,6 +633,10 @@ class SqliteStore(MatrixStore):
             completion_tokens=row["completion_tokens"] or 0,
             cost_usd=row["cost_usd"] or 0.0,
             status=row["status"] or 200,
+            tokens_estimated=bool(
+                row["tokens_estimated"]
+                if "tokens_estimated" in row.keys() else 0
+            ),
         )
 
     @staticmethod
