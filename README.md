@@ -11,6 +11,13 @@ A vendor-agnostic LLM capability router that classifies each prompt and routes i
 
 The model matrix is populated by syncing live catalogs from your configured providers (OpenRouter, Ollama, Bedrock). Competence scores are inferred from model name patterns using benchmark-informed priors, so newly-released models get reasonable defaults without manual curation.
 
+Beyond the routing proxy, the built-in web UI at `http://localhost:8001/` is a full chat client:
+
+- **Chat** with persistent, server-side conversation history — every message shows which model it was routed to and why.
+- **File uploads** — PDF, Word, PowerPoint, Excel, and text/code files are extracted to text and fed to the model as context; images are inlined for vision-capable models.
+- **Agent mode** — a tool-capable model can read, write, and edit files in your private, path-jailed workspace, and **create downloadable documents** (PDF, Word, PowerPoint, Excel, Markdown). Auto-enables when your request needs a file; can be forced on or off.
+- **Per-user API keys** — mint, scope, rate-limit, revoke, and rotate keys from the Keys page; a signed-in badge shows which identity you're using.
+
 ## Quick start
 
 ```bash
@@ -52,6 +59,7 @@ Under the hood it sets `LITELLM_BASE_URL` to point at the router and configures 
 
 Environment overrides:
 - `SMART_ROUTER_URL=http://other-host:8001` — change the router address
+- `SMART_ROUTER_API_KEY=<key>` — API key for a router that requires auth (note: **singular**, the client-side variable; the server's admin key list is the plural `SMART_ROUTER_API_KEYS`). Sent as the health-check `Authorization` header and exported to LiteLLM so the proxy authenticates.
 - `SMART_ROUTER_OPTIONAL=1` — fall back to plain `claudish` if the router is unreachable
 
 ## Architecture
@@ -102,6 +110,12 @@ claudish-smart
 | `smart_ai_router/scope.py` | Per-user model scope (allow/deny + cost-tier ceiling) |
 | `smart_ai_router/ratelimit.py` | Per-user request/token quotas from the usage log |
 | `smart_ai_router/keys_cli.py` | `smart-ai-router keys` command-line key management |
+| `smart_ai_router/extract.py` | Extract text from uploaded PDF/Word/PowerPoint/Excel/text files |
+| `smart_ai_router/docgen.py` | Render Markdown-ish text into PDF/Word/PowerPoint/Excel/Markdown documents |
+| `smart_ai_router/files.py` | Filesystem-backed blob storage for uploads (metadata in SQLite) |
+| `smart_ai_router/tools.py` | Agent filesystem tools (read/write/edit/list, create_document, run_bash) against a per-user workspace |
+| `smart_ai_router/api/files_routes.py` | OpenAI-compatible Files API (`/v1/files`) |
+| `smart_ai_router/api/conversations_routes.py` | Chat history API (`/api/conversations`) |
 
 ## API
 
@@ -167,9 +181,20 @@ curl -X PUT http://localhost:8001/api/keys/sk-smart-a1b2c3/enabled \
   -H "Authorization: Bearer $ADMIN_KEY" \
   -H 'Content-Type: application/json' -d '{"enabled":false}'
 
+# Rotate (recreate) a key — mints a new secret in place, keeping the user,
+# scope, and limits; the old secret stops working immediately. Returns the
+# new plaintext once, just like minting.
+curl -X POST http://localhost:8001/api/keys/sk-smart-a1b2c3/recreate \
+  -H "Authorization: Bearer $ADMIN_KEY"
+
 # Delete a key
 curl -X DELETE http://localhost:8001/api/keys/sk-smart-a1b2c3 \
   -H "Authorization: Bearer $ADMIN_KEY"
+
+# Who am I? — report the identity the current key authenticates as
+curl http://localhost:8001/api/whoami -H "Authorization: Bearer $SOME_KEY"
+# → {"authenticated":true,"kind":"user","user":"alice","key_prefix":"sk-smart-a1b2c3","is_admin":false}
+# kind is "admin" (env key), "user" (per-user key), or "open" (no-auth mode)
 ```
 
 The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
@@ -205,8 +230,11 @@ Three ways, all equivalent (they share the SQLite store):
 smart-ai-router keys list
 smart-ai-router keys add alice --scope '{"allow":["ollama/"]}' --window-s 3600 --max-req 100
 smart-ai-router keys disable sk-smart-a1b2c3      # revoke (reversible)
+smart-ai-router keys enable  sk-smart-a1b2c3      # re-enable a disabled key
 smart-ai-router keys delete  sk-smart-a1b2c3      # permanent
 ```
+
+Rotating a key (recreate) is available through the REST API and web UI; the CLI covers add/disable/enable/delete.
 
 ### Provider management
 
@@ -234,6 +262,47 @@ curl http://localhost:8001/api/models
 # Get a specific model
 curl http://localhost:8001/api/models/openrouter/anthropic/claude-sonnet-4-6
 ```
+
+### File uploads
+
+An OpenAI-compatible Files API stores uploads on disk (metadata in SQLite) and scopes each file to the uploading identity — admin sees all files, a per-user key sees only its own.
+
+```bash
+# Upload a file (multipart). Returns an OpenAI-shaped file object.
+curl -X POST http://localhost:8001/v1/files \
+  -H "Authorization: Bearer $KEY" \
+  -F 'file=@report.pdf' -F 'purpose=assistants'
+# → {"id":"file-…","object":"file","bytes":12345,"filename":"report.pdf", ...}
+
+curl http://localhost:8001/v1/files                    -H "Authorization: Bearer $KEY"  # list
+curl http://localhost:8001/v1/files/file-XXXX          -H "Authorization: Bearer $KEY"  # metadata
+curl http://localhost:8001/v1/files/file-XXXX/content  -H "Authorization: Bearer $KEY"  # download bytes
+curl -X DELETE http://localhost:8001/v1/files/file-XXXX -H "Authorization: Bearer $KEY" # delete
+```
+
+Extractable-to-text types: **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, and plain-text/code files (`text/*`, JSON, XML, YAML, TOML, JS, shell, Python). Legacy `.doc`/`.ppt`/`.xls` are not supported — save as the modern OpenXML format. Images aren't extracted here; they're inlined as base64 for vision-capable models at request time. Uploads over the size ceiling return `413`; unsupported types return `415`. See `SMART_ROUTER_MAX_FILE_MB` and `SMART_ROUTER_FILES_DIR` below.
+
+### Chat history (conversations)
+
+Server-side conversation storage backs the web UI's chat, scoped per identity.
+
+```bash
+curl http://localhost:8001/api/conversations                       -H "Authorization: Bearer $KEY"  # list
+curl -X POST http://localhost:8001/api/conversations \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"title":"Linezolid dosing"}'                                                                  # create
+curl http://localhost:8001/api/conversations/CID                   -H "Authorization: Bearer $KEY"  # get (with messages)
+curl -X PATCH  http://localhost:8001/api/conversations/CID \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"title":"New name"}'      # rename
+curl -X DELETE http://localhost:8001/api/conversations/CID         -H "Authorization: Bearer $KEY"  # delete
+curl -X POST http://localhost:8001/api/conversations/CID/messages \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"role":"user","content":"Hi"}'                                                                # append a message
+```
+
+### Agent mode & document creation
+
+When agent mode is on (see the Configuration section), a tool-capable model can operate on the caller's private workspace via these tools: `list_dir`, `read_file`, `write_file`, `edit_file`, `create_document`, and (opt-in) `run_bash`. `create_document` renders a small Markdown subset (headings, bullets, pipe tables, bold) into **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, or **Markdown/plain-text**, then registers it as a downloadable file via the Files API above.
 
 ### Self-update
 
@@ -296,6 +365,8 @@ All configuration is stored in `~/.smart_ai_router.db` (SQLite). You can manage 
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_MODEL_DENYLIST` | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |
+| `SMART_ROUTER_FILES_DIR` | `~/.smart_ai_router_files` | Root for uploaded/generated file blobs (metadata lives in SQLite). |
+| `SMART_ROUTER_MAX_FILE_MB` | `512` | Upload size ceiling in MB; larger uploads get `413`. |
 | `SMART_ROUTER_ENABLE_BASH` | `0` | If `1` (and `sandbox-exec` is present), the agent's `run_bash` tool is offered. Off by default — see the security note below. |
 | `SMART_ROUTER_BASH_TIMEOUT_S` | `30` | Wall-clock ceiling for a single `run_bash` call. |
 
