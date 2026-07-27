@@ -102,7 +102,17 @@ def test_classify_llm_requests_json_object(monkeypatch):
         classify_llm("write a parser", base_url="http://localhost:11434/v1", model="llama3.1:8b")
     )
     assert result == ("coding", "hard")
-    assert captured["body"]["response_format"] == {"type": "json_object"}
+    # A strict json_schema (not a bare json_object) is what actually constrains
+    # the reply to {domain, complexity} — a chatty model handed a "write a
+    # paper" prompt emits valid-but-wrong-shaped JSON otherwise.
+    rf = captured["body"]["response_format"]
+    assert rf["type"] == "json_schema"
+    js = rf["json_schema"]
+    assert js["strict"] is True
+    props = js["schema"]["properties"]
+    assert set(props["domain"]["enum"]) == lc._DOMAINS
+    assert set(props["complexity"]["enum"]) == lc._COMPLEXITIES
+    assert js["schema"]["required"] == ["domain", "complexity"]
     assert captured["body"]["max_tokens"] >= 40
 
 

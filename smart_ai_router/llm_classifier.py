@@ -26,6 +26,31 @@ from smart_ai_router import settings as _settings
 _DOMAINS = frozenset({"coding", "docs", "reasoning", "general"})
 _COMPLEXITIES = frozenset({"trivial", "moderate", "hard"})
 
+# Strict structured-output schema, derived from the vocabularies above so the
+# two can't drift. This is the real guard: a plain json_object response_format
+# forces *valid JSON* but not the right *shape* — a chatty model handed "write
+# me a paper" will happily emit a valid {"title":..., "abstract":...} object and
+# blow past max_tokens, yielding no parseable classification. Constraining to an
+# enum schema makes the model physically unable to answer the prompt; it can
+# only fill in domain + complexity. Honored by Ollama's OpenAI-compatible
+# endpoint and by OpenRouter (OpenAI Structured Outputs).
+_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "prompt_classification",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "enum": sorted(_DOMAINS)},
+                "complexity": {"type": "string", "enum": sorted(_COMPLEXITIES)},
+            },
+            "required": ["domain", "complexity"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 # Classifier models are UI-managed (see settings.py "classifier_model" /
 # "classifier_fallback", which hold the canonical defaults). Design notes:
 #   - primary: small + fast is the priority — classification is a trivial task
@@ -142,13 +167,11 @@ async def classify_llm(
         ],
         "stream": False,
         "temperature": 0,
-        # Force JSON output. Without this, chatty instruct models (e.g.
-        # llama3.1:8b) ignore the "reply with ONLY JSON" instruction and start
-        # answering the prompt, so the reply has no {...} to parse and the whole
-        # classifier chain silently falls through to the keyword classifier.
-        # response_format json_object is OpenAI-standard and honored by Ollama's
-        # OpenAI-compatible endpoint and OpenRouter alike.
-        "response_format": {"type": "json_object"},
+        # Constrain the reply to exactly {domain, complexity} — see
+        # _RESPONSE_FORMAT. Without a *schema* (a bare json_object, or nothing),
+        # chatty instruct models answer the prompt instead of classifying it and
+        # the chain silently falls through to the keyword classifier.
+        "response_format": _RESPONSE_FORMAT,
         "max_tokens": 128,  # a small JSON object; headroom so JSON isn't truncated
     }
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
