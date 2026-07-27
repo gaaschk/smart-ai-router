@@ -60,6 +60,17 @@ SPECS: tuple[SettingSpec, ...] = (
         "is active (in addition to the model denylist).",
     ),
     SettingSpec(
+        key="default_max_tokens",
+        env="SMART_ROUTER_DEFAULT_MAX_TOKENS",
+        type="int",
+        default=4096,
+        label="Default max output tokens",
+        group="Routing",
+        help="Output-token ceiling applied when a request omits max_tokens. "
+        "Caps output only — for reasoning models this covers thinking plus the "
+        "answer, so too low a value yields empty or truncated replies.",
+    ),
+    SettingSpec(
         key="classifier_model",
         env="SMART_ROUTER_CLASSIFIER_MODEL",
         type="str",
