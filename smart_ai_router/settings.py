@@ -74,10 +74,12 @@ SPECS: tuple[SettingSpec, ...] = (
         key="classifier_model",
         env="SMART_ROUTER_CLASSIFIER_MODEL",
         type="str",
-        default="llama3.1:8b",
+        default="qwen2.5:3b-instruct",
         label="Classifier model",
         group="Classifier",
-        help="Local model used to classify prompt domain/complexity.",
+        help="Local model used to classify prompt domain/complexity. Prefer a "
+        "small non-reasoning instruct model: thinking models burn the "
+        "classifier's tiny output budget before emitting the JSON.",
     ),
     SettingSpec(
         key="classifier_fallback",

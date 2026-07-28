@@ -4,6 +4,7 @@ import json
 
 import httpx
 
+from smart_ai_router import settings as _settings
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     _parse_classification,
@@ -57,8 +58,12 @@ def test_disabled_model_env(monkeypatch):
 
 
 def test_default_model(monkeypatch):
+    # With no override, the shipped spec default applies. Compared against the
+    # registry rather than a literal: which small model classifies best is a
+    # benchmarked tuning decision, and re-tuning it shouldn't fail this test.
     monkeypatch.delenv("SMART_ROUTER_CLASSIFIER_MODEL", raising=False)
-    assert classifier_model() == "llama3.1:8b"
+    shipped = next(s for s in _settings.SPECS if s.key == "classifier_model").default
+    assert classifier_model() == shipped
 
 
 def test_classify_llm_returns_none_when_disabled(monkeypatch):

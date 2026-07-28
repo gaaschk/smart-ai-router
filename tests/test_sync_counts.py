@@ -107,3 +107,82 @@ def test_pruning_is_scoped_to_the_synced_provider(monkeypatch):
     # Ollama sync must not delete bedrock models.
     assert r.removed == 0
     assert len([s for s in store.all_models() if s.provider == "bedrock"]) == 3
+
+
+# ── Ollama capability detection (/api/show) ───────────────────────────────────
+# Ollama's /api/tags says nothing about capabilities, so sync used to hardcode
+# tools=False and leave vision unset. Every local model therefore looked
+# incapable and agent-mode/vision requests could never route locally.
+
+def _fake_ollama(tags, show_by_model, *, show_fails=False):
+    """Route /api/tags vs /api/show, keyed on the requested model name."""
+    def _open(req, timeout=0):
+        class _Resp(BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if url.endswith("/api/show"):
+            if show_fails:
+                raise OSError("show unavailable")
+            name = json.loads(req.data.decode())["model"]
+            return _Resp(json.dumps(show_by_model.get(name, {})).encode())
+        return _Resp(json.dumps(tags).encode())
+    return _open
+
+
+def test_ollama_capabilities_come_from_api_show(monkeypatch):
+    store = SqliteStore(":memory:")
+    monkeypatch.setattr(
+        sync_mod.urllib.request, "urlopen",
+        _fake_ollama(
+            {"models": [
+                {"name": "seer:12b", "size": 7_600_000_000},
+                {"name": "plain:8b", "size": 4_900_000_000},
+                {"name": "dumb:1b", "size": 1_000_000_000},
+            ]},
+            {
+                "seer:12b": {
+                    "capabilities": ["completion", "vision", "tools", "thinking"],
+                    "model_info": {"seer.context_length": 262144},
+                },
+                "plain:8b": {
+                    "capabilities": ["completion", "tools"],
+                    "model_info": {"plain.context_length": 131072},
+                },
+                "dumb:1b": {"capabilities": ["completion"], "model_info": {}},
+            },
+        ),
+    )
+    sync_from_providers(store, ollama_base_url="http://x")
+    by_id = {s.value: s for s in store.all_models()}
+
+    seer = by_id["ollama/seer:12b"]
+    assert (seer.tools, seer.vision) == (True, True)
+    assert seer.ctx_k == 262  # real context, not the size-based guess (32)
+
+    plain = by_id["ollama/plain:8b"]
+    assert (plain.tools, plain.vision) == (True, False)
+    assert plain.ctx_k == 131
+
+    # No tools capability → stays off. The fix must not blanket-enable.
+    dumb = by_id["ollama/dumb:1b"]
+    assert (dumb.tools, dumb.vision) == (False, False)
+
+
+def test_ollama_falls_back_to_size_guess_when_show_fails(monkeypatch):
+    """A flaky /api/show degrades one model's metadata, not the whole sync."""
+    store = SqliteStore(":memory:")
+    monkeypatch.setattr(
+        sync_mod.urllib.request, "urlopen",
+        _fake_ollama(
+            {"models": [{"name": "big:70b", "size": 42_000_000_000}]},
+            {},
+            show_fails=True,
+        ),
+    )
+    r = sync_from_providers(store, ollama_base_url="http://x")
+    assert not r.errors and r.added == 1
+    spec = store.all_models()[0]
+    assert spec.ctx_k == 128          # size-based fallback (>30GB)
+    assert (spec.tools, spec.vision) == (False, False)  # conservative

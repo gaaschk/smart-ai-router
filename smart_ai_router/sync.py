@@ -178,6 +178,49 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
+# /api/tags lists installed models but reports nothing about what they can do.
+# The per-model capabilities live behind /api/show, which returns e.g.
+#   {"capabilities": ["completion", "vision", "tools", "thinking"],
+#    "model_info": {"gemma4.context_length": 262144, ...}}
+# Before we read it, ollama models were hardcoded tools=False with vision unset,
+# so tool-capable local models were invisible to agent mode and vision requests
+# could never route locally — both silently fell through to paid providers.
+
+
+def _ollama_details(base_url: str, name: str, timeout: int) -> tuple[list[str], int]:
+    """Fetch (capabilities, context_length) for one installed model.
+
+    Returns ([], 0) on any failure: /api/show is a per-model extra request, and a
+    single flaky response must degrade that model to conservative defaults rather
+    than abort the whole provider sync.
+    """
+    try:
+        req = urllib.request.Request(
+            f"{base_url}/api/show",
+            data=json.dumps({"model": name}).encode(),
+            headers={
+                "User-Agent": "smart-ai-router",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            info = json.load(r)
+    except Exception:
+        return [], 0
+    caps = [str(c) for c in (info.get("capabilities") or [])]
+    # The context key is namespaced by architecture ("gemma4.context_length",
+    # "qwen3.context_length", ...), so match on the suffix rather than guessing
+    # the family name.
+    ctx = 0
+    for key, val in (info.get("model_info") or {}).items():
+        if key.endswith(".context_length"):
+            try:
+                ctx = int(val)
+            except (TypeError, ValueError):
+                ctx = 0
+            break
+    return caps, ctx
+
 
 def _sync_ollama(
     store: MatrixStore,
@@ -203,14 +246,21 @@ def _sync_ollama(
         if not name:
             continue
         value = f"ollama/{name}"
-        size_gb = (m.get("size", 0) or 0) / 1e9
-        ctx_k = 128 if size_gb > 30 else (32 if size_gb > 10 else 8)
+        caps, ctx_len = _ollama_details(base_url, name, timeout)
+        if ctx_len:
+            ctx_k = ctx_len // 1000
+        else:
+            # /api/show unavailable — fall back to the old size-based guess so a
+            # partial outage still yields a usable (if coarse) row.
+            size_gb = (m.get("size", 0) or 0) / 1e9
+            ctx_k = 128 if size_gb > 30 else (32 if size_gb > 10 else 8)
         spec = ModelSpec(
             value=value,
             provider="ollama",
             cost=0,
             ctx_k=ctx_k,
-            tools=False,
+            tools="tools" in caps,
+            vision="vision" in caps,
             reliability=1.0,
             cost_input=0.0,
             cost_output=0.0,
