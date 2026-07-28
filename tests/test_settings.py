@@ -46,9 +46,12 @@ def test_db_overrides_env(monkeypatch):
 
 def test_unbound_store_uses_env_then_default(monkeypatch):
     # No store bound (e.g. a plain unit test) → env → default, never crashes.
+    # Asserts the *precedence*, not a particular model name — the shipped
+    # classifier default is a tuning choice that changes independently.
     _settings.bind_store(None)
+    shipped = next(s for s in _settings.SPECS if s.key == "classifier_model").default
     monkeypatch.delenv("SMART_ROUTER_CLASSIFIER_MODEL", raising=False)
-    assert _settings.get("classifier_model") == "llama3.1:8b"
+    assert _settings.get("classifier_model") == shipped
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "custom:1b")
     assert _settings.get("classifier_model") == "custom:1b"
 
