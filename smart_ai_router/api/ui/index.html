@@ -2214,20 +2214,58 @@ async function doCheckUpdates() {
 
 async function doApplyUpdate() {
   if (!confirm('Pull latest from origin/main and restart?')) return;
+  const text = document.getElementById('settings-update-text');
+  const detail = document.getElementById('settings-update-detail');
+  text.textContent = 'Applying...';
+
+  let d = null;
   try {
-    await fetch(`${API}/updates/apply`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-  } catch(_) {}
-  document.getElementById('settings-update-text').textContent = 'Restarting...';
+    const r = await fetch(`${API}/updates/apply`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    d = await r.json();
+  } catch(_) {
+    // A successful restart kills the server mid-response, so a dropped
+    // connection here is the expected happy path: fall through and poll.
+  }
+
+  // Only a reported failure is a failure. No response at all means the process
+  // went away — i.e. it restarted.
+  if (d && d.ok === false) {
+    text.textContent = 'Update failed';
+    text.style.color = 'var(--error)';
+    detail.textContent = d.hint ? `${d.detail}  →  ${d.hint}` : d.detail;
+    // The pull itself may still have succeeded (only the restart failed), so
+    // refresh the banner rather than leaving a stale "behind" count.
+    doCheckUpdates();
+    return;
+  }
+
+  text.textContent = 'Restarting...';
   pollUntilBack();
 }
 
 async function pollUntilBack() {
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 2000));
+  // Wait for the server to actually go down before treating a 200 as "it came
+  // back". Reloading on the first successful response would otherwise reload
+  // against the *old* still-running process — which answers instantly — and
+  // land on the same "update available" banner, looking like the button did
+  // nothing. Once we've seen it drop, the next 200 is genuinely the new build.
+  let wentDown = false;
+  for (let i = 0; i < 45; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    let up = false;
     try {
-      const r = await fetch(`${API}/updates?fetch=false`);
-      if (r.ok) { location.reload(); return; }
-    } catch(_) {}
+      const r = await fetch(`${API}/updates?fetch=false`, { cache: 'no-store' });
+      up = r.ok;
+    } catch(_) { up = false; }
+
+    if (!up) { wentDown = true; continue; }
+    if (wentDown) { location.reload(); return; }
+  }
+  // Never observed a restart. Don't reload into a stale banner — report it.
+  const text = document.getElementById('settings-update-text');
+  if (text) {
+    text.textContent = 'Restart not detected — the app may still be on the old build';
+    text.style.color = 'var(--warning)';
   }
 }
 

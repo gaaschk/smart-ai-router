@@ -273,3 +273,6 @@ class UpdateStatusResponse(BaseModel):
 class ApplyUpdateResponse(BaseModel):
     ok: bool
     detail: str
+    # Set when finishing the update needs a human (e.g. the daemon is
+    # root-owned): a copy-pasteable command shown alongside the failure.
+    hint: str = ""
