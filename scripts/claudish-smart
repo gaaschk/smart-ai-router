@@ -100,7 +100,8 @@ _WROTE_SETTINGS=1
 
 # The main Claude Code loop — recognizing skills, emitting Workflow/Agent tool
 # calls — needs a Claude-compliant model, so ANTHROPIC_MODEL above sends it to
-# 'smart-orchestrator', which the proxy forces to a Claude model (via bedrock).
+# 'smart-orchestrator', which restricts the proxy's candidates to Claude and then
+# routes on the prompt within that pool (so a mechanical turn can still be cheap).
 # Subagents do the fan-out work, so CLAUDE_CODE_SUBAGENT_MODEL sends them to
 # 'smart-worker', which the proxy classifies and routes to the cheapest capable
 # model (Claude fallback when nothing third-party clears the quality bar).

@@ -96,6 +96,38 @@ class CapabilityRouter:
             agent_mode=agent_mode,
         )
 
+    def select_from(
+        self,
+        models: list[ModelSpec],
+        profile: PromptProfile,
+        *,
+        needs_tools: bool = False,
+        needs_vision: bool = False,
+        est_tokens: int = 0,
+        exclude: set[str] | None = None,
+        scope: ModelScope | None = None,
+        agent_mode: bool = False,
+    ) -> RouteDecision:
+        """select() over an explicit candidate pool instead of the whole store.
+
+        For callers that must constrain *which* models are considered at all,
+        separately from what the prompt needs: orchestrator mode narrows the pool
+        to Claude and then routes on the profile like any other request. Passing a
+        pool rather than an `exclude` set keeps the decision's counts meaningful —
+        "2 of 6 qualified" describes the pool the caller actually offered.
+        """
+        return _router.select_from(
+            models,
+            profile=profile,
+            needs_tools=needs_tools,
+            needs_vision=needs_vision,
+            est_tokens=est_tokens,
+            exclude=exclude,
+            scope=scope,
+            thresholds=self._thresholds,
+            agent_mode=agent_mode,
+        )
+
     # ── Capabilities ───────────────────────────────────────────────────────────
 
     def capabilities(self, *, scope: ModelScope | None = None) -> Capabilities:
