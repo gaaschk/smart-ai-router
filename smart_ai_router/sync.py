@@ -7,12 +7,14 @@ Returns a SyncResult with counts of added/updated models and any errors.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import urllib.request
 from dataclasses import dataclass, field
 
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.profiler import (
+    apply_ratings,
     extract_catalog_signals,
     legacy_competence,
     profile_model,
@@ -34,6 +36,35 @@ class SyncResult:
         return self.added + self.updated
 
 
+def _carry_profile_shape(spec: ModelSpec, prior: ModelSpec) -> ModelSpec:
+    """Re-attach a stored LLM shape judgment to a freshly-built spec.
+
+    Sync rebuilds specs from the catalog alone, so a fresh spec never carries
+    ratings. Without this, every sync would (a) blank the ratings of every
+    enriched model and (b) report each one as "updated" because the fresh spec
+    differs from the stored one — so it must run *before* the equality check
+    below, not after.
+
+    The ratings are re-composed here rather than copied, which is the whole point
+    of storing shape instead of numbers: fresh benchmarks move the level, the
+    stored judgment re-applies on top, and nothing calls an LLM again.
+    """
+    if not prior.profile_ratings:
+        return spec
+    effective = apply_ratings(spec.profile, prior.profile_ratings)
+    return dataclasses.replace(
+        spec,
+        profile=effective,
+        # Re-derived, never carried: the legacy 4-value vector must summarize the
+        # profile the router matches on, or the dashboard describes a decision
+        # that was never made.
+        competence=legacy_competence(effective),
+        profile_rules=spec.profile if effective != spec.profile else {},
+        profile_ratings=dict(prior.profile_ratings),
+        profile_note=prior.profile_note,
+    )
+
+
 def _apply_spec(
     store: MatrixStore,
     spec: ModelSpec,
@@ -49,7 +80,9 @@ def _apply_spec(
     if prior is None:
         store.upsert_model(spec)
         result.added += 1
-    elif prior != spec:
+        return
+    spec = _carry_profile_shape(spec, prior)
+    if prior != spec:
         store.upsert_model(spec)
         result.updated += 1
     else:

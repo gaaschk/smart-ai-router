@@ -14,12 +14,18 @@ from smart_ai_router.models import (
     ProviderConfig,
     UsageRecord,
 )
+from smart_ai_router.profiler import apply_ratings, baseline_profile
 from smart_ai_router.store.base import MatrixStore
 
 
 def _utcnow_iso() -> str:
     """UTC timestamp in ISO-8601, used for key/usage bookkeeping."""
     return datetime.now(timezone.utc).isoformat()
+
+
+# Local alias: `baseline_profile` reads better at its definition than at the two
+# call sites here, where the point is just "write the deterministic one".
+_baseline = baseline_profile
 
 
 class SqliteStore(MatrixStore):
@@ -162,9 +168,17 @@ class SqliteStore(MatrixStore):
             # schema change; an empty string means "not profiled yet", and the
             # router falls back to the four competence columns for those rows
             # until the next sync fills them in.
+            #
+            # profile_ratings_json / profile_note hold the optional LLM shape
+            # judgment. Deliberately separate from profile_json rather than baked
+            # into it: profile_json stays the deterministic sync output, so a
+            # re-sync with fresh benchmarks re-levels the profile and the ratings
+            # re-apply on read with no second LLM call.
             for column, decl in (
                 ("profile_json", "TEXT DEFAULT ''"),
                 ("description", "TEXT DEFAULT ''"),
+                ("profile_ratings_json", "TEXT DEFAULT ''"),
+                ("profile_note", "TEXT DEFAULT ''"),
             ):
                 try:
                     self._conn.execute(
@@ -172,6 +186,16 @@ class SqliteStore(MatrixStore):
                     )
                 except sqlite3.OperationalError:
                     pass  # already exists
+            # Additive migration: the full prompt profile behind each routing
+            # decision. domain/complexity are a lossy summary; this is what the
+            # router actually matched on, and it is what makes a profiler change
+            # auditable against real traffic instead of synthetic prompts.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN profile_json TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -187,8 +211,9 @@ class SqliteStore(MatrixStore):
                     cost_input, cost_output,
                     competence_coding, competence_docs,
                     competence_reasoning, competence_general,
-                    profile_json, description
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    profile_json, description,
+                    profile_ratings_json, profile_note
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -203,7 +228,9 @@ class SqliteStore(MatrixStore):
                     competence_reasoning=excluded.competence_reasoning,
                     competence_general=excluded.competence_general,
                     profile_json=excluded.profile_json,
-                    description=excluded.description
+                    description=excluded.description,
+                    profile_ratings_json=excluded.profile_ratings_json,
+                    profile_note=excluded.profile_note
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -215,8 +242,15 @@ class SqliteStore(MatrixStore):
                     spec.competence.get("docs", 0.0),
                     spec.competence.get("reasoning", 0.0),
                     spec.competence.get("general", 0.0),
-                    json.dumps(spec.profile, sort_keys=True) if spec.profile else "",
+                    # The *baseline* goes in profile_json, never the composed
+                    # profile. `spec.profile` came back from a read with ratings
+                    # already applied, so writing it would re-apply them on the
+                    # next read and drift the scores further every round trip.
+                    json.dumps(_baseline(spec), sort_keys=True) if _baseline(spec) else "",
                     spec.description,
+                    json.dumps(spec.profile_ratings, sort_keys=True)
+                    if spec.profile_ratings else "",
+                    spec.profile_note,
                 ),
             )
             self._conn.commit()
@@ -387,14 +421,16 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO usage_log (
                     ts, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
-                    tokens_estimated
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    tokens_estimated, profile_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.user, usage.key_prefix, usage.routed_model,
                     usage.domain, usage.complexity,
                     usage.prompt_tokens, usage.completion_tokens,
                     usage.cost_usd, usage.status,
                     1 if usage.tokens_estimated else 0,
+                    json.dumps(usage.profile, sort_keys=True)
+                    if usage.profile else "",
                 ),
             )
             self._conn.commit()
@@ -406,6 +442,45 @@ class SqliteStore(MatrixStore):
                 (user, since_ts),
             ).fetchall()
         return [self._row_to_usage(r) for r in rows]
+
+    def usage_profiles(
+        self, *, since_ts: str = "", limit: int = 200
+    ) -> list[dict]:
+        """Distinct prompt profiles this deployment has actually routed.
+
+        Grouped by (profile, chosen model) with a count, so the profile audit
+        replays *real* traffic rather than prompts someone invented to make a
+        change look good — and weights each distinct profile by how often it
+        shows up. Rows predating the profile column, and legacy
+        (domain, complexity) routes, have no profile and are skipped.
+
+        Ordered by count so a `limit` keeps the profiles that matter most.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT profile_json, routed_model, COUNT(*) AS requests
+                   FROM usage_log
+                   WHERE ts >= ? AND profile_json != ''
+                   GROUP BY profile_json, routed_model
+                   ORDER BY requests DESC, profile_json
+                   LIMIT ?""",
+                (since_ts or "", max(1, limit)),
+            ).fetchall()
+
+        out: list[dict] = []
+        for row in rows:
+            try:
+                decoded = json.loads(row["profile_json"])
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(decoded, dict):
+                continue
+            out.append({
+                "profile": decoded,
+                "routed_model": row["routed_model"] or "",
+                "requests": row["requests"] or 0,
+            })
+        return out
 
     def usage_summary(
         self, *, user: str | None = None, since_ts: str = ""
@@ -670,8 +745,8 @@ class SqliteStore(MatrixStore):
             last_used_at=row["last_used_at"] or "",
         )
 
-    @staticmethod
-    def _row_to_usage(row: sqlite3.Row) -> UsageRecord:
+    @classmethod
+    def _row_to_usage(cls, row: sqlite3.Row) -> UsageRecord:
         return UsageRecord(
             id=row["id"],
             ts=row["ts"] or "",
@@ -688,6 +763,7 @@ class SqliteStore(MatrixStore):
                 row["tokens_estimated"]
                 if "tokens_estimated" in row.keys() else 0
             ),
+            profile=cls._json_column(row, "profile_json"),
         )
 
     @staticmethod
@@ -728,6 +804,40 @@ class SqliteStore(MatrixStore):
         return out
 
     @staticmethod
+    def _ratings_from_row(row: sqlite3.Row) -> dict[str, str]:
+        """Decode profile_ratings_json. Same tolerance as _profile_from_row: a
+        bad blob means "not rated", which routes on the deterministic profile
+        rather than breaking every read."""
+        try:
+            raw = row["profile_ratings_json"]
+        except (IndexError, KeyError):
+            return {}
+        if not raw:
+            return {}
+        try:
+            decoded = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        if not isinstance(decoded, dict):
+            return {}
+        return {str(k): str(v) for k, v in decoded.items()}
+
+    @staticmethod
+    def _json_column(row: sqlite3.Row, name: str) -> dict | None:
+        """Decode an optional JSON-object column, or None if absent/unusable."""
+        try:
+            raw = row[name]
+        except (IndexError, KeyError):
+            return None
+        if not raw:
+            return None
+        try:
+            decoded = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+        return decoded if isinstance(decoded, dict) else None
+
+    @staticmethod
     def _column(row: sqlite3.Row, name: str, default: str = "") -> str:
         """Read a column that may predate its migration."""
         try:
@@ -737,6 +847,14 @@ class SqliteStore(MatrixStore):
 
     @classmethod
     def _row_to_spec(cls, row: sqlite3.Row) -> ModelSpec:
+        # Compose the LLM shape onto the stored baseline here, once per read,
+        # so `spec.profile` is always the profile the router should match on and
+        # neither router.py nor any of its callers has to know enrichment is a
+        # feature. `profile_rules` is set only when the overlay changed something,
+        # which is the invariant profiler.baseline_profile() relies on.
+        rules = cls._profile_from_row(row)
+        ratings = cls._ratings_from_row(row)
+        effective = apply_ratings(rules, ratings)
         return ModelSpec(
             value=row["value"],
             provider=row["provider"] or "",
@@ -753,6 +871,9 @@ class SqliteStore(MatrixStore):
                 "reasoning": row["competence_reasoning"] or 0.0,
                 "general":   row["competence_general"]   or 0.0,
             },
-            profile=cls._profile_from_row(row),
+            profile=effective,
             description=cls._column(row, "description"),
+            profile_rules=rules if effective != rules else {},
+            profile_ratings=ratings,
+            profile_note=cls._column(row, "profile_note"),
         )

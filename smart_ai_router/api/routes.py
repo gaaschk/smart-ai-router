@@ -20,6 +20,8 @@ from smart_ai_router.api.schemas import (
     CostRequest,
     CostResponse,
     ModelSpecResponse,
+    ProfileRefineRequest,
+    ProfileRefineResponse,
     ProviderRequest,
     ProviderResponse,
     RouteRequest,
@@ -198,6 +200,43 @@ def sync(body: SyncRequest, request: Request):
         total=result.total,
         errors=result.errors,
     )
+
+
+@api_router.post("/models/profile", response_model=ProfileRefineResponse)
+async def refine_profiles(body: ProfileRefineRequest, request: Request):
+    """Refine model profiles with an LLM, and report the routing effect.
+
+    Admin-only and never on a request path: this spends money on one call per
+    model profiled. `dry_run` computes the same answer — including the audit of
+    which real routed prompts would change model — and writes nothing, which is
+    the intended way to look before committing.
+
+    422 when no OpenRouter provider is configured, since that is a fixable
+    setup problem rather than a failed run.
+    """
+    _require_admin(request)
+    from smart_ai_router.api.proxy import _OPENROUTER_BASE, _openrouter_key
+
+    cr = _router_instance(request)
+    api_key = _openrouter_key(cr)
+    if not api_key:
+        raise HTTPException(
+            status_code=422,
+            detail="Model profiling needs an OpenRouter provider with an API key.",
+        )
+    since = (
+        datetime.now(timezone.utc) - timedelta(days=max(0, body.audit_days))
+    ).isoformat()
+    out = await cr.refine_model_profiles(
+        base_url=_OPENROUTER_BASE,
+        api_key=api_key,
+        model=body.model,
+        only_missing=body.only_missing,
+        limit=body.limit,
+        dry_run=body.dry_run,
+        audit_since=since,
+    )
+    return ProfileRefineResponse(**out)
 
 
 @api_router.post("/cost", response_model=CostResponse)
@@ -430,4 +469,6 @@ def _to_response(spec) -> ModelSpecResponse:
         competence=spec.competence,
         profile=spec.profile,
         description=spec.description,
+        profile_ratings=spec.profile_ratings,
+        profile_note=spec.profile_note,
     )

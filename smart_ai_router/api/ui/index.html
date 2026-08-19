@@ -1069,12 +1069,46 @@
   <h1 class="page-title">Model Matrix</h1>
   <p class="page-subtitle">All synced models with their capabilities and competence scores.</p>
 
+  <!-- Profile refinement. Deliberately manual and deliberately preview-first:
+       this spends money (one LLM call per model) and changes how every request
+       routes, so nothing here happens on a timer or on a request path. -->
+  <div class="form-panel show" style="padding:1.25rem">
+    <div class="section-title" style="margin-bottom:0.35rem">Refine profiles with an LLM</div>
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:1rem;max-width:64ch">
+      Sync scores each model from benchmarks and its vendor blurb, which gets the
+      level right and the shape only roughly. This asks a capable model what each
+      one is actually built for — and what it should be kept away from. Preview
+      first: it replays prompts this deployment really routed and shows which
+      would change model.
+    </div>
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+      <label style="font-size:0.8rem;color:var(--text-muted)">Models
+        <input type="number" id="refine-limit" value="20" min="1" max="500"
+               style="width:5rem;margin-left:0.4rem">
+      </label>
+      <label style="font-size:0.8rem;color:var(--text-muted);display:flex;align-items:center;gap:0.35rem">
+        <input type="checkbox" id="refine-only-missing" checked>
+        Skip already-rated
+      </label>
+      <button class="btn btn-ghost btn-sm" onclick="doRefineProfiles(true)" id="btn-refine-preview">
+        <span id="spin-refine" style="display:none" class="spinner"></span>
+        Preview
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="doRefineProfiles(false)" id="btn-refine-apply">
+        Apply
+      </button>
+      <span style="font-size:0.75rem;color:var(--text-muted)" id="refine-status"></span>
+    </div>
+    <div id="refine-report" style="display:none;margin-top:1rem"></div>
+  </div>
+
   <div class="table-container">
     <div class="table-toolbar">
       <input type="text" id="models-search" placeholder="Search models..." oninput="filterModels()">
       <div class="filter-chips">
         <span class="chip" onclick="toggleFilter(this, 'tools')">Tools</span>
         <span class="chip" onclick="toggleFilter(this, 'vision')">Vision</span>
+        <span class="chip" onclick="toggleFilter(this, 'rated')">LLM-rated</span>
         <span class="chip" onclick="toggleFilter(this, 'openrouter')">OpenRouter</span>
         <span class="chip" onclick="toggleFilter(this, 'ollama')">Ollama</span>
         <span class="chip" onclick="toggleFilter(this, 'bedrock')">Bedrock</span>
@@ -1091,6 +1125,7 @@
             <th>Tools</th>
             <th>Vision</th>
             <th onclick="sortModels('competence')">Competence</th>
+            <th>Profile</th>
             <th onclick="sortModels('reliability')">Reliability</th>
           </tr>
         </thead>
@@ -1674,12 +1709,33 @@ function renderUsageDayBars(byDay) {
   }).join('');
 }
 
+// A model counts as LLM-rated once a rater has looked at it, which includes the
+// verdict "nothing unusual here" — that stores a note and no ratings, and it is
+// still a judgment somebody paid for, so the UI must not show it as un-reviewed.
+function _isRated(m) {
+  return Object.keys(m.profile_ratings || {}).length > 0 || !!m.profile_note;
+}
+
+// Short summary of what the rater said, for the Profile column. Only the
+// deviations are shown, since `capable` is the default and listing it for a
+// dozen fields would bury the two entries that actually change routing.
+function _ratingSummary(m) {
+  const entries = Object.entries(m.profile_ratings || {});
+  if (!entries.length) return _isRated(m) ? 'no deviations' : '';
+  const order = { specialty: 0, weak: 1, unsuited: 2 };
+  entries.sort((a, b) => (order[a[1]] ?? 3) - (order[b[1]] ?? 3));
+  return entries
+    .map(([field, rating]) => `${rating}: ${field.replace(/_/g, ' ')}`)
+    .join('; ');
+}
+
 function renderModels() {
   const q = (document.getElementById('models-search').value || '').toLowerCase();
   let filtered = _allModels.filter(m => {
     if (q && !m.value.toLowerCase().includes(q) && !m.provider.toLowerCase().includes(q)) return false;
     if (_activeFilters.has('tools') && !m.tools) return false;
     if (_activeFilters.has('vision') && !m.vision) return false;
+    if (_activeFilters.has('rated') && !_isRated(m)) return false;
     if (_activeFilters.has('openrouter') && m.provider !== 'openrouter') return false;
     if (_activeFilters.has('ollama') && m.provider !== 'ollama') return false;
     if (_activeFilters.has('bedrock') && m.provider !== 'bedrock') return false;
@@ -1723,6 +1779,11 @@ function renderModels() {
       <td><span class="badge-pill ${m.tools ? 'badge-yes' : 'badge-no'}">${m.tools ? 'yes' : '—'}</span></td>
       <td><span class="badge-pill ${m.vision ? 'badge-yes' : 'badge-no'}">${m.vision ? 'yes' : '—'}</span></td>
       <td><div class="competence-bar"><div class="bar"><div class="bar-fill ${compClass}" style="width:${compPct}%"></div></div><span style="font-size:0.7rem;color:var(--text-muted)">${compPct}%</span></div></td>
+      <td title="${escapeHtml(m.profile_note || '')}">${
+        _isRated(m)
+          ? `<span class="badge-pill badge-yes">LLM</span><div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">${escapeHtml(_ratingSummary(m))}</div>`
+          : '<span class="badge-pill badge-no">rules</span>'
+      }</td>
       <td>${(m.reliability * 100).toFixed(0)}%</td>
     </tr>`;
   }).join('');
@@ -1745,6 +1806,115 @@ function sortModels(key) {
   if (_sortKey === key) _sortAsc = !_sortAsc;
   else { _sortKey = key; _sortAsc = true; }
   renderModels();
+}
+
+// ── Profile refinement ──────────────────────────────────────────────────────
+// Two buttons on purpose. Preview answers "what would this change about
+// routing?" without writing anything, and it is the same call Apply makes, so
+// what you approve is what you get.
+async function doRefineProfiles(dryRun) {
+  const preview = document.getElementById('btn-refine-preview');
+  const apply = document.getElementById('btn-refine-apply');
+  const spin = document.getElementById('spin-refine');
+  const status = document.getElementById('refine-status');
+  const report = document.getElementById('refine-report');
+
+  preview.disabled = true; apply.disabled = true;
+  spin.style.display = 'inline-block';
+  status.textContent = dryRun ? 'Previewing…' : 'Refining…';
+  try {
+    const r = await fetch(`${API}/models/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        limit: parseInt(document.getElementById('refine-limit').value, 10) || 0,
+        only_missing: document.getElementById('refine-only-missing').checked,
+        dry_run: !!dryRun,
+      }),
+    });
+    if (!r.ok) {
+      let detail = ''; try { detail = (await r.json()).detail || ''; } catch (_) {}
+      status.textContent = `Failed: ${detail || r.status}`;
+      return;
+    }
+    const d = await r.json();
+    const e = d.enrich || {}, a = d.audit || {};
+    const bits = [`${e.rated || 0} of ${e.considered || 0} rated`];
+    if (e.changed) bits.push(`${e.changed} changed`);
+    if (e.failed) bits.push(`${e.failed} failed`);
+    bits.push(dryRun ? 'nothing written (preview)' : `${e.written || 0} written`);
+    status.textContent = bits.join(' — ');
+    report.style.display = 'block';
+    report.innerHTML = _renderRefineReport(e, a, dryRun);
+    if (!dryRun) fetchModels();
+  } catch (err) {
+    status.textContent = `Failed: ${String(err && err.message || err)}`;
+  } finally {
+    preview.disabled = false; apply.disabled = false;
+    spin.style.display = 'none';
+  }
+}
+
+function _renderRefineReport(enrich, audit, dryRun) {
+  const muted = 'font-size:0.72rem;color:var(--text-muted)';
+  const out = [];
+
+  // Routing effect first. The score diffs below are only interesting insofar as
+  // they move real traffic, so lead with the traffic.
+  const flips = audit.flips || [];
+  if (!audit.profiles) {
+    out.push(`<div style="${muted}">No routed prompts recorded in this window,
+      so there is nothing to replay yet. Route some traffic and preview again to
+      see the effect on real requests.</div>`);
+  } else if (!flips.length) {
+    out.push(`<div style="${muted}">Replayed ${audit.profiles} recorded prompt
+      profile(s) (${audit.requests} request(s)): no routing changes.</div>`);
+  } else {
+    out.push(`<div style="${muted};margin-bottom:0.4rem">
+      ${dryRun ? 'Would change' : 'Changed'} routing for ${audit.flipped_requests}
+      of ${audit.requests} replayed request(s):</div>`);
+    out.push('<ul style="margin:0 0 0.75rem 1.1rem;padding:0;font-size:0.72rem">');
+    for (const f of flips.slice(0, 12)) {
+      out.push(`<li style="margin-bottom:0.2rem">
+        <strong>${escapeHtml(f.direction)}</strong> ·
+        ${escapeHtml(f.profile)} · ${f.requests}×<br>
+        <span style="${muted}">${escapeHtml(f.before.model)}
+        ${f.before.qualified ? '' : '(under-qualified) '}→
+        ${escapeHtml(f.after.model)}
+        ${f.after.qualified ? '' : '(under-qualified)'}</span></li>`);
+    }
+    out.push('</ul>');
+    if (flips.length > 12) {
+      out.push(`<div style="${muted}">…and ${flips.length - 12} more.</div>`);
+    }
+  }
+
+  // Then what the rater actually said, so a surprising flip can be traced to a
+  // specific judgment about a specific model.
+  const changes = enrich.changes || [];
+  if (changes.length) {
+    out.push(`<div style="${muted};margin:0.75rem 0 0.3rem">Ratings:</div>`);
+    out.push('<ul style="margin:0 0 0 1.1rem;padding:0;font-size:0.72rem">');
+    for (const c of changes.slice(0, 20)) {
+      const rated = Object.entries(c.ratings || {})
+        .map(([f, r]) => `${r}: ${f.replace(/_/g, ' ')}`).join('; ');
+      out.push(`<li style="margin-bottom:0.2rem">
+        <strong>${escapeHtml(c.model)}</strong> — ${escapeHtml(rated || 'no deviations')}
+        <br><span style="${muted}">${escapeHtml(c.note || '')}</span></li>`);
+    }
+    out.push('</ul>');
+    if (changes.length > 20) {
+      out.push(`<div style="${muted}">…and ${changes.length - 20} more.</div>`);
+    }
+  }
+
+  const errors = enrich.errors || [];
+  if (errors.length) {
+    out.push(`<div style="${muted};margin-top:0.75rem">
+      ${errors.length} model(s) left as-is: ${escapeHtml(errors.slice(0, 5).join('; '))}
+      ${errors.length > 5 ? ` (+${errors.length - 5} more)` : ''}</div>`);
+  }
+  return out.join('');
 }
 
 // ── Playground ──────────────────────────────────────────────────────────────

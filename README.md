@@ -261,6 +261,13 @@ curl http://localhost:8001/api/models
 
 # Get a specific model
 curl http://localhost:8001/api/models/openrouter/anthropic/claude-sonnet-4-6
+
+# Refine model profiles with an LLM, and report what it would change about
+# routing (admin only). dry_run=true writes nothing — see
+# "Refining model profiles with an LLM" below.
+curl -X POST http://localhost:8001/api/models/profile \
+  -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"limit":20,"only_missing":true,"dry_run":true}'
 ```
 
 ### File uploads
@@ -345,6 +352,73 @@ The local classifier (a small Ollama model) profiles every prompt. When it repor
 
 Model scores are inferred during sync from provider catalog metadata: Artificial Analysis benchmark indices (`intelligence_index`, plus `coding_index` and `agentic_index` as independent evidence for their fields), whether the model supports reasoning, and the vendor description. Narrow models — coders, roleplay models, math models — take a **specialist discount** on professional fields they don't advertise, which is what stops a cheap coding model from being the answer to a legal question. The legacy `coding`/`docs`/`reasoning`/`general` competence vector is derived from the profile, never tracked separately, so the two can't disagree.
 
+### Refining model profiles with an LLM
+
+The level in a model profile comes from measurement and is trustworthy. The
+*shape* comes from reading a ~200-character vendor blurb through a fixed cue
+table, and a blurb like "flagship model for enterprise workloads" matches no cue
+at all — so the model gets a flat profile and looks equally competent at
+software engineering and clinical medicine. Flat profiles are the thing profile
+routing exists to eliminate, because the router picks the cheapest model that
+clears every bar and a flat profile clears bars it never earned.
+
+So there's an optional pass that asks a strong model what the blurb doesn't say:
+that `qwen3-coder` is superb at code and should not be answering questions about
+drug interactions. **Benchmarks own the level; the LLM only owns the shape.** It
+is never asked for scores — asked for 16 numbers between 0 and 1, models return
+0.8–0.9 for everything and re-flatten the profile. It's asked, per field,
+whether the model is unusually strong or unusually bad *relative to its own
+overall capability*:
+
+| Rating | Offset | Means |
+|--------|--------|-------|
+| `specialty` | +0.04 | purpose-built for this; a headline capability |
+| `capable` | 0.00 | about as good at this as its overall level suggests |
+| `weak` | −0.10 | noticeably worse at this than its level suggests |
+| `unsuited` | −0.20 | should not be relied on for this at all |
+
+Those offsets are sized against the depth ladder above: `weak` is larger than
+the specialist→frontier gap (0.85 → 0.93), so it genuinely disqualifies a model
+from work it was passing on paper.
+
+**The ratings are what's stored, not the adjusted numbers.** The profile is
+composed on read — baseline + offsets — so a later sync with fresh benchmarks
+re-levels every rated model automatically, with no second LLM call, and a sync
+never erases a judgment you paid for.
+
+Runs are bounded and inspectable, from the **Refine profiles with an LLM** panel
+on the Models page:
+
+- **cheapest first** — the router considers models cheapest-first, so an
+  overstated *cheap* model is the one doing damage; a capped run fixes that end.
+- **skips already-rated models** by default, so a large catalog can be worked
+  through over several runs.
+- **Preview** does the same rating work but writes nothing, and reports the
+  effect on real traffic: it replays the prompt profiles this deployment has
+  actually routed (recorded in the usage log) through the real selection
+  function under both the current and the proposed profiles, and lists the flips
+  — weighted by request count and labelled `qualifies` / `unqualifies` /
+  `pricier` / `cheaper`. A diff of 16 floats can't tell a change that moves a
+  tenth of your traffic from one that moves nothing; this can.
+- Each rated model keeps a one-line note from the rater, shown in the Models
+  table (`LLM` vs `rules` in the Profile column, filterable). An adjustment
+  nobody can inspect is one nobody should trust.
+
+A model that can't be rated (provider error, unparseable reply) keeps exactly
+the profile sync gave it — nothing here can fail a run or a request.
+
+```bash
+# Preview the effect of rating the 20 cheapest unrated models (admin only)
+curl -X POST http://localhost:8001/api/models/profile \
+  -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"limit":20,"only_missing":true,"dry_run":true,"audit_days":30}'
+# → {"enrich":{"considered":20,"rated":20,"changed":7,"written":0, "changes":[…]},
+#    "audit":{"requests":412,"flipped_requests":38,"flips":[…]}}
+```
+
+Configured under **Settings → Model profiling**
+(`SMART_ROUTER_MODEL_PROFILER_MODEL`, `SMART_ROUTER_MODEL_PROFILER_LIMIT`).
+
 ### Selection
 
 1. **Filter** by hard constraints: tool-calling support, vision, context length, minimum reliability, key scope, denylists.
@@ -398,6 +472,8 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `qwen2.5:3b-instruct` | Primary (local Ollama) model that profiles each prompt. Prefer a small **non-reasoning** instruct model — thinking models burn the classifier's tiny output budget before emitting JSON. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `openai/gpt-5.6-luna` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). Needs an OpenRouter key; empty string disables the second pass. |
+| `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `openai/gpt-5.6-luna` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. Needs an OpenRouter key; empty string disables refinement. |
+| `SMART_ROUTER_MODEL_PROFILER_LIMIT` ⚙ | `40` | Default ceiling on models rated per Refine run, cheapest first. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |

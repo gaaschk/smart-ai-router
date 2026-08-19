@@ -38,10 +38,29 @@ class ModelSpec:
     # Per-field depth scores keyed by smart_ai_router.taxonomy.FIELDS → 0.0–1.0.
     # This is what route() matches a PromptProfile against. Empty for rows written
     # before profiling existed; router falls back to `competence` in that case.
+    #
+    # This is the *effective* profile: when LLM ratings exist the store composes
+    # them onto the rules baseline on read, so the router never has to know
+    # enrichment happened and pays nothing per request for it.
     description: str = ""
     # Provider-supplied blurb ("flagship-level Agentic Coding model"). Kept
     # because it is the input the profiler reads specialization from — storing it
     # means a profiler change can be re-applied without re-fetching every catalog.
+    profile_rules: dict[str, float] = field(default_factory=dict)
+    # The deterministic profile before LLM ratings were applied.
+    #
+    # Invariant: populated *only* when an overlay actually changed `profile`.
+    # Empty therefore means "`profile` IS the baseline", which keeps un-enriched
+    # rows round-tripping byte-identical to what sync wrote. Read it through
+    # profiler.baseline_profile() rather than directly.
+    profile_ratings: dict[str, str] = field(default_factory=dict)
+    # field → one of profiler.RATING_KEYS, as judged by the enrichment pass.
+    # Stored rather than the composed numbers so a re-sync with fresh benchmarks
+    # re-levels the profile without a second LLM call: the LLM owns the shape, the
+    # benchmarks own the level.
+    profile_note: str = ""
+    # One line from the rater explaining the shape it chose. Shown in the models
+    # UI — an enrichment nobody can inspect is an enrichment nobody should trust.
 
 
 @dataclass
@@ -134,5 +153,12 @@ class UsageRecord:
     # the provider — e.g. a streamed response whose backend ignored
     # stream_options.include_usage. Lets the dashboard flag approximate figures.
     tokens_estimated: bool = False
+    # The full prompt profile behind this routing decision, in
+    # taxonomy.normalize_profile() shape. `domain`/`complexity` above are the
+    # lossy legacy summary; this is what actually chose the model, so it is the
+    # only thing that lets a later profiler change be *judged* — replay these and
+    # see which real decisions would flip. Empty for rows written before
+    # profiles, and for the legacy (domain, complexity) route() path.
+    profile: dict | None = None
     id: int = 0
     ts: str = ""

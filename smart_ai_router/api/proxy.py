@@ -417,13 +417,20 @@ def _request_scope(request: Request) -> ModelScope | None:
 
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                complexity: str, usage: dict | None, status: int,
-               tokens_estimated: bool = False) -> None:
+               tokens_estimated: bool = False,
+               profile: PromptProfile | None = None) -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
     succeeded. `usage` is an OpenAI-style token block: for non-streaming calls
     it's the provider's; for streams it's either the provider's trailing
     include_usage chunk or a locally estimated one (tokens_estimated=True).
+
+    `profile` is the full prompt profile that chose the model, recorded alongside
+    the lossy (domain, complexity) summary. It is what lets a later profiling
+    change be judged against traffic that really happened — see
+    profile_audit.py — so a routing change can be evaluated on its effect rather
+    than on how its score diff reads.
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
@@ -445,6 +452,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=cost_usd, status=status,
             tokens_estimated=tokens_estimated,
+            profile=profile.to_dict() if profile is not None else None,
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
@@ -713,7 +721,8 @@ async def chat_completions(request: Request):
                                 yield delta
 
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
-                   complexity=complexity, usage=None, status=200)
+                   complexity=complexity, usage=None, status=200,
+                   profile=profile)
 
         def _register_file(data: bytes, filename: str, mime: str) -> str:
             """Register an agent-created file in the Files API, owned by the
@@ -772,6 +781,7 @@ async def chat_completions(request: Request):
                     routed_model=routed_model, domain=domain,
                     complexity=complexity, usage=usage,
                     status=status, tokens_estimated=estimated,
+                    profile=profile,
                 )
 
             try:
@@ -853,5 +863,6 @@ async def chat_completions(request: Request):
             routed_model=routed_model, domain=domain, complexity=complexity,
             usage=data.get("usage") if isinstance(data, dict) else None,
             status=resp.status_code,
+            profile=profile,
         )
         return JSONResponse(content=data, headers=routing_headers)

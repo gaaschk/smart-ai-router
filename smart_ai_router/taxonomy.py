@@ -205,6 +205,23 @@ class PromptProfile:
                 return domain, name
         return domain, _LEGACY_COMPLEXITY_TOP
 
+    def to_dict(self) -> dict:
+        """Serializable form that round-trips through normalize_profile().
+
+        Exists so a routing decision can be *recorded* and replayed later: the
+        usage log stores this, and the profile audit rebuilds the exact profile a
+        past request routed on to check whether a profiler change would have sent
+        it somewhere else. Keys and value vocabularies match the classifier's
+        schema, so there is one shape to reason about, not two.
+        """
+        return {
+            "domains": [
+                {"field": need.field, "depth": need.depth} for need in self.domains
+            ],
+            "demands": sorted(self.demands),
+            "stakes": self.stakes,
+        }
+
     def describe(self) -> str:
         """One-line human explanation of the demand, for the routing badge and
         the escalation note. Honest about *why* a model was required."""

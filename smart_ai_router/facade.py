@@ -147,6 +147,55 @@ class CapabilityRouter:
             result.errors.extend(partial.errors)
         return result
 
+    # ── Model profile refinement ───────────────────────────────────────────────
+
+    async def refine_model_profiles(
+        self,
+        *,
+        base_url: str,
+        api_key: str = "",
+        model: str | None = None,
+        only_missing: bool = True,
+        limit: int = 0,
+        dry_run: bool = False,
+        audit_since: str = "",
+        audit_limit: int = 200,
+    ) -> dict:
+        """Ask an LLM to refine model profiles, and report what it changes.
+
+        Returns {"enrich": ..., "audit": ...}. The audit replays the prompt
+        profiles this deployment has actually routed against the proposed model
+        set, so the answer to "should I keep this?" is a list of real routing
+        flips rather than a diff of floats. It runs for a real run too, against a
+        snapshot taken before the writes, so the record of what a run did survives
+        the run itself.
+        """
+        from smart_ai_router import llm_profiler as _llm_profiler
+        from smart_ai_router import profile_audit as _profile_audit
+
+        before = self._store.all_models()
+        result = await _llm_profiler.enrich_models(
+            self._store,
+            before,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            only_missing=only_missing,
+            limit=limit,
+            dry_run=dry_run,
+        )
+
+        rated = {spec.value: spec for spec in result.rated_specs}
+        after = [rated.get(spec.value, spec) for spec in before]
+        audit = _profile_audit.audit_profiles(
+            recorded=self._store.usage_profiles(
+                since_ts=audit_since, limit=audit_limit
+            ),
+            before=before,
+            after=after,
+        )
+        return {"enrich": result.as_dict(), "audit": audit.as_dict()}
+
     # ── Provider config ───────────────────────────────────────────────────────
 
     def all_providers(self) -> list[ProviderConfig]:
@@ -206,6 +255,13 @@ class CapabilityRouter:
 
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         return self._store.recent_usage(user, since_ts)
+
+    def usage_profiles(
+        self, *, since_ts: str = "", limit: int = 200
+    ) -> list[dict]:
+        """Distinct prompt profiles actually routed, most frequent first — the
+        replay set for profile_audit."""
+        return self._store.usage_profiles(since_ts=since_ts, limit=limit)
 
     def usage_summary(
         self, *, user: str | None = None, since_ts: str = ""
