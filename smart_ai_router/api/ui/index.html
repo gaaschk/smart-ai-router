@@ -1125,6 +1125,10 @@
             <th>Tools</th>
             <th>Vision</th>
             <th onclick="sortModels('competence')">Competence</th>
+            <!-- Separate from Competence on purpose: this is loop stamina, not
+                 knowledge, and it is the one score most of the catalog has no
+                 measurement for. -->
+            <th onclick="sortModels('agentic')" title="Measured ability to hold a multi-step tool loop together. Blank = never measured, which the router treats as exempt.">Tool loop</th>
             <th>Profile</th>
             <th onclick="sortModels('reliability')">Reliability</th>
           </tr>
@@ -1812,6 +1816,23 @@ function _ratingSummary(m) {
     .join('; ');
 }
 
+// Mirrors taxonomy.AGENTIC_FLOOR. Duplicated rather than fetched because it is a
+// display threshold here — the routing decision is made server-side and arrives
+// already made, so a drift between the two mislabels a badge, nothing more.
+const _AGENTIC_FLOOR = 0.45;
+
+function _agenticCell(m) {
+  const v = m.agentic || 0;
+  // Unmeasured is the common case (most of the catalog, every local model), and
+  // showing it as 0% would read as "cannot use tools" — the opposite of how the
+  // router treats it.
+  if (v <= 0) return '<span style="color:var(--text-muted)" title="never measured — the router does not hold this against the model">—</span>';
+  const pct = (v * 100).toFixed(0);
+  return v < _AGENTIC_FLOOR
+    ? `<span class="badge-pill badge-no" title="below the tool-loop floor: excluded from requests that involve tool use">${pct}%</span>`
+    : `<span style="font-size:0.75rem">${pct}%</span>`;
+}
+
 function renderModels() {
   const q = (document.getElementById('models-search').value || '').toLowerCase();
   let filtered = _allModels.filter(m => {
@@ -1862,6 +1883,7 @@ function renderModels() {
       <td><span class="badge-pill ${m.tools ? 'badge-yes' : 'badge-no'}">${m.tools ? 'yes' : '—'}</span></td>
       <td><span class="badge-pill ${m.vision ? 'badge-yes' : 'badge-no'}">${m.vision ? 'yes' : '—'}</span></td>
       <td><div class="competence-bar"><div class="bar"><div class="bar-fill ${compClass}" style="width:${compPct}%"></div></div><span style="font-size:0.7rem;color:var(--text-muted)">${compPct}%</span></div></td>
+      <td>${_agenticCell(m)}</td>
       <td title="${escapeHtml(m.profile_note || '')}">${
         _isRated(m)
           ? `<span class="badge-pill badge-yes">LLM</span><div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">${escapeHtml(_ratingSummary(m))}</div>`

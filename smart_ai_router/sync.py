@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.profiler import (
+    agentic_level,
     apply_ratings,
     extract_catalog_signals,
     legacy_competence,
@@ -422,6 +423,11 @@ def _sync_openrouter(
         # richest signal available and it refreshes with every sync, so a newly
         # released model is ranked correctly without a code change.
         signals = extract_catalog_signals(m)
+        # agentic_index measures loop stamina, not knowledge of a field, so it
+        # goes on its own axis instead of into the profile. Popped rather than
+        # ignored so a future signal added to extract_catalog_signals() still
+        # fails loudly here rather than being silently dropped.
+        agentic = agentic_level(signals.pop("agentic_index"))
         profile = profile_model(value, **signals)
 
         spec = ModelSpec(
@@ -437,6 +443,7 @@ def _sync_openrouter(
             competence=legacy_competence(profile),
             profile=profile,
             description=signals["description"],
+            agentic=agentic,
         )
         seen.add(value)
         _apply_spec(store, spec, existing, result)

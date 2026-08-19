@@ -35,6 +35,15 @@ Conversely, models whose description advertises breadth take no discount, so
 general frontier models remain the only things that clear a specialist bar on an
 unadvertised field like law_regulatory. That is the correct answer, not an
 accident: the models that know regulatory law are the big general ones.
+
+What is *not* a field
+─────────────────────
+`agentic_index` measures whether a model can hold a multi-step tool loop
+together. That is not knowledge about a subject, so it is not a taxonomy field —
+it is a separate axis on the spec (ModelSpec.agentic), produced by
+agentic_level() here and consumed by the router when the request actually
+involves tool use. See that function for what happened when it was folded into a
+field instead.
 """
 from __future__ import annotations
 
@@ -100,7 +109,7 @@ _CODING_RESIDUAL_CAP = 0.05
 # agentic_index collapses much faster than intelligence for weaker models (a
 # model at index 30 scores ~17 agentic; at index 10, ~1). That makes it a real
 # discriminator for tool-driving work rather than a restatement of intelligence,
-# so it maps on its own anchors and gates the `agentic` demand.
+# so it maps on its own anchors.
 _AGENTIC_ANCHORS: tuple[tuple[float, float], ...] = (
     (0.0, 0.20),
     (10.0, 0.50),
@@ -255,7 +264,6 @@ def profile_model(
     description: str = "",
     intelligence_index: float | None = None,
     coding_index: float | None = None,
-    agentic_index: float | None = None,
     supports_reasoning: bool = False,
 ) -> dict[str, float]:
     """Score `model_value` on every taxonomy field (0-1).
@@ -263,6 +271,9 @@ def profile_model(
     Every argument beyond the model value is optional: a model with no catalog
     metadata at all still gets a complete profile from name priors, so no caller
     has to special-case a provider.
+
+    Takes no `agentic_index`: that signal is not knowledge about a field, and
+    belongs to agentic_level() instead.
     """
     priors = _prior_fields(model_value)
 
@@ -306,15 +317,34 @@ def profile_model(
 
         profile[field] = round(max(_MIN_SCORE, min(_MAX_SCORE, score)), 4)
 
-    # agentic_index measures something the other signals do not — whether the
-    # model can actually drive a multi-step loop — so it overrides the
-    # tool-driving field rather than nudging it.
-    if agentic_index is not None:
-        profile["operations_process"] = round(
-            _interpolate(float(agentic_index), _AGENTIC_ANCHORS), 4
-        )
-
     return profile
+
+
+def agentic_level(agentic_index: float | None) -> float:
+    """Measured ability to hold a multi-step tool loop together, 0-1.
+
+    Returns 0.0 for "never measured", which every consumer must read as *unknown*
+    rather than *zero*: only ~a third of the catalog carries this index, and no
+    local Ollama or Bedrock model carries it at all.
+
+    This used to be written into the `operations_process` field instead, as an
+    override that replaced whatever the level and cues had produced. Two things
+    were wrong with that. It conflated skills: `operations_process` is knowledge
+    about operations and process work — runbooks, workflow design — which a model
+    can do in one shot, while this index measures loop stamina. And because that
+    field is one of two feeding the legacy `general` column, an agentic benchmark
+    silently became half of every model's reported "general competence" —
+    claude-haiku-4.5's 0.68 was mean(0.604 agentic, 0.759 knowledge).
+
+    Measured on the live catalog at the time of the change: 118 of 347 models
+    carried the index, and the override dented that one field on every one of
+    them — by a median of 0.133 and up to 0.630. Worst case was gpt-4o-mini,
+    which carries an agentic_index but *no* intelligence_index, so 15 fields were
+    name-prior guesses near 0.86 while this one was a measurement at 0.23.
+    """
+    if agentic_index is None:
+        return 0.0
+    return round(_interpolate(float(agentic_index), _AGENTIC_ANCHORS), 4)
 
 
 # ── LLM-judged shape ──────────────────────────────────────────────────────────

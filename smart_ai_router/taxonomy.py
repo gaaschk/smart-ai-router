@@ -99,6 +99,29 @@ DEMANDS: dict[str, tuple[float, str]] = {
 
 DEMAND_KEYS = tuple(DEMANDS)
 
+# `agentic` is the one demand that also asks for something no *field* score can
+# express: staying coherent across many tool calls. Models are measured on that
+# separately (ModelSpec.agentic), and this is the bar they must clear when the
+# request involves tool use at all.
+#
+# Set at `surface` rather than higher because the measurement collapses steeply —
+# on the live catalog, agentic_index 1.8 maps to 0.25 while intelligence 14.8 maps
+# to 0.60 for the same model. A `practitioner` bar here would disqualify half of
+# every benchmarked model from all tool traffic, which is a far bigger claim than
+# the evidence supports. `surface` excludes only the models measured as unable to
+# complete a multi-step task at all, and leaves everything else to the fields.
+#
+# Measured at the time of the change, and worth knowing before tuning it: on a
+# 347-model catalog this fires on **0 of 64** tool-traffic demands. 33 models are
+# measured below it, but only three of those have knowledge scores high enough to
+# reach a bar at all (gpt-4o-mini at agentic 0.23, two gemini flash variants), and
+# none of the three is ever the cheapest qualifying model. So this is a guard, not
+# a routing change: it exists because removing the old `operations_process`
+# override let those models compete for tool traffic on knowledge alone, and
+# gpt-4o-mini is exactly the shape — strong fields, measured unable to hold a loop
+# — that would otherwise win it on price the moment the catalog shifts.
+AGENTIC_FLOOR: float = DEPTHS["surface"]
+
 # Consequence of being wrong. High stakes buys a stricter bar, not a different one.
 STAKES: dict[str, float] = {"low": 0.0, "medium": 0.02, "high": 0.05}
 

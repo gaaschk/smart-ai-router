@@ -200,6 +200,106 @@ def test_exclude_applies_to_profile_routing():
     assert decision.model == "pricey-frontier"
 
 
+# ── The tool-loop floor ───────────────────────────────────────────────────────
+# ModelSpec.agentic is a measurement, not a field score: it says whether a model
+# holds a multi-step tool loop together. It gates tool traffic only, and only for
+# models that were actually measured.
+
+# Same field scores, tools on, and the candidate under test is always the
+# *cheapest* — so if a pricier model wins, the floor is the only thing that could
+# have moved it, not a tiebreak.
+def _looper(name, agentic, cost=1):
+    return ModelSpec(
+        name, cost=cost, reliability=1.0, tools=True, agentic=agentic,
+        profile={"software_engineering": 0.95},
+    )
+
+
+def _weak_and_strong():
+    return _store_with(_looper("weak-loop", 0.25), _looper("strong-loop", 0.62, cost=5))
+
+
+def test_a_model_measured_weak_at_loops_loses_tool_traffic():
+    store = _weak_and_strong()
+    decision = select(
+        store, profile=_p(("software_engineering", "specialist")), needs_tools=True
+    )
+    assert decision.model == "strong-loop"
+    assert decision.agentic_excluded == 1
+    assert "tool loops" in decision.explain()
+
+
+def test_the_same_weak_model_still_wins_plain_chat():
+    # The floor is about driving a loop. Nothing about a low agentic index says the
+    # model can't answer a one-shot question, so a request with no tools must not
+    # pay more for one.
+    store = _weak_and_strong()
+    decision = select(
+        store, profile=_p(("software_engineering", "specialist")), needs_tools=False
+    )
+    assert decision.model == "weak-loop"
+    assert decision.agentic_excluded == 0
+
+
+def test_an_unmeasured_model_is_exempt():
+    # Two thirds of the catalog and *every* local model carry no index. Reading 0.0
+    # as "incapable" would hand all tool traffic to benchmarked paid models.
+    store = _store_with(_looper("local", 0.0), _looper("strong-loop", 0.62, cost=5))
+    decision = select(
+        store, profile=_p(("software_engineering", "specialist")), needs_tools=True
+    )
+    assert decision.model == "local"
+    assert decision.agentic_excluded == 0
+
+
+def test_the_agentic_demand_gates_even_without_a_tools_array():
+    # "research this, then write it up" is a loop whether or not the client
+    # declared tools, and the classifier is what notices.
+    store = _weak_and_strong()
+    decision = select(
+        store,
+        profile=_p(("software_engineering", "specialist"), demands=["agentic"]),
+        needs_tools=False,
+    )
+    assert decision.model == "strong-loop"
+
+
+def test_agent_mode_gates_too():
+    store = _weak_and_strong()
+    decision = select(
+        store,
+        profile=_p(("software_engineering", "specialist")),
+        needs_tools=False,
+        agent_mode=True,
+    )
+    assert decision.model == "strong-loop"
+
+
+def test_the_floor_is_overridable_like_every_other_threshold():
+    # A deployment that finds `surface` too permissive should be able to raise it
+    # from config rather than by editing taxonomy.
+    store = _store_with(_looper("strong-loop", 0.62))
+    assert select(
+        store, profile=_p(("software_engineering", "specialist")), needs_tools=True
+    ).model == "strong-loop"
+    with pytest.raises(RuntimeError, match="tool-loop floor"):
+        select(
+            store,
+            profile=_p(("software_engineering", "specialist")),
+            needs_tools=True,
+            thresholds={"min_agentic": 0.9},
+        )
+
+
+def test_the_floor_says_so_when_it_empties_the_pool():
+    # Otherwise the 422 reads "run sync()" for a catalog that synced fine.
+    store = _store_with(_looper("weak-loop", 0.25))
+    with pytest.raises(RuntimeError, match="1 excluded as measured below"):
+        select(
+            store, profile=_p(("software_engineering", "specialist")), needs_tools=True
+        )
+
+
 def test_raises_when_nothing_is_eligible():
     store = SqliteStore(":memory:")
     with pytest.raises(RuntimeError, match="no eligible model"):

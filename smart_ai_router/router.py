@@ -25,6 +25,7 @@ from smart_ai_router.models import ModelSpec
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.taxonomy import (
+    AGENTIC_FLOOR,
     FIELDS,
     PromptProfile,
     profile_from_labels,
@@ -43,6 +44,9 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "hard":           0.88,
     "expert":         0.94,
     "min_reliability": 0.70,
+    # Only consulted for requests that involve tool use, and only for models whose
+    # loop stamina has actually been measured. See taxonomy.AGENTIC_FLOOR.
+    "min_agentic":    AGENTIC_FLOOR,
 }
 
 
@@ -99,6 +103,25 @@ def field_score(spec: ModelSpec, field: str) -> float:
     return float(spec.competence.get(legacy_domain, 0.0))
 
 
+def _needs_agentic(
+    profile: PromptProfile, needs_tools: bool, agent_mode: bool
+) -> bool:
+    """Whether this request will actually put a model in a tool loop.
+
+    Three independent signals, any of which is enough:
+
+      - `needs_tools` — the request carries a `tools` array, so the model may be
+        asked to call one and then use the result.
+      - `agent_mode` — the router itself will drive a multi-step loop.
+      - the `agentic` demand — the classifier read the prompt as multi-step work
+        even where the client sent no tools (e.g. "research X, then write Y").
+
+    Derived here rather than taken as a parameter so no caller can request tool use
+    and forget the floor — the two arrive together or not at all.
+    """
+    return needs_tools or agent_mode or "agentic" in profile.demands
+
+
 def _margin(spec: ModelSpec, requirements: dict[str, float]) -> float:
     """How much room this model has on its *weakest* required field.
 
@@ -126,6 +149,12 @@ class RouteDecision:
     qualified: bool
     eligible_count: int             # models that passed the hard filters
     qualified_count: int            # of those, how many cleared every field bar
+    agentic_excluded: int = 0
+    # Models dropped by the tool-loop floor (see taxonomy.AGENTIC_FLOOR). Reported
+    # separately from eligible_count because this filter is the one exclusion that
+    # leaves no trace in `scores`: the field scores of a model rejected for loop
+    # stamina look fine, so without a count the decision reads as if that model
+    # was never in the catalog.
 
     def shortfalls(self) -> dict[str, tuple[float, float]]:
         """field → (required, actual) for every field the pick falls short on."""
@@ -139,7 +168,7 @@ class RouteDecision:
         """One line naming the binding constraint, for logs and the UI badge."""
         if self.qualified:
             if not self.requirements:
-                return "no capability constraints"
+                return "no capability constraints" + self._agentic_clause()
             binding = min(
                 self.requirements,
                 key=lambda f: self.scores.get(f, 0.0) - self.requirements[f],
@@ -148,12 +177,21 @@ class RouteDecision:
                 f"cheapest of {self.qualified_count} qualified; binding constraint "
                 f"{binding} needed {self.requirements[binding]:.2f}, "
                 f"has {self.scores.get(binding, 0.0):.2f}"
-            )
+            ) + self._agentic_clause()
         gaps = ", ".join(
             f"{f} needed {req:.2f}, best available has {actual:.2f}"
             for f, (req, actual) in self.shortfalls().items()
         )
-        return f"no model of {self.eligible_count} clears every bar ({gaps})"
+        return (
+            f"no model of {self.eligible_count} clears every bar ({gaps})"
+            + self._agentic_clause()
+        )
+
+    def _agentic_clause(self) -> str:
+        """The tool-loop exclusions, appended to explain() only when there were any."""
+        if not self.agentic_excluded:
+            return ""
+        return f"; {self.agentic_excluded} skipped as measured weak at tool loops"
 
 
 def select(
@@ -192,6 +230,7 @@ def select(
         requirements=profile.requirements(),
         described_as=profile.describe(),
         needs_tools=needs_tools,
+        needs_agentic=_needs_agentic(profile, needs_tools, agent_mode),
         needs_vision=needs_vision,
         est_tokens=est_tokens,
         exclude=exclude,
@@ -225,6 +264,7 @@ def select_from(
         requirements=profile.requirements(),
         described_as=profile.describe(),
         needs_tools=needs_tools,
+        needs_agentic=_needs_agentic(profile, needs_tools, agent_mode),
         needs_vision=needs_vision,
         est_tokens=est_tokens,
         exclude=exclude,
@@ -240,6 +280,7 @@ def _select(
     requirements: dict[str, float],
     described_as: str,
     needs_tools: bool,
+    needs_agentic: bool = False,
     needs_vision: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
@@ -259,11 +300,24 @@ def _select(
     """
     thr = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     min_rel: float = thr.get("min_reliability", 0.70)
+    min_agentic: float = thr.get("min_agentic", AGENTIC_FLOOR)
     _exclude = exclude or set()
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
+    agentic_excluded = 0
+
+    def _drives_loops(spec: ModelSpec) -> bool:
+        """Whether this model may be handed a multi-step tool task.
+
+        `spec.agentic == 0.0` means never measured, not incapable — two thirds of
+        the catalog and every local model are in that position — so an unmeasured
+        model is admitted and judged on its fields like it always was. This only
+        removes models measured as unable to finish a multi-step task.
+        """
+        return spec.agentic <= 0.0 or spec.agentic >= min_agentic
 
     def _eligible(spec: ModelSpec) -> bool:
+        nonlocal agentic_excluded
         if spec.value in _exclude:
             return False
         if _deny and any(d in spec.value.lower() for d in _deny):
@@ -276,6 +330,12 @@ def _select(
             return False
         if needs_tools and not spec.tools:
             return False
+        if needs_agentic and not _drives_loops(spec):
+            # Counted, not just dropped: this filter is new and invisible in the
+            # scores, so a caller left wondering why a model it expected did not
+            # win — or why nothing was eligible — needs it named.
+            agentic_excluded += 1
+            return False
         if needs_vision and not spec.vision:
             return False
         if est_tokens > 0 and spec.ctx_k > 0 and est_tokens > spec.ctx_k * 1000:
@@ -286,7 +346,14 @@ def _select(
     if not eligible:
         raise RuntimeError(
             f"route: no eligible model for {described_as}, "
-            f"needs_tools={needs_tools}. Run sync() to populate the matrix."
+            f"needs_tools={needs_tools}"
+            + (
+                f" ({agentic_excluded} excluded as measured below the "
+                f"{min_agentic:.2f} tool-loop floor)"
+                if agentic_excluded
+                else ""
+            )
+            + ". Run sync() to populate the matrix."
         )
 
     def _decision(spec: ModelSpec, qualified: bool, qualified_count: int) -> RouteDecision:
@@ -297,6 +364,7 @@ def _select(
             qualified=qualified,
             eligible_count=len(eligible),
             qualified_count=qualified_count,
+            agentic_excluded=agentic_excluded,
         )
 
     # Qualified = clears the bar on EVERY named field. Cheapest wins; ties break
@@ -362,6 +430,11 @@ def route(
         requirements={field: bar},
         described_as=f"{domain}/{complexity} ({field} >= {bar:.2f})",
         needs_tools=needs_tools,
+        # The legacy pair carries no demands to read, so tool use is the only
+        # signal available. The floor still applies: this path's promise is that
+        # the *bar* is unchanged, not that a model measured unable to finish a
+        # tool loop should keep receiving tool traffic.
+        needs_agentic=needs_tools or agent_mode,
         needs_vision=needs_vision,
         est_tokens=est_tokens,
         exclude=exclude,

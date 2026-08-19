@@ -69,6 +69,13 @@ class ModelSpecResponse(BaseModel):
     reliability: float
     cost_input: float
     cost_output: float
+    agentic: float = Field(
+        default=0.0,
+        description=(
+            "measured tool-loop stamina, 0-1; 0 = never measured (most of the "
+            "catalog), which the router treats as exempt rather than incapable"
+        ),
+    )
     competence: dict[str, float]
     profile: dict[str, float] = Field(
         default_factory=dict, description="per-taxonomy-field capability scores"
