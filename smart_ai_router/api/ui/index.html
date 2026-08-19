@@ -2897,8 +2897,9 @@ async function sendChat() {
     const classifier = res.headers.get('X-Classifier') || '';
     const profile = res.headers.get('X-Prompt-Profile') || '';
     const why = res.headers.get('X-Routing-Why') || '';
-    // Absent header (e.g. the orchestrator path, which forces a model) means the
-    // question doesn't apply — only an explicit "false" marks an unmet bar.
+    // Every routed response carries this now, but keep reading it defensively:
+    // only an explicit "false" marks an unmet bar, so a missing header (an older
+    // server, an error path) can't paint a fine answer as under-qualified.
     const qualified = res.headers.get('X-Qualified') === 'false' ? false : true;
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';

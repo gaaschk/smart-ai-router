@@ -52,7 +52,7 @@ Under the hood it sets `LITELLM_BASE_URL` to point at the router and configures 
 
 | Slot | Routed via | Purpose |
 |------|-----------|---------|
-| `--model-opus` | `smart-orchestrator` | Forces a capable Claude model for the main loop (skill/workflow/tool-calling) |
+| `--model-opus` | `smart-orchestrator` | Restricts the main loop to Claude (skill/workflow/tool-calling), then routes on the prompt within that pool |
 | `--model-sonnet` | `smart-orchestrator` | Same — orchestration needs Claude compliance |
 | `--model-haiku` | `smart-orchestrator` | Same |
 | `--model-subagent` | `smart-worker` | Classified + routed to cheapest capable model; Claude fallback only when needed |
@@ -144,9 +144,10 @@ curl -X POST http://localhost:8001/v1/chat/completions \
   }'
 ```
 
-The `model` field controls routing behavior:
-- `smart-orchestrator` — forces a Claude model (for reliable tool-calling)
-- `smart-worker` or anything else — classifies the prompt and routes to the cheapest capable model
+The `model` field controls routing behavior. Both modes classify the prompt and
+route on the resulting profile; they differ only in which models are candidates:
+- `smart-orchestrator` — Claude models only (for reliable tool-calling), cheapest that qualifies. A mechanical turn can still land on Haiku; a hard one escalates to Opus.
+- `smart-worker` or anything else — every model in scope, cheapest that qualifies
 
 Response headers include routing metadata:
 - `X-Routed-Model` — the actual model used

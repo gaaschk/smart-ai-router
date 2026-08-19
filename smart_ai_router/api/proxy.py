@@ -6,9 +6,10 @@ Every POST /v1/chat/completions is:
   2. Routed to the cheapest-qualifying model via CapabilityRouter.
   3. Forwarded to the real provider with async httpx, streaming back verbatim.
 
-Routing modes (selected by the incoming `model` name):
-  smart-orchestrator  -> force a Claude model (reliable skill/workflow tool-calling)
-  smart-worker / *    -> classify + route to cheapest capable model, Claude fallback
+Routing modes (selected by the incoming `model` name). Both classify the prompt
+and route on the resulting profile; they differ only in the candidate pool:
+  smart-orchestrator  -> Claude models only (reliable skill/workflow tool-calling)
+  smart-worker / *    -> every model in scope, cheapest that qualifies
 
 Supported provider prefixes in the routed model value:
   openrouter/<vendor>/<model>  -> https://openrouter.ai/api/v1
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from typing import Any, AsyncIterator
 
@@ -38,7 +40,7 @@ from smart_ai_router.llm_classifier import (
     classify_profile_two_speed,
     refine_model,
 )
-from smart_ai_router.models import UsageRecord
+from smart_ai_router.models import ModelSpec, UsageRecord
 from smart_ai_router.ratelimit import check_rate_limit, window_start_for
 from smart_ai_router.scope import ModelScope, parse_scope
 from smart_ai_router.taxonomy import DomainNeed, PromptProfile
@@ -348,37 +350,48 @@ def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     return _OPENROUTER_BASE, api_key, model_value
 
 
-# Minimum general competence for a Claude model to drive the orchestration
-# loop reliably. Old/weak Claude models (e.g. claude-3-haiku ≈ 0.78) fall
-# below this and are skipped in favor of modern Haiku/Sonnet (≥ 0.80).
-_ORCHESTRATOR_MIN_COMPETENCE = 0.80
+# Orchestration drives Claude Code's own loop: recognizing skills, emitting
+# Workflow/Agent tool calls, following the tool-use conventions its harness
+# parses. Only Claude models do that reliably, so the candidate pool is forced
+# no matter what the prompt itself needs.
+#
+# Eligibility is a *generation* test, not a competence one, because those are
+# different questions: whether a model can drive the harness at all, versus
+# whether it is strong enough for a given prompt. Conflating them into a single
+# general-competence floor excluded claude-haiku-4.5 (general ≈ 0.68) — the model
+# Claude Code itself ships as its small-fast default — and so pinned every
+# orchestrator request, however mechanical, to Sonnet or above. The prompt
+# profile picks the tier now; this decides only who is allowed in the room.
+#
+# The line is 3.5: Anthropic's tool-use API arrived with Claude 3, but the
+# original March-2024 generation (claude-3-opus/sonnet/haiku) loses the thread
+# over a long agentic loop, while 3.5 and 3.7 Sonnet drove Claude Code itself.
+# Nothing the prompt profile scores captures loop stamina, so it has to live here.
+_ORCHESTRATOR_MIN_GENERATION = (3, 5)
+
+# Legacy ids put the generation immediately after "claude-" (claude-3-haiku,
+# claude-3-5-sonnet, bedrock's claude-v2:1). Current ones put the *family* there
+# instead (claude-sonnet-5, claude-haiku-4.5, claude-opus-4-8), so "no match"
+# means "not a legacy id" — i.e. modern, and eligible — rather than "unknown".
+_LEGACY_CLAUDE_GENERATION = re.compile(r"claude-v?(\d+)(?:[-.](\d+))?")
 
 
-def _orchestrator_model(cr) -> str | None:
-    """Pick the cheapest *capable* Claude model for the orchestration layer.
+def _orchestrator_capable(spec: ModelSpec) -> bool:
+    """Whether `spec` can drive the orchestration loop at all.
 
-    Orchestration needs a Claude model that reliably follows Claude Code's
-    skill/workflow tool-calling conventions, so we require a competence floor
-    and then pick the cheapest that clears it. Prefers bedrock over openrouter
-    at equal cost (bedrock claude models carry higher seeded competence).
-    Returns the model value string, or None if no capable Claude model exists.
+    Deliberately not a quality judgment — see _ORCHESTRATOR_MIN_GENERATION.
     """
-    claude = [
-        s for s in cr.all_models()
-        if "claude" in s.value.lower() and s.reliability >= 0.5
-    ]
-    if not claude:
-        return None
-
-    capable = [
-        s for s in claude
-        if s.competence.get("general", 0.0) >= _ORCHESTRATOR_MIN_COMPETENCE
-    ]
-    pool = capable or claude  # if none clear the floor, fall back to any claude
-
-    # Cheapest first, then highest general competence
-    pool.sort(key=lambda s: (s.cost, -s.competence.get("general", 0.0)))
-    return pool[0].value
+    name = spec.value.lower()
+    if "claude" not in name:
+        return False
+    # claude-instant-* predates tool use entirely, and names no generation where
+    # the pattern looks for one, so it needs saying outright.
+    if "instant" in name:
+        return False
+    gen = _LEGACY_CLAUDE_GENERATION.search(name)
+    if gen is None:
+        return True
+    return (int(gen.group(1)), int(gen.group(2) or 0)) >= _ORCHESTRATOR_MIN_GENERATION
 
 
 def _enforce_rate_limit(cr, request: Request) -> None:
@@ -595,39 +608,61 @@ async def chat_completions(request: Request):
               file=sys.stderr, flush=True)
 
     # 2. Route
+    needs_tools = bool(body.get("tools")) or agent_mode
+    est_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
+
     if is_orchestrator:
-        # Orchestration layer: force a Claude model for reliable skill/workflow
-        # tool-calling. Prefer bedrock; fall back to any openrouter claude model.
-        routed_model = _orchestrator_model(cr)
-        if routed_model is None:
+        # Orchestration narrows the pool to Claude, then routes on the profile
+        # like any other request — so a mechanical turn (acknowledge a tool
+        # result, small edit) can run on Haiku while a genuinely hard one
+        # escalates to Opus. Previously this branch ignored the profile and took
+        # the cheapest Claude clearing a competence floor, which meant every
+        # orchestrator request paid for a classification it then discarded.
+        pool = [s for s in cr.all_models() if _orchestrator_capable(s)]
+        if not pool:
             raise HTTPException(
                 status_code=422,
-                detail="Orchestrator mode requires a Claude model. Configure a "
-                       "'bedrock' provider or ensure an anthropic/claude model is synced.",
+                detail="Orchestrator mode requires a Claude model of generation "
+                       f"{'.'.join(str(n) for n in _ORCHESTRATOR_MIN_GENERATION)}"
+                       " or newer. Configure a 'bedrock' provider or sync an "
+                       "anthropic/claude model.",
             )
-        # A scoped user who can't reach the forced Claude model can't orchestrate.
-        if scope is not None:
-            spec = cr.get_model(routed_model)
-            if spec is not None and not scope.permits(spec):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Your key's scope does not permit the Claude model "
-                           "required for orchestrator mode.",
-                )
-        decision = None
+        # A scoped key that can reach none of them cannot orchestrate. Checked
+        # against the pool rather than after the pick, so the error names the
+        # real cause instead of surfacing as a generic "no eligible model".
+        if scope is not None and not any(scope.permits(s) for s in pool):
+            raise HTTPException(
+                status_code=403,
+                detail="Your key's scope does not permit the Claude model "
+                       "required for orchestrator mode.",
+            )
+        candidates = pool
     else:
-        try:
+        candidates = None
+
+    try:
+        if candidates is None:
             decision = cr.select(
                 profile,
-                needs_tools=bool(body.get("tools")) or agent_mode,
+                needs_tools=needs_tools,
                 needs_vision=needs_vision,
-                est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
+                est_tokens=est_tokens,
                 scope=scope,
                 agent_mode=agent_mode,
             )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-        routed_model = decision.model
+        else:
+            decision = cr.select_from(
+                candidates,
+                profile,
+                needs_tools=needs_tools,
+                needs_vision=needs_vision,
+                est_tokens=est_tokens,
+                scope=scope,
+                agent_mode=agent_mode,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    routed_model = decision.model
 
     # Worker path escalated to Claude — no cheaper model cleared the quality bar.
     # Claude is the most expensive tier, so surface a note to the user.
@@ -637,11 +672,20 @@ async def chat_completions(request: Request):
     # closest miss rather than a qualified model. This is the case the old router
     # could not even detect, and the case the fabricated-regulatory-answer came
     # from: the honest move is to say so up front, not to answer confidently.
-    underqualified = decision is not None and not decision.qualified
+    underqualified = not decision.qualified
 
     # Either condition earns the user a prepended caveat: one is about cost, the
     # other about how far to trust the answer.
     escalated = claude_tier or underqualified
+
+    # …but only a *human* reader. A client that ships its own tool definitions is
+    # a program driving a tool loop, and prose injected into the assistant turn
+    # derails it — mid-loop it reads as the model's answer, and because it becomes
+    # conversation history the client re-sends it on every later turn, so one note
+    # is billed for the rest of the session. Orchestrator mode is always such a
+    # client. The response headers still report the truth either way, which is
+    # where a program should be reading it from.
+    inject_note = escalated and not (is_orchestrator or bool(body.get("tools")))
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
@@ -651,8 +695,7 @@ async def chat_completions(request: Request):
           f"{' [ESCALATED]' if claude_tier else ''}"
           f"{' [UNDERQUALIFIED]' if underqualified else ''}",
           file=sys.stderr, flush=True)
-    if decision is not None:
-        print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
+    print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
     # Apply a generous output-token default when the caller omits one, so
@@ -669,9 +712,8 @@ async def chat_completions(request: Request):
         "X-User": getattr(request.state, "user", "") or "",
         "X-Prompt-Profile": _header_safe(profile.describe()),
     }
-    if decision is not None:
-        routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
-        routing_headers["X-Qualified"] = "false" if underqualified else "true"
+    routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
+    routing_headers["X-Qualified"] = "false" if underqualified else "true"
 
     if underqualified:
         _ESCALATION_NOTE = (
@@ -746,7 +788,7 @@ async def chat_completions(request: Request):
 
         async def _agent_generator() -> AsyncIterator[bytes]:
             yield b": smart-ai-router connected\n\n"
-            if escalated:
+            if inject_note:
                 yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': _ESCALATION_NOTE}, 'finish_reason': None}]})}\n\n".encode()
             async for chunk in run_agent_loop(
                 user=user,
@@ -810,7 +852,7 @@ async def chat_completions(request: Request):
                             _record(resp.status_code)
                             return
                         # Prepend escalation note as a synthetic first delta chunk
-                        if escalated:
+                        if inject_note:
                             note_chunk = {
                                 "choices": [{
                                     "index": 0,
@@ -863,7 +905,7 @@ async def chat_completions(request: Request):
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
         data = resp.json()
-        if escalated:
+        if inject_note:
             try:
                 msg = data["choices"][0]["message"]
                 msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
