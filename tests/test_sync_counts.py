@@ -170,6 +170,72 @@ def test_ollama_capabilities_come_from_api_show(monkeypatch):
     assert (dumb.tools, dumb.vision) == (False, False)
 
 
+# ── OpenRouter ':batch' variants ──────────────────────────────────────────────
+# OpenRouter lists batch-only mirrors of many models at ~50% of the sibling's
+# price. A synchronous /v1/chat/completions call to one 404s with "This model is
+# only available through the Batch API", but the discount put them at the front
+# of every cheapest-first sort — so the router kept picking a model that cannot
+# answer. They must never enter the catalog.
+
+def _openrouter_model(mid, prompt="0.000003", completion="0.000015"):
+    return {
+        "id": mid,
+        "architecture": {"modality": "text->text"},
+        "context_length": 200_000,
+        "pricing": {"prompt": prompt, "completion": completion},
+        "supported_parameters": ["tools"],
+    }
+
+
+def test_batch_only_variants_are_never_synced(monkeypatch):
+    store = SqliteStore(":memory:")
+    monkeypatch.setattr(
+        sync_mod.urllib.request, "urlopen",
+        _fake_urlopen({"data": [
+            _openrouter_model("anthropic/claude-sonnet-5"),
+            # Half price, so it would win any cheapest-first tie-break.
+            _openrouter_model("anthropic/claude-sonnet-5:batch",
+                              prompt="0.0000015", completion="0.0000075"),
+            _openrouter_model("openai/gpt-5:batch"),
+        ]}),
+    )
+    r = sync_from_providers(store, openrouter_key="x")
+    assert r.added == 1
+    assert {s.value for s in store.all_models()} == {
+        "openrouter/anthropic/claude-sonnet-5"
+    }
+
+
+def test_batch_variants_already_in_the_store_are_pruned(monkeypatch):
+    """The filter has to clear catalogs synced before it existed."""
+    store = SqliteStore(":memory:")
+    store.upsert_model(ModelSpec(
+        value="openrouter/anthropic/claude-sonnet-5:batch",
+        provider="openrouter", ctx_k=200, cost=3, tools=True,
+    ))
+    monkeypatch.setattr(
+        sync_mod.urllib.request, "urlopen",
+        _fake_urlopen({"data": [_openrouter_model("anthropic/claude-sonnet-5")]}),
+    )
+    r = sync_from_providers(store, openrouter_key="x")
+    assert r.removed == 1
+    assert not [s for s in store.all_models() if s.value.endswith(":batch")]
+
+
+def test_non_batch_variants_still_sync(monkeypatch):
+    """':free' and ':thinking' answer synchronously — only ':batch' is async."""
+    store = SqliteStore(":memory:")
+    monkeypatch.setattr(
+        sync_mod.urllib.request, "urlopen",
+        _fake_urlopen({"data": [
+            _openrouter_model("qwen/qwen3-235b:free", prompt="0", completion="0"),
+            _openrouter_model("qwen/qwen-plus:thinking"),
+        ]}),
+    )
+    r = sync_from_providers(store, openrouter_key="x")
+    assert r.added == 2
+
+
 def test_ollama_falls_back_to_size_guess_when_show_fails(monkeypatch):
     """A flaky /api/show degrades one model's metadata, not the whole sync."""
     store = SqliteStore(":memory:")
