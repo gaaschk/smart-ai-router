@@ -250,6 +250,8 @@ curl -X PUT http://localhost:8001/api/providers/openrouter \
 # Trigger a model sync
 # Response counts models added / updated (only those that actually changed) /
 # unchanged / removed. Models absent from a provider's fresh catalog are deleted.
+# Also LLM-profiles the models it just added (see "Refining model profiles"),
+# reporting that under `profiled`; pass {"profile": false} to skip it.
 curl -X POST http://localhost:8001/api/sync -H 'Content-Type: application/json' -d '{}'
 ```
 
@@ -407,6 +409,25 @@ on the Models page:
 A model that can't be rated (provider error, unparseable reply) keeps exactly
 the profile sync gave it — nothing here can fail a run or a request.
 
+**New models are profiled automatically.** A model starts taking traffic the
+moment sync stores it, so waiting for someone to press Refine means routing on a
+cue-table guess in the meantime. Every sync therefore profiles what it just
+introduced, bounded by the same per-run ceiling and reported in the sync result
+(`3 new, 3 profiled`). What counts as "just introduced" is deliberately narrow:
+
+- **new models** — yes, always.
+- **a rewritten vendor description** — yes. The description is the only shape
+  evidence sync has, so a rewrite means the stored judgment rests on evidence
+  that no longer stands.
+- **a new price, context length, or benchmark index** — no. Those change the
+  model's *level*, and the stored rating is relative, so a sync re-levels the
+  profile for free. Re-rating would pay again for an answer that cannot change.
+
+Turn it off with **Settings → Profile new models on sync**, or per-call with
+`{"profile": false}` on `POST /api/sync`. Existing models are never swept up by
+this — a catalog that predates refinement stays rules-only until you Refine it,
+so enabling the feature can't produce a surprise bill for hundreds of models.
+
 ```bash
 # Preview the effect of rating the 20 cheapest unrated models (admin only)
 curl -X POST http://localhost:8001/api/models/profile \
@@ -473,7 +494,8 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `openai/gpt-5.6-luna` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). Needs an OpenRouter key; empty string disables the second pass. |
 | `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `openai/gpt-5.6-luna` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. Needs an OpenRouter key; empty string disables refinement. |
-| `SMART_ROUTER_MODEL_PROFILER_LIMIT` ⚙ | `40` | Default ceiling on models rated per Refine run, cheapest first. |
+| `SMART_ROUTER_MODEL_PROFILER_LIMIT` ⚙ | `40` | Default ceiling on models rated per Refine run, cheapest first. Also caps the pass that runs after a sync. |
+| `SMART_ROUTER_MODEL_PROFILER_ON_SYNC` ⚙ | `1` | Profile the models each sync adds (and any whose description was rewritten), so a new model doesn't route on a cue-table guess. Never re-profiles a model that only changed price or benchmark scores. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |

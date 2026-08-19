@@ -1932,6 +1932,12 @@ async function doSync() {
     if (d.removed) parts.push(`${d.removed} removed`);
     const changed = (d.added || 0) + (d.updated || 0) + (d.removed || 0);
     const errs = d.errors.length ? ' — ' + d.errors.length + ' error(s)' : '';
+    // New models arrive with a cue-table profile and start taking traffic at
+    // once, so the sync profiles them; say what that pass did, including what it
+    // left for later.
+    const rated = d.profiled ? (d.profiled.enrich.rated || 0) : 0;
+    if (rated) parts.push(`${rated} profiled`);
+    if (d.profile_pending) parts.push(`${d.profile_pending} awaiting profile`);
     document.getElementById('sync-status').textContent = changed
       ? `Synced — ${parts.join(', ')} (${d.unchanged} unchanged)${errs}`
       : `Synced — no changes (${d.unchanged} up to date)${errs}`;

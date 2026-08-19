@@ -112,9 +112,10 @@ SPECS: tuple[SettingSpec, ...] = (
         group="Model profiling",
         help="Model asked to judge what each catalog model is good and bad at, "
         "refining the deterministic profile sync computes from benchmarks. Runs "
-        "only when you press Refine on the Models page — never on a request path. "
-        "Needs broad knowledge of the model landscape, so use a capable model; "
-        "it is one short call per model profiled. Empty disables refinement.",
+        "when you press Refine on the Models page, and after a sync for models it "
+        "just added — never on a request path. Needs broad knowledge of the model "
+        "landscape, so use a capable model; it is one short call per model "
+        "profiled. Empty disables refinement entirely.",
     ),
     SettingSpec(
         key="model_profiler_limit",
@@ -127,6 +128,20 @@ SPECS: tuple[SettingSpec, ...] = (
         "holds hundreds, so runs are bounded and resumable: cheapest models are "
         "profiled first, because the router picks the cheapest qualifying model "
         "and an overstated cheap profile is what wins prompts it shouldn't.",
+    ),
+    SettingSpec(
+        key="model_profiler_on_sync",
+        env="SMART_ROUTER_MODEL_PROFILER_ON_SYNC",
+        type="bool",
+        default=True,
+        label="Profile new models on sync",
+        group="Model profiling",
+        help="After a sync, profile the models it just added (and any whose "
+        "vendor description was rewritten), so a new model never routes on a "
+        "cue-table guess for long. Bounded by the per-run ceiling above and "
+        "billed the same way — one short call per model. Models that only "
+        "changed price or benchmark scores are not re-profiled: the stored "
+        "judgment is relative, so it survives a new level for free.",
     ),
     SettingSpec(
         key="max_file_mb",

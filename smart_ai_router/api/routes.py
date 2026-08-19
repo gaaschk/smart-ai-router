@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
 from smart_ai_router.models import ApiKey, ProviderConfig
@@ -43,22 +44,28 @@ def _router_instance(request: Request):
     return request.app.state.capability_router
 
 
+def _is_admin(request: Request) -> bool:
+    """Whether this caller holds the admin identity.
+
+    The "admin" identity is set by the middleware for an env
+    (SMART_ROUTER_API_KEYS) key. When no keys are configured at all the router is
+    open (first-run), and everyone counts as admin — otherwise you could never
+    mint the first key.
+    """
+    if (getattr(request.state, "user", "") or "") == "admin":
+        return True
+    return (
+        not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
+        and not request.app.state.capability_router.all_api_keys()
+    )
+
+
 def _require_admin(request: Request) -> None:
     """Guard key-management endpoints: only the admin identity may manage keys.
 
     A per-user DB key must not be able to enumerate or revoke other users' keys.
-    The "admin" identity is set by the middleware for an env (SMART_ROUTER_API_KEYS)
-    key. When no keys are configured at all the router is open (first-run), so we
-    allow management too — otherwise you could never mint the first key.
     """
-    user = getattr(request.state, "user", "") or ""
-    if user == "admin":
-        return
-    no_keys_configured = (
-        not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
-        and not request.app.state.capability_router.all_api_keys()
-    )
-    if no_keys_configured:
+    if _is_admin(request):
         return
     raise HTTPException(
         status_code=403,
@@ -185,12 +192,21 @@ def whoami(request: Request):
 
 
 @api_router.post("/sync", response_model=SyncResponse)
-def sync(body: SyncRequest, request: Request):
+async def sync(body: SyncRequest, request: Request):
+    """Fetch provider catalogs, then profile whatever the sync just introduced.
+
+    The catalog fetch is blocking I/O, so it runs in a worker thread rather than
+    on the event loop; the profiling pass that follows is genuinely concurrent.
+    """
     cr = _router_instance(request)
-    result = cr.sync(
+    result = await run_in_threadpool(
+        cr.sync,
         openrouter_key=body.openrouter_key,
         ollama_base_url=body.ollama_base_url,
         timeout=body.timeout,
+    )
+    profiled, pending = await _profile_new_models(
+        cr, result, body.profile, admin=_is_admin(request)
     )
     return SyncResponse(
         added=result.added,
@@ -199,7 +215,70 @@ def sync(body: SyncRequest, request: Request):
         removed=result.removed,
         total=result.total,
         errors=result.errors,
+        profiled=profiled,
+        profile_pending=pending,
     )
+
+
+async def _profile_new_models(
+    cr, result, override: bool | None, *, admin: bool = True
+) -> tuple[ProfileRefineResponse | None, int]:
+    """Profile the models a sync just introduced. Never fails the sync.
+
+    A new model arrives with a profile shaped by a cue table reading a marketing
+    blurb, and the router starts sending it traffic immediately — so waiting for
+    someone to notice and press Refine is waiting with a known-bad profile in
+    play. This closes that window without touching models whose stored judgment
+    is still valid (see sync._needs_profiling).
+
+    Returns (report, pending) where `pending` counts models that warranted
+    profiling but exceeded this run's ceiling, so a bounded run can say so
+    instead of looking complete.
+
+    Everything here is best-effort: a sync's job is to get the catalog right, and
+    it has done that by the time we are called. A profiler that is unconfigured,
+    unreachable, or broken must not turn a successful sync into a failed request.
+    """
+    from smart_ai_router import llm_profiler
+    from smart_ai_router import settings as _settings
+    from smart_ai_router.api.proxy import _OPENROUTER_BASE, _openrouter_key
+
+    enabled = (
+        override if override is not None
+        else _settings.get_bool("model_profiler_on_sync")
+    )
+    if not enabled or not result.needs_profiling:
+        return None, 0
+    if not admin:
+        # Refine is admin-only because it spends money; a sync that quietly did
+        # the same thing would be a way around that gate. Non-admins still get
+        # the catalog, and the models keep their deterministic profiles.
+        return None, len(result.needs_profiling)
+
+    api_key = _openrouter_key(cr)
+    if not api_key or not llm_profiler.profiler_model():
+        # Not configured is not an error here — the sync itself succeeded, and
+        # the models keep the deterministic profiles it just computed.
+        return None, len(result.needs_profiling)
+
+    limit = llm_profiler.profiler_limit()
+    try:
+        out = await cr.refine_model_profiles(
+            base_url=_OPENROUTER_BASE,
+            api_key=api_key,
+            # The caller already narrowed this to models whose shape evidence
+            # changed, which includes re-rating a model whose description was
+            # rewritten — so the "skip already-rated" filter must not apply.
+            only_missing=False,
+            only_values=set(result.needs_profiling),
+            limit=limit,
+        )
+    except Exception as exc:  # noqa: BLE001 - a sync must survive any of this
+        result.errors.append(f"profiling after sync failed: {exc}")
+        return None, len(result.needs_profiling)
+
+    considered = int(out.get("enrich", {}).get("considered") or 0)
+    return ProfileRefineResponse(**out), max(0, len(result.needs_profiling) - considered)
 
 
 @api_router.post("/models/profile", response_model=ProfileRefineResponse)
