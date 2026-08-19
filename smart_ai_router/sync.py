@@ -29,6 +29,10 @@ class SyncResult:
     unchanged: int = 0
     removed: int = 0
     errors: list[str] = field(default_factory=list)
+    # Models whose *shape* evidence changed this sync, and so are worth an LLM
+    # profiling pass: new arrivals, plus models whose vendor description was
+    # rewritten. See _needs_profiling() for why the list is this narrow.
+    needs_profiling: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -65,6 +69,29 @@ def _carry_profile_shape(spec: ModelSpec, prior: ModelSpec) -> ModelSpec:
     )
 
 
+def _needs_profiling(spec: ModelSpec, prior: ModelSpec | None) -> bool:
+    """Whether an LLM profiling pass should look at this model after the sync.
+
+    Two cases, and deliberately not "anything that changed":
+
+      - **New model.** It arrives with a profile shaped only by the cue table, so
+        it is exactly the case the LLM pass exists for.
+      - **Rewritten description.** The description is the *only* shape evidence
+        sync has, so a rewrite means the stored judgment was formed from
+        evidence that no longer stands.
+
+    Everything else that makes a sync report "updated" — a price move, a context
+    bump, a fresh benchmark index — changes the model's *level*, and levels are
+    re-composed onto the stored ratings for free by _carry_profile_shape. Asking
+    the rater again would pay for an answer we already have, and the answer would
+    be the same: "relative to its own capability" is invariant to the level it is
+    relative to.
+    """
+    if prior is None:
+        return True
+    return bool(spec.description) and spec.description != prior.description
+
+
 def _apply_spec(
     store: MatrixStore,
     spec: ModelSpec,
@@ -77,6 +104,8 @@ def _apply_spec(
     unchanged catalog reports zero updates instead of re-touching every row.
     """
     prior = existing.get(spec.value)
+    if _needs_profiling(spec, prior):
+        result.needs_profiling.append(spec.value)
     if prior is None:
         store.upsert_model(spec)
         result.added += 1

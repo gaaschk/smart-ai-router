@@ -145,6 +145,7 @@ class CapabilityRouter:
             result.unchanged += partial.unchanged
             result.removed += partial.removed
             result.errors.extend(partial.errors)
+            result.needs_profiling.extend(partial.needs_profiling)
         return result
 
     # ── Model profile refinement ───────────────────────────────────────────────
@@ -156,6 +157,7 @@ class CapabilityRouter:
         api_key: str = "",
         model: str | None = None,
         only_missing: bool = True,
+        only_values: set[str] | None = None,
         limit: int = 0,
         dry_run: bool = False,
         audit_since: str = "",
@@ -169,14 +171,24 @@ class CapabilityRouter:
         flips rather than a diff of floats. It runs for a real run too, against a
         snapshot taken before the writes, so the record of what a run did survives
         the run itself.
+
+        `only_values` narrows which models get *rated* (a sync passes the models
+        it just added) without narrowing the audit: a rating is only meaningful
+        against the whole matrix it competes in, so both sides of the replay
+        always carry every model.
         """
         from smart_ai_router import llm_profiler as _llm_profiler
         from smart_ai_router import profile_audit as _profile_audit
 
         before = self._store.all_models()
+        pool = (
+            [spec for spec in before if spec.value in only_values]
+            if only_values is not None
+            else before
+        )
         result = await _llm_profiler.enrich_models(
             self._store,
-            before,
+            pool,
             base_url=base_url,
             api_key=api_key,
             model=model,

@@ -116,6 +116,11 @@ class SyncRequest(BaseModel):
     openrouter_key: str | None = None
     ollama_base_url: str | None = None
     timeout: int = 15
+    profile: bool | None = Field(
+        default=None,
+        description="profile newly added models with an LLM; None follows the "
+        "'Profile new models on sync' setting",
+    )
 
 
 class SyncResponse(BaseModel):
@@ -125,6 +130,12 @@ class SyncResponse(BaseModel):
     removed: int
     total: int
     errors: list[str]
+    # Present only when a sync-triggered profiling pass actually ran. Same shape
+    # as the Refine endpoint's response, so the UI renders it with one function.
+    profiled: ProfileRefineResponse | None = None
+    # Models that warranted profiling but fell outside this run's ceiling. Never
+    # silently dropped: a bounded run that says nothing reads as "all done".
+    profile_pending: int = 0
 
 
 class CapabilitiesResponse(BaseModel):

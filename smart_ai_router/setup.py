@@ -202,6 +202,15 @@ def run_setup() -> None:
             f"  Synced: {result.added} new, {result.updated} updated, "
             f"{result.removed} removed ({result.unchanged} unchanged)."
         ))
+        # Deliberately not LLM-profiled here: that costs one call per model and a
+        # first sync pulls in hundreds. Later syncs profile only what they add,
+        # which is a handful; the backlog is a decision for the operator.
+        if result.needs_profiling:
+            print(
+                f"  {len(result.needs_profiling)} models carry a rules-only "
+                "capability profile. Sharpen them from the Models page (Refine "
+                "profiles with an LLM) — bounded, cheapest models first."
+            )
         print()
 
     # ── Launchd service ──────────────────────────────────────────────────────
