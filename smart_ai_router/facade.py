@@ -162,6 +162,7 @@ class CapabilityRouter:
         dry_run: bool = False,
         audit_since: str = "",
         audit_limit: int = 200,
+        user: str = "",
     ) -> dict:
         """Ask an LLM to refine model profiles, and report what it changes.
 
@@ -176,8 +177,13 @@ class CapabilityRouter:
         it just added) without narrowing the audit: a rating is only meaningful
         against the whole matrix it competes in, so both sides of the replay
         always carry every model.
+
+        Every rating call is logged to the usage log as overhead, attributed to
+        `user` (whoever pressed Refine or triggered the sync) — including on a
+        dry run, which writes no model rows but spends exactly the same money.
         """
         from smart_ai_router import llm_profiler as _llm_profiler
+        from smart_ai_router import overhead as _overhead
         from smart_ai_router import profile_audit as _profile_audit
 
         before = self._store.all_models()
@@ -186,16 +192,18 @@ class CapabilityRouter:
             if only_values is not None
             else before
         )
-        result = await _llm_profiler.enrich_models(
-            self._store,
-            pool,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-            only_missing=only_missing,
-            limit=limit,
-            dry_run=dry_run,
-        )
+        with _overhead.collect() as overhead_calls:
+            result = await _llm_profiler.enrich_models(
+                self._store,
+                pool,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                only_missing=only_missing,
+                limit=limit,
+                dry_run=dry_run,
+            )
+        _overhead.record(self, overhead_calls, user=user)
 
         rated = {spec.value: spec for spec in result.rated_specs}
         after = [rated.get(spec.value, spec) for spec in before]

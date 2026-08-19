@@ -206,7 +206,8 @@ async def sync(body: SyncRequest, request: Request):
         timeout=body.timeout,
     )
     profiled, pending = await _profile_new_models(
-        cr, result, body.profile, admin=_is_admin(request)
+        cr, result, body.profile, admin=_is_admin(request),
+        user=getattr(request.state, "user", "") or "",
     )
     return SyncResponse(
         added=result.added,
@@ -221,7 +222,7 @@ async def sync(body: SyncRequest, request: Request):
 
 
 async def _profile_new_models(
-    cr, result, override: bool | None, *, admin: bool = True
+    cr, result, override: bool | None, *, admin: bool = True, user: str = ""
 ) -> tuple[ProfileRefineResponse | None, int]:
     """Profile the models a sync just introduced. Never fails the sync.
 
@@ -272,6 +273,7 @@ async def _profile_new_models(
             only_missing=False,
             only_values=set(result.needs_profiling),
             limit=limit,
+            user=user,
         )
     except Exception as exc:  # noqa: BLE001 - a sync must survive any of this
         result.errors.append(f"profiling after sync failed: {exc}")
@@ -314,6 +316,7 @@ async def refine_profiles(body: ProfileRefineRequest, request: Request):
         limit=body.limit,
         dry_run=body.dry_run,
         audit_since=since,
+        user=getattr(request.state, "user", "") or "",
     )
     return ProfileRefineResponse(**out)
 

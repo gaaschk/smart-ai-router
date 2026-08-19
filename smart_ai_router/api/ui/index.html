@@ -1142,7 +1142,7 @@
 <!-- ── Usage ───────────────────────────────────────────────────────── -->
 <div class="page" id="page-usage">
   <h1 class="page-title">Usage</h1>
-  <p class="page-subtitle">Requests, tokens, and cost routed through this deployment. Admins see all users; a per-user key sees only its own activity. Streamed requests report exact tokens when the provider supports it, otherwise an estimate (~).</p>
+  <p class="page-subtitle">Requests, tokens, and cost routed through this deployment. Admins see all users; a per-user key sees only its own activity. Streamed requests report exact tokens when the provider supports it, otherwise an estimate (~). Router overhead — classifying prompts and profiling models — is billed too, and is broken out separately below.</p>
 
   <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:1.5rem">
     <label style="font-size:0.8rem;color:var(--text-muted)">Window
@@ -1175,7 +1175,15 @@
       <div class="stat-card">
         <div class="stat-label">Total Cost</div>
         <div class="stat-value" id="usage-cost">—</div>
-        <div class="stat-sub">USD, estimated from token pricing</div>
+        <div class="stat-sub" id="usage-cost-sub">USD, estimated from token pricing</div>
+      </div>
+      <!-- Router overhead: shown only when there is some, so a deployment that
+           never calls out for classification isn't told about a cost it doesn't
+           have. -->
+      <div class="stat-card" id="usage-overhead-card" style="display:none">
+        <div class="stat-label">Router Overhead</div>
+        <div class="stat-value" id="usage-overhead-cost">—</div>
+        <div class="stat-sub" id="usage-overhead-sub"></div>
       </div>
     </div>
 
@@ -1206,6 +1214,36 @@
             <th>Tokens</th><th>Cost (USD)</th>
           </tr></thead>
           <tbody id="usage-by-domain"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Router overhead, hidden when there is none. Kind first (which pass spent
+         the money) then model, since the fix for an expensive line is usually to
+         change the model that pass uses. -->
+    <div class="usage-section" id="usage-overhead-section" style="display:none">
+      <div class="section-title">Router overhead</div>
+      <p class="page-subtitle" style="margin-bottom:0.75rem">
+        Calls the router makes on its own behalf: profiling each prompt to route it
+        (classify), re-profiling consequential prompts with a stronger model
+        (classify-refine), and judging what catalog models are good at (profile).
+        Not counted in the totals above. Tune these in Settings → Classifier and
+        Model profiling.
+      </p>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>Kind</th><th>Calls</th><th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-overhead-by-kind"></tbody>
+        </table>
+      </div>
+      <div style="overflow-x:auto;margin-top:1rem">
+        <table class="models-table">
+          <thead><tr>
+            <th>Overhead model</th><th>Calls</th><th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-overhead-by-model"></tbody>
         </table>
       </div>
     </div>
@@ -1635,17 +1673,22 @@ async function fetchUsage() {
 
 function renderUsage(data) {
   const t = data.totals || {};
-  const empty = (t.requests || 0) === 0;
+  const oh = data.overhead || {};
+  const ohT = oh.totals || {};
+  // Overhead counts as activity: a window with only classifier calls has
+  // something to show, and saying "no usage recorded" would hide real spend.
+  const empty = (t.requests || 0) === 0 && (ohT.requests || 0) === 0;
   document.getElementById('usage-content').style.display = empty ? 'none' : 'block';
   document.getElementById('usage-empty').style.display = empty ? 'block' : 'none';
   if (empty) return;
 
-  // Headline totals.
+  // Headline totals — user requests only.
   document.getElementById('usage-requests').textContent = _fmtInt(t.requests);
   document.getElementById('usage-tokens').textContent = _fmtInt(_tokens(t));
   document.getElementById('usage-cost').textContent = _fmtCost(t.cost_usd);
   document.getElementById('usage-tokens-sub').textContent =
     `${_fmtInt(t.prompt_tokens)} prompt · ${_fmtInt(t.completion_tokens)} completion`;
+  renderUsageOverhead(oh, t);
 
   // Estimated-tokens caveat, shown only when some rows were estimated.
   const est = t.estimated_rows || 0;
@@ -1692,6 +1735,46 @@ function renderUsage(data) {
   } else {
     userSection.style.display = 'none';
   }
+}
+
+// Router overhead: the classifier/refine/profile calls nobody asked for. Hidden
+// entirely when there are none. The cost line names it as a share of the total
+// bill, because "$0.42" means nothing next to a total you have to add yourself —
+// and 40% of the bill going to classification is the finding worth acting on.
+function renderUsageOverhead(oh, totals) {
+  const t = oh.totals || {};
+  const card = document.getElementById('usage-overhead-card');
+  const section = document.getElementById('usage-overhead-section');
+  const calls = t.requests || 0;
+  if (!calls) {
+    card.style.display = 'none';
+    section.style.display = 'none';
+    document.getElementById('usage-cost-sub').textContent =
+      'USD, estimated from token pricing';
+    return;
+  }
+  card.style.display = 'block';
+  section.style.display = 'block';
+
+  const ohCost = t.cost_usd || 0;
+  const userCost = (totals || {}).cost_usd || 0;
+  const bill = ohCost + userCost;
+  const share = bill > 0 ? Math.round((ohCost / bill) * 100) : 0;
+  document.getElementById('usage-overhead-cost').textContent = _fmtCost(ohCost);
+  document.getElementById('usage-overhead-sub').textContent =
+    `${_fmtInt(calls)} classify/profile calls · ${share}% of total spend`;
+  document.getElementById('usage-cost-sub').textContent =
+    `USD, user requests only · ${_fmtCost(bill)} including overhead`;
+
+  const rows = list => (list || []).map(row => `
+      <tr>
+        <td class="model-name">${escapeHtml(row.key || '(unknown)')}</td>
+        <td>${_fmtInt(row.requests)}</td>
+        <td>${_fmtInt(_tokens(row))}</td>
+        <td>${_fmtCost(row.cost_usd)}</td>
+      </tr>`).join('');
+  document.getElementById('usage-overhead-by-kind').innerHTML = rows(oh.by_kind);
+  document.getElementById('usage-overhead-by-model').innerHTML = rows(oh.by_model);
 }
 
 function renderUsageDayBars(byDay) {

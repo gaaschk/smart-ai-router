@@ -342,7 +342,8 @@ _REFINE = ClassifierTarget(
 def _stub_two_speed(monkeypatch, triage, refined, calls):
     import smart_ai_router.llm_classifier as lc
 
-    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None,
+                   kind="classify"):
         calls.append(model)
         return refined if model == "big" else triage
 

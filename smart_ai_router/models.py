@@ -139,7 +139,24 @@ class ChatMessage:
 
 @dataclass
 class UsageRecord:
-    """One proxied request, attributed to a user for logging/quota accounting."""
+    """One billable LLM call, attributed to a user for logging/quota accounting.
+
+    Usually a proxied request, but not always — see `kind`.
+    """
+    # What this call *was*, since not every call the router bills for is a user
+    # request. The router spends money on its own behalf too: it profiles every
+    # prompt, sometimes escalates that to a stronger model, and rates catalog
+    # models after a sync. That spend was previously invisible, which made the
+    # usage page understate the real bill.
+    #
+    #   proxy           — a user request forwarded to the routed model
+    #   classify        — prompt profiling (the two-speed classifier's triage)
+    #   classify-refine — the second-pass profiler on a consequential prompt
+    #   profile         — one model-shape rating during a Refine/sync pass
+    #
+    # Only `proxy` rows are user traffic, so the dashboard aggregates and the
+    # rate limiter count those alone and report the rest as overhead.
+    kind: str = "proxy"
     user: str = ""
     key_prefix: str = ""
     routed_model: str = ""
