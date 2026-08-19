@@ -1,11 +1,21 @@
 """
-Role-agnostic prompt classifier.
+Role-agnostic prompt classifier — the deterministic fallback.
 
-classify(prompt) -> (domain, complexity)
+classify(prompt)         -> (domain, complexity)      legacy label pair
+classify_profile(prompt) -> taxonomy.PromptProfile    what route() matches on
 
 No role knowledge — callers that need role-based priors should build their
 own hint before calling CapabilityRouter.route(). This helper exists for
 callers (e.g. a proxy) that only have raw prompt text.
+
+This path runs only when every LLM classifier target fails (see
+llm_classifier.py), so it is a floor, not the primary signal. Keyword counting
+cannot judge how *deep* into a field an answer must go — that is exactly what it
+gets wrong. What it can do reliably is recognize which professional field a
+prompt is in, and whether the answer will have to name real statutes, standards,
+or dosages. classify_profile() therefore takes its depth from the legacy
+complexity heuristic and spends its effort on naming the right fields, which is
+where a mis-route is most expensive.
 
 Domain:     "coding" | "docs" | "reasoning" | "general"
 Complexity: "trivial" | "moderate" | "hard"
@@ -13,6 +23,13 @@ Complexity: "trivial" | "moderate" | "hard"
 from __future__ import annotations
 
 import re
+
+from smart_ai_router.taxonomy import (
+    DEPTH_RANK,
+    DomainNeed,
+    PromptProfile,
+    profile_from_labels,
+)
 
 # ── Actionable-intent signals (agent-mode auto-detection) ─────────────────────
 #
@@ -157,3 +174,122 @@ def classify(prompt: str) -> tuple[str, str]:
         complexity = "trivial"
 
     return domain, complexity
+
+
+# ── Professional-field cues (profile fallback) ─────────────────────────────────
+#
+# Regex fragments, matched with word boundaries, because substring matching on
+# short domain words is actively wrong here: "tax" is inside "syntax" and
+# "taxonomy", "dose" is inside "diagnose". Stems are written explicitly as
+# `stem\w*` where a family of endings should match.
+#
+# Each list is deliberately narrow. A cue earns its place only if its presence
+# makes the *field* near-certain; ambiguous words that appear in software prompts
+# ("contract", "audit", "protocol") are either omitted or qualified into a phrase.
+_FIELD_CUES: dict[str, tuple[str, ...]] = {
+    "law_regulatory": (
+        r"statut\w*", r"regulat\w*", r"jurisdiction\w*", r"complianc\w*",
+        r"liabilit\w*", r"litigat\w*", r"case law", r"breach of contract",
+        r"contract law", r"gdpr", r"hipaa", r"copyright", r"patent\w*",
+    ),
+    "medicine_health": (
+        r"diagnos\w*", r"dosage", r"dosing", r"mg/kg", r"contraindicat\w*",
+        r"patient\w*", r"clinical\w*", r"symptom\w*", r"prescrib\w*",
+        r"treatment protocol",
+    ),
+    "finance_business": (
+        r"gaap", r"ifrs", r"valuation", r"ebitda", r"amortiz\w*",
+        r"balance sheet", r"cash flow", r"securities", r"tax\b", r"taxes",
+    ),
+    "natural_science": (
+        r"reactor\w*", r"radiation", r"thermodynamic\w*", r"molecul\w*",
+        r"chemistr\w*", r"biolog\w*", r"genom\w*", r"astrophys\w*",
+        r"materials science", r"isotop\w*",
+    ),
+    "math_formal": (
+        r"theorem\w*", r"lemma\w*", r"proof", r"prove that", r"integral\w*",
+        r"differential equation\w*", r"topolog\w*", r"eigen\w*",
+    ),
+}
+
+_FIELD_RES: dict[str, re.Pattern[str]] = {
+    field: re.compile(r"\b(?:" + "|".join(cues) + r")", re.IGNORECASE)
+    for field, cues in _FIELD_CUES.items()
+}
+
+# Fields where being confidently wrong can lead someone to real harm, versus
+# fields where it mostly costs them work. Drives `stakes`, which raises every
+# field's bar rather than adding one.
+_HIGH_STAKES_FIELDS = frozenset({"law_regulatory", "medicine_health"})
+_MEDIUM_STAKES_FIELDS = frozenset({"finance_business", "natural_science"})
+
+# The answer will have to state real specifics exactly — the hallucination axis,
+# and the single most useful demand to detect, since it is what the original
+# fabricated-regulatory-answer failure was made of.
+_PRECISION_RE = re.compile(
+    r"\b(?:cite|citation\w*|cited|references?|statut\w*|regulat\w*|"
+    r"jurisdiction\w*|standard\w*|complian\w*|\biso \d|\brfc \d|"
+    r"section \d|according to)",
+    re.IGNORECASE,
+)
+
+_QUANTITATIVE_RE = re.compile(
+    r"\b(?:calculat\w*|comput\w*|estimat\w*|how many|how much|"
+    r"derive|derivation|percentage|probabilit\w*)",
+    re.IGNORECASE,
+)
+
+# Cap on fields named from cues, matching taxonomy's own limit on how many
+# fields a profile may name.
+_MAX_CUE_FIELDS = 2
+
+
+def classify_profile(prompt: str) -> PromptProfile:
+    """Build a PromptProfile from prompt text alone — the no-LLM fallback.
+
+    The legacy (domain, complexity) heuristic supplies the primary field and the
+    depth. On top of that, professional-field cues can add up to two more fields
+    at the same depth, and set stakes/demands. That combination is what stops a
+    cheap coding-specialist from winning a regulatory prompt: even though the
+    depth estimate is crude, naming `law_regulatory` at all means the model has
+    to clear a bar there too.
+    """
+    domain, complexity = classify(prompt)
+    base = profile_from_labels(domain, complexity)
+    primary = base.domains[0]
+
+    # Depth for cue-detected fields: reuse the primary's depth, but never below
+    # practitioner. A prompt that reaches into medicine or law at all is past the
+    # point where "any well-informed generalist" is the right answer.
+    depth = primary.depth
+    if DEPTH_RANK.get(depth, 0) < DEPTH_RANK["practitioner"]:
+        depth = "practitioner"
+
+    lower = prompt.lower()
+    needs = [primary]
+    hit_fields: list[str] = []
+    for field, pattern in _FIELD_RES.items():
+        if len(hit_fields) >= _MAX_CUE_FIELDS:
+            break
+        if pattern.search(lower):
+            hit_fields.append(field)
+            if field != primary.field:
+                needs.append(DomainNeed(field=field, depth=depth))
+
+    demands: set[str] = set()
+    if _PRECISION_RE.search(lower):
+        demands.add("factual_precision")
+    if _QUANTITATIVE_RE.search(lower):
+        demands.add("quantitative")
+    if len(prompt) >= _LEN_HARD:
+        demands.add("long_synthesis")
+
+    stakes = "low"
+    if any(f in _HIGH_STAKES_FIELDS for f in hit_fields):
+        stakes = "high"
+    elif any(f in _MEDIUM_STAKES_FIELDS for f in hit_fields):
+        stakes = "medium"
+
+    return PromptProfile(
+        domains=tuple(needs), demands=frozenset(demands), stakes=stakes
+    )

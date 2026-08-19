@@ -77,9 +77,9 @@ SPECS: tuple[SettingSpec, ...] = (
         default="qwen2.5:3b-instruct",
         label="Classifier model",
         group="Classifier",
-        help="Local model used to classify prompt domain/complexity. Prefer a "
-        "small non-reasoning instruct model: thinking models burn the "
-        "classifier's tiny output budget before emitting the JSON.",
+        help="Local model used to profile each prompt (which fields it needs and "
+        "how deep). Prefer a small non-reasoning instruct model: thinking models "
+        "burn the classifier's tiny output budget before emitting the JSON.",
     ),
     SettingSpec(
         key="classifier_fallback",
@@ -89,6 +89,19 @@ SPECS: tuple[SettingSpec, ...] = (
         label="Classifier fallback model",
         group="Classifier",
         help="Used when the primary classifier model is unavailable.",
+    ),
+    SettingSpec(
+        key="classifier_refine_model",
+        env="SMART_ROUTER_CLASSIFIER_REFINE_MODEL",
+        type="str",
+        default="openai/gpt-5.6-luna",
+        label="Classifier refine model",
+        group="Classifier",
+        help="Second-pass profiler, used only when the local classifier reports "
+        "high stakes, two or more specialist-depth fields, or frontier depth — "
+        "the judgments a 3B model gets wrong expensively. Runs on OpenRouter "
+        "(~$0.0003/call at the default model) and only on prompts already headed "
+        "for a costly model. Empty disables the second pass.",
     ),
     SettingSpec(
         key="max_file_mb",

@@ -4,9 +4,35 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class DomainNeedRequest(BaseModel):
+    """One field the prompt reaches into, and how deep it goes."""
+
+    field: str = Field(..., description="a key of taxonomy.FIELDS")
+    depth: str = Field(
+        "practitioner", description="surface | practitioner | specialist | frontier"
+    )
+
+
 class RouteRequest(BaseModel):
-    domain: str = Field(..., description="coding | docs | reasoning | general")
-    complexity: str = Field(..., description="trivial | moderate | hard")
+    """Either shape works: a full profile (preferred) or the legacy label pair.
+
+    `domains` is what route() actually matches on — it names the fields the
+    prompt needs and how deep into each, and a model must clear the bar on every
+    one. `domain`/`complexity` remain for callers that only speak the old
+    vocabulary; they are adapted to a single-field profile. When both are sent,
+    the profile wins.
+    """
+
+    domain: str = Field("", description="coding | docs | reasoning | general (legacy)")
+    complexity: str = Field(
+        "", description="trivial | moderate | hard | expert (legacy)"
+    )
+    domains: list[DomainNeedRequest] = Field(default_factory=list)
+    demands: list[str] = Field(
+        default_factory=list,
+        description="factual_precision | quantitative | long_synthesis | agentic",
+    )
+    stakes: str = Field("low", description="low | medium | high")
     needs_tools: bool = False
     needs_vision: bool = False
     est_tokens: int = 0
@@ -14,7 +40,23 @@ class RouteRequest(BaseModel):
 
 
 class RouteResponse(BaseModel):
+    """The pick, plus enough of the reasoning to audit it.
+
+    `qualified` is False when nothing available cleared every bar and the pick is
+    the closest miss — callers should treat such an answer's specifics as
+    unverified rather than assume competence.
+    """
+
     model: str
+    profile: str = Field("", description="human-readable demand, e.g. 'Law @ specialist'")
+    requirements: dict[str, float] = Field(default_factory=dict)
+    scores: dict[str, float] = Field(
+        default_factory=dict, description="the chosen model's score per required field"
+    )
+    qualified: bool = True
+    why: str = ""
+    domain: str = ""
+    complexity: str = ""
 
 
 class ModelSpecResponse(BaseModel):
@@ -28,6 +70,10 @@ class ModelSpecResponse(BaseModel):
     cost_input: float
     cost_output: float
     competence: dict[str, float]
+    profile: dict[str, float] = Field(
+        default_factory=dict, description="per-taxonomy-field capability scores"
+    )
+    description: str = ""
 
 
 class SyncRequest(BaseModel):

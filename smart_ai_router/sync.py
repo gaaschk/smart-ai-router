@@ -11,8 +11,12 @@ import json
 import urllib.request
 from dataclasses import dataclass, field
 
-from smart_ai_router.competence import infer_competence
 from smart_ai_router.models import ModelSpec
+from smart_ai_router.profiler import (
+    extract_catalog_signals,
+    legacy_competence,
+    profile_model,
+)
 from smart_ai_router.store.base import MatrixStore
 
 
@@ -144,22 +148,26 @@ def sync_from_providers(
 # Claude is still the most expensive tier, so the router only picks it when no
 # cheaper model clears the quality bar (the fallback), or when forced.
 
+# Capability is intentionally NOT listed here. It used to be a hand-written
+# competence dict per row, which duplicated the same numbers in competence.py and
+# gave them two places to drift apart. The profiler derives both the per-field
+# profile and the legacy competence summary from the model id, so these rows now
+# carry only what is genuinely Bedrock-specific: the id, context, and rates.
 _BEDROCK_CLAUDE_MODELS = [
-    # (model_id, ctx_k, cost_input, cost_output, competence)
-    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0,
-     {"coding": 0.80, "docs": 0.78, "reasoning": 0.80, "general": 0.80}),
-    ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0,
-     {"coding": 0.88, "docs": 0.89, "reasoning": 0.89, "general": 0.89}),
-    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0,
-     {"coding": 0.92, "docs": 0.94, "reasoning": 0.94, "general": 0.94}),
+    # (model_id, ctx_k, cost_input, cost_output)
+    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0),
+    ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0),
+    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0),
 ]
 
 
 def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
     existing = {s.value: s for s in store.all_models()}
     seen: set[str] = set()
-    for mid, ctx_k, cost_input, cost_output, comp in _BEDROCK_CLAUDE_MODELS:
+    for mid, ctx_k, cost_input, cost_output in _BEDROCK_CLAUDE_MODELS:
         value = f"bedrock/{mid}"
+        # Every Claude model on Bedrock supports extended thinking.
+        profile = profile_model(value, supports_reasoning=True)
         spec = ModelSpec(
             value=value,
             provider="bedrock",
@@ -170,7 +178,8 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
             reliability=0.95,
             cost_input=cost_input,
             cost_output=cost_output,
-            competence=comp,
+            competence=legacy_competence(profile),
+            profile=profile,
         )
         seen.add(value)
         _apply_spec(store, spec, existing, result)
@@ -254,6 +263,13 @@ def _sync_ollama(
             # partial outage still yields a usable (if coarse) row.
             size_gb = (m.get("size", 0) or 0) / 1e9
             ctx_k = 128 if size_gb > 30 else (32 if size_gb > 10 else 8)
+        # Ollama publishes no description or benchmarks, so the profile rests on
+        # name priors — plus the one real capability signal /api/show does give
+        # us: whether the model can think. Local models still land on the same
+        # per-field scale as catalog models, so route() needs no per-provider
+        # special case.
+        profile = profile_model(value, supports_reasoning="thinking" in caps)
+
         spec = ModelSpec(
             value=value,
             provider="ollama",
@@ -264,7 +280,8 @@ def _sync_ollama(
             reliability=1.0,
             cost_input=0.0,
             cost_output=0.0,
-            competence=infer_competence(value),
+            competence=legacy_competence(profile),
+            profile=profile,
         )
         seen.add(value)
         _apply_spec(store, spec, existing, result)
@@ -329,6 +346,14 @@ def _sync_openrouter(
         vision = "image" in inp  # inp = input side of modality (e.g. "text+image")
         reliability = 0.5 if mid.endswith(":free") else 0.9
 
+        # Per-field capability profile from the catalog's own evidence: measured
+        # artificial_analysis indices where present, the description's
+        # specialization cues, and name priors to fill the gaps. This is the
+        # richest signal available and it refreshes with every sync, so a newly
+        # released model is ranked correctly without a code change.
+        signals = extract_catalog_signals(m)
+        profile = profile_model(value, **signals)
+
         spec = ModelSpec(
             value=value,
             provider="openrouter",
@@ -339,7 +364,9 @@ def _sync_openrouter(
             reliability=reliability,
             cost_input=cost_input,
             cost_output=cost_output,
-            competence=infer_competence(value),
+            competence=legacy_competence(profile),
+            profile=profile,
+            description=signals["description"],
         )
         seen.add(value)
         _apply_spec(store, spec, existing, result)

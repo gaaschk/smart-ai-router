@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
 from smart_ai_router.models import ApiKey, ProviderConfig
 from smart_ai_router.scope import parse_scope
+from smart_ai_router.taxonomy import FIELD_KEYS, normalize_profile, profile_from_labels
 from smart_ai_router.api.schemas import (
     ApiKeyCreatedResponse,
     ApiKeyCreateRequest,
@@ -66,10 +67,30 @@ def _require_admin(request: Request) -> None:
 @api_router.post("/route", response_model=RouteResponse)
 def route(body: RouteRequest, request: Request):
     cr = _router_instance(request)
+
+    # A caller that names fields gets profile matching; one that sends only the
+    # legacy label pair is adapted to a single-field profile, which reproduces
+    # the old single-bar behavior exactly.
+    if body.domains:
+        profile = normalize_profile(
+            {
+                "domains": [d.model_dump() for d in body.domains],
+                "demands": body.demands,
+                "stakes": body.stakes,
+            }
+        )
+        if profile is None:
+            raise HTTPException(
+                status_code=422,
+                detail="No recognized field in `domains`. Valid fields: "
+                       + ", ".join(FIELD_KEYS),
+            )
+    else:
+        profile = profile_from_labels(body.domain, body.complexity)
+
     try:
-        model = cr.route(
-            body.domain,
-            body.complexity,
+        decision = cr.select(
+            profile,
             needs_tools=body.needs_tools,
             needs_vision=body.needs_vision,
             est_tokens=body.est_tokens,
@@ -77,7 +98,18 @@ def route(body: RouteRequest, request: Request):
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return RouteResponse(model=model)
+
+    domain, complexity = profile.legacy_labels()
+    return RouteResponse(
+        model=decision.model,
+        profile=profile.describe(),
+        requirements=decision.requirements,
+        scores=decision.scores,
+        qualified=decision.qualified,
+        why=decision.explain(),
+        domain=domain,
+        complexity=complexity,
+    )
 
 
 @api_router.get("/models", response_model=list[ModelSpecResponse])
@@ -396,4 +428,6 @@ def _to_response(spec) -> ModelSpecResponse:
         cost_input=spec.cost_input,
         cost_output=spec.cost_output,
         competence=spec.competence,
+        profile=spec.profile,
+        description=spec.description,
     )

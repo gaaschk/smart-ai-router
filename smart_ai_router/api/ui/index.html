@@ -1358,6 +1358,7 @@
           <option>trivial</option>
           <option selected>moderate</option>
           <option>hard</option>
+          <option>expert</option>
         </select>
       </div>
     </div>
@@ -2283,8 +2284,17 @@ async function doApiRoute() {
   try {
     const r = await fetch(`${API}/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json();
-    document.getElementById('api-route-result').innerHTML =
-      r.ok ? `<span style="color:var(--accent-text)">${d.model}</span>` : `<span style="color:var(--error)">${d.detail || 'Error'}</span>`;
+    if (r.ok) {
+      // Show the binding constraint alongside the pick: the interesting question
+      // in this panel is not just which model, but what made it the answer.
+      const colour = d.qualified === false ? 'var(--error)' : 'var(--accent-text)';
+      let html = `<span style="color:${colour}">${escapeHtml(d.model)}</span>`;
+      if (d.why) html += `<div class="chat-meta">${escapeHtml(d.why)}</div>`;
+      document.getElementById('api-route-result').innerHTML = html;
+    } else {
+      document.getElementById('api-route-result').innerHTML =
+        `<span style="color:var(--error)">${escapeHtml(d.detail || 'Error')}</span>`;
+    }
   } catch(e) {
     document.getElementById('api-route-result').textContent = e.message;
   } finally { btn.disabled = false; spin.style.display = 'none'; }
@@ -2547,16 +2557,26 @@ function renderChatMsg(role, text, opts = {}) {
 }
 
 // The routing decision the proxy made for a reply, shown under the bubble.
-// This is the router's core value made visible — which model was picked, for
-// what domain/complexity, by which classifier, and whether it was escalated
-// to a costlier tier. (Replaces the old dashboard "playground" routing panel.)
-function chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }) {
+// This is the router's core value made visible — what the prompt was judged to
+// demand (which fields, how deep), which model was picked, by which classifier,
+// and whether the pick actually cleared the bar. The `why` string names the
+// binding constraint, so a surprising pick can be understood rather than
+// guessed at. (Replaces the old dashboard "playground" routing panel.)
+function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }) {
   const parts = [];
-  if (domain && complexity) parts.push(`${escapeHtml(domain)} / ${escapeHtml(complexity)}`);
+  // Prefer the profile ("Law & regulatory @ specialist + ..."), which says what
+  // the router actually matched on; fall back to the legacy label pair.
+  if (profile) parts.push(escapeHtml(profile));
+  else if (domain && complexity) parts.push(`${escapeHtml(domain)} / ${escapeHtml(complexity)}`);
   parts.push(`→ ${escapeHtml(routed)}`);
   if (classifier) parts.push(`via ${escapeHtml(classifier)}`);
-  let html = `<div class="chat-meta chat-routing">${parts.join(' · ')}`;
-  if (escalated) html += ` <span class="chat-routing-escalated" title="No cheaper model met the quality bar — escalated to a costlier tier">⬆ escalated</span>`;
+  const whyTip = why ? escapeHtml(why) : '';
+  let html = `<div class="chat-meta chat-routing"${whyTip ? ` title="${whyTip}"` : ''}>${parts.join(' · ')}`;
+  if (qualified === false) {
+    html += ` <span class="chat-routing-escalated" title="${whyTip || 'No available model clears the bar this prompt sets'}">⚠ under-qualified</span>`;
+  } else if (escalated) {
+    html += ` <span class="chat-routing-escalated" title="No cheaper model met the quality bar — escalated to a costlier tier">⬆ escalated</span>`;
+  }
   if (agentOn) {
     const label = agentAuto ? '🛠 agent (auto)' : '🛠 agent';
     const tip = agentAuto
@@ -2616,6 +2636,11 @@ async function sendChat() {
     const complexity = res.headers.get('X-Complexity') || '';
     const escalated = res.headers.get('X-Escalated') === 'true';
     const classifier = res.headers.get('X-Classifier') || '';
+    const profile = res.headers.get('X-Prompt-Profile') || '';
+    const why = res.headers.get('X-Routing-Why') || '';
+    // Absent header (e.g. the orchestrator path, which forces a model) means the
+    // question doesn't apply — only an explicit "false" marks an unmet bar.
+    const qualified = res.headers.get('X-Qualified') === 'false' ? false : true;
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
     const { text: acc, truncated, streamError } = await streamChatInto(res, bubble);
@@ -2637,7 +2662,7 @@ async function sendChat() {
       bubbleWrap.insertAdjacentHTML('beforeend',
         `<div class="chat-meta" style="color:var(--error)">⚠ Reply was cut off at the output token limit — it may be incomplete.</div>`);
     }
-    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, domain, complexity, escalated, classifier, agentOn, agentAuto }));
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }));
     _chatMessages.push({ role: 'assistant', content: acc });
     trimChatHistory();
     // Persist both turns only now that the reply succeeded — on failure we drop

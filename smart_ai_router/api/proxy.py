@@ -28,17 +28,19 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
-from smart_ai_router.classifier import classify, is_actionable
+from smart_ai_router.classifier import classify_profile, is_actionable
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     classifier_fallback_model,
     classifier_model,
-    classify_chain,
+    classify_profile_two_speed,
+    refine_model,
 )
 from smart_ai_router.models import UsageRecord
 from smart_ai_router.ratelimit import check_rate_limit, window_start_for
 from smart_ai_router.scope import ModelScope, parse_scope
+from smart_ai_router.taxonomy import DomainNeed, PromptProfile
 from smart_ai_router.tools import tool_schemas as _tool_schemas
 
 proxy_router = APIRouter()
@@ -272,6 +274,34 @@ def _classifier_targets(cr) -> list[ClassifierTarget]:
     return targets
 
 
+def _header_safe(text: str, limit: int = 400) -> str:
+    """Make a human string safe to put in an HTTP header value.
+
+    Header values must be latin-1 encodable and single-line, and a non-encodable
+    character raises inside the response layer — which would turn an explanatory
+    header into a 500. Field labels are ASCII today, so this is a guard against
+    a future label (or a model-supplied string) rather than a live problem.
+    """
+    collapsed = " ".join(text.split())
+    return collapsed.encode("ascii", "replace").decode("ascii")[:limit]
+
+
+def _refine_target(cr) -> ClassifierTarget | None:
+    """The second-pass profiler, or None when it isn't available.
+
+    Requires both a configured refine model and a stored OpenRouter key. Absent
+    either, the two-speed chain simply routes on the local triage profile —
+    degrading the routing decision, never the request.
+    """
+    model = refine_model()
+    or_key = _openrouter_key(cr)
+    if not model or not or_key:
+        return None
+    return ClassifierTarget(
+        model=model, base_url=_OPENROUTER_BASE, api_key=or_key, label="llm-refined"
+    )
+
+
 def _bedrock_base(cr) -> tuple[str, str] | None:
     """Return (base_url, api_key) for the stored bedrock provider, or None."""
     for p in cr.all_providers():
@@ -467,21 +497,29 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=404, detail=str(exc))
     body = {**body, "messages": messages}
 
-    # 1. Classify — LLM classifier is primary; the deterministic keyword
+    # 1. Profile the prompt — which fields it needs and how deep into each (see
+    # taxonomy.py). The two-speed LLM classifier is primary, escalating to a
+    # stronger profiler only for consequential prompts; the deterministic keyword
     # classifier is the fallback whenever the LLM path is disabled or fails
-    # (network error, timeout, malformed output). Classification never blocks
-    # or fails the request.
+    # (network error, timeout, malformed output). Profiling never blocks or fails
+    # the request.
     prompt_text = _extract_prompt(messages)
     if not prompt_text:
-        domain, complexity = "general", "trivial"
+        profile = PromptProfile(domains=(DomainNeed("general_knowledge", "surface"),))
         classifier_used = "default"
     else:
-        chain_result = await classify_chain(prompt_text, _classifier_targets(cr))
+        chain_result = await classify_profile_two_speed(
+            prompt_text, _classifier_targets(cr), _refine_target(cr)
+        )
         if chain_result is not None:
-            domain, complexity, classifier_used = chain_result
+            profile, classifier_used = chain_result
         else:
-            domain, complexity = classify(prompt_text)
+            profile = classify_profile(prompt_text)
             classifier_used = "keyword"
+
+    # Legacy labels for the usage log, the X- headers, and the dashboard. Always
+    # derived from the profile that actually routed, so the two can't disagree.
+    domain, complexity = profile.legacy_labels()
 
     # Detect image content in any message (after file-ref resolution, so an
     # image attached by file id counts too).
@@ -557,11 +595,11 @@ async def chat_completions(request: Request):
                     detail="Your key's scope does not permit the Claude model "
                            "required for orchestrator mode.",
                 )
+        decision = None
     else:
         try:
-            routed_model = cr.route(
-                domain,
-                complexity,
+            decision = cr.select(
+                profile,
                 needs_tools=bool(body.get("tools")) or agent_mode,
                 needs_vision=needs_vision,
                 est_tokens=sum(len(str(m.get("content", ""))) // 4 for m in messages),
@@ -570,18 +608,32 @@ async def chat_completions(request: Request):
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        routed_model = decision.model
 
     # Worker path escalated to Claude — no cheaper model cleared the quality bar.
     # Claude is the most expensive tier, so surface a note to the user.
-    escalated = (not is_orchestrator) and ("claude" in routed_model.lower())
+    claude_tier = (not is_orchestrator) and ("claude" in routed_model.lower())
+
+    # Nothing available cleared every bar this prompt sets, so the pick is the
+    # closest miss rather than a qualified model. This is the case the old router
+    # could not even detect, and the case the fabricated-regulatory-answer came
+    # from: the honest move is to say so up front, not to answer confidently.
+    underqualified = decision is not None and not decision.qualified
+
+    # Either condition earns the user a prepended caveat: one is about cost, the
+    # other about how far to trust the answer.
+    escalated = claude_tier or underqualified
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
 
-    mode = "orchestrator" if is_orchestrator else f"{domain}/{complexity}"
+    mode = "orchestrator" if is_orchestrator else profile.describe()
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
-          f"{' [ESCALATED]' if escalated else ''}",
+          f"{' [ESCALATED]' if claude_tier else ''}"
+          f"{' [UNDERQUALIFIED]' if underqualified else ''}",
           file=sys.stderr, flush=True)
+    if decision is not None:
+        print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
     # Apply a generous output-token default when the caller omits one, so
@@ -596,14 +648,26 @@ async def chat_completions(request: Request):
         "X-Escalated": "true" if escalated else "false",
         "X-Classifier": classifier_used,
         "X-User": getattr(request.state, "user", "") or "",
+        "X-Prompt-Profile": _header_safe(profile.describe()),
     }
+    if decision is not None:
+        routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
+        routing_headers["X-Qualified"] = "false" if underqualified else "true"
 
-    _ESCALATION_NOTE = (
-        f"> _[smart-ai-router] This {domain}/{complexity} task exceeded the "
-        f"capability of every available lower-cost model, so it was escalated "
-        f"to {routed_model} — the most capable (and most expensive) tier. "
-        f"Escalation happens only when necessary._\n\n"
-    )
+    if underqualified:
+        _ESCALATION_NOTE = (
+            f"> _[smart-ai-router] This request looks like **{profile.describe()}**, "
+            f"and no available model clears that bar — {decision.explain()}. "
+            f"It was sent to {routed_model}, the closest available. Treat "
+            f"specifics (citations, standards, figures) as unverified._\n\n"
+        )
+    else:
+        _ESCALATION_NOTE = (
+            f"> _[smart-ai-router] This request looks like **{profile.describe()}**, "
+            f"which exceeded the capability of every available lower-cost model, "
+            f"so it was escalated to {routed_model} — the most capable (and most "
+            f"expensive) tier. Escalation happens only when necessary._\n\n"
+        )
 
     # Generous timeout: reasoning models can take minutes to first token.
     # connect short, read/write/pool long — the read budget covers slow
