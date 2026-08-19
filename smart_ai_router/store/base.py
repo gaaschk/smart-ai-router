@@ -107,6 +107,18 @@ class MatrixStore(ABC):
         ("" = unbounded) bounds the window.
         """
 
+    @abstractmethod
+    def usage_profiles(
+        self, *, since_ts: str = "", limit: int = 200
+    ) -> list[dict]:
+        """Distinct prompt profiles actually routed, most frequent first.
+
+        Each entry is {"profile": <normalize_profile-shaped dict>,
+        "routed_model": str, "requests": int}. Rows with no recorded profile
+        (pre-migration, or the legacy domain/complexity path) are omitted, so an
+        empty list means "no profile traffic yet", not "no traffic".
+        """
+
     # ── Files (uploads) ────────────────────────────────────────────────────────
 
     @abstractmethod

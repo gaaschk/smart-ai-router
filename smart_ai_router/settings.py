@@ -104,6 +104,31 @@ SPECS: tuple[SettingSpec, ...] = (
         "for a costly model. Empty disables the second pass.",
     ),
     SettingSpec(
+        key="model_profiler_model",
+        env="SMART_ROUTER_MODEL_PROFILER_MODEL",
+        type="str",
+        default="openai/gpt-5.6-luna",
+        label="Model profiler model",
+        group="Model profiling",
+        help="Model asked to judge what each catalog model is good and bad at, "
+        "refining the deterministic profile sync computes from benchmarks. Runs "
+        "only when you press Refine on the Models page — never on a request path. "
+        "Needs broad knowledge of the model landscape, so use a capable model; "
+        "it is one short call per model profiled. Empty disables refinement.",
+    ),
+    SettingSpec(
+        key="model_profiler_limit",
+        env="SMART_ROUTER_MODEL_PROFILER_LIMIT",
+        type="int",
+        default=40,
+        label="Models per refine run",
+        group="Model profiling",
+        help="Ceiling on how many models one Refine run profiles. The catalog "
+        "holds hundreds, so runs are bounded and resumable: cheapest models are "
+        "profiled first, because the router picks the cheapest qualifying model "
+        "and an overstated cheap profile is what wins prompts it shouldn't.",
+    ),
+    SettingSpec(
         key="max_file_mb",
         env="SMART_ROUTER_MAX_FILE_MB",
         type="int",

@@ -54,6 +54,7 @@ def client(monkeypatch):
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
     c.sent = sent  # forwarded bodies, for asserting what the provider saw
+    c.store = store  # for asserting what landed in the usage log
     return c
 
 
@@ -115,3 +116,37 @@ def test_forwarded_body_keeps_the_provider_model_id(client):
     _chat(client, "Write a Python function to reverse a linked list.")
     assert client.sent[-1]["model"] == "cheap-coder"   # provider prefix stripped
     assert client.sent[-1]["max_tokens"] > 0           # generous default applied
+
+
+def test_usage_log_records_the_profile_that_routed(client):
+    """The profile is what chose the model, so it is what has to be recorded:
+    (domain, complexity) is too lossy to replay a routing decision from, and
+    replaying real decisions is how a profiling change gets judged."""
+    _chat(
+        client,
+        "Analyze the regulatory and safety implications of an autonomous reactor "
+        "control system under the licensing regimes of 48 jurisdictions.",
+    )
+    rows = client.store.usage_profiles()
+    assert len(rows) == 1
+    recorded = rows[0]["profile"]
+    assert recorded["stakes"] in {"low", "medium", "high"}
+    assert recorded["domains"]  # at least one named field, with its depth
+    assert all({"field", "depth"} == set(d) for d in recorded["domains"])
+
+    # And it round-trips into the same requirements the router actually used.
+    from smart_ai_router.taxonomy import normalize_profile
+
+    replayed = normalize_profile(recorded)
+    assert replayed is not None
+    assert replayed.requirements()
+
+
+def test_usage_log_profile_matches_the_header_the_caller_saw(client):
+    """The recorded profile and the X-Prompt-Profile header must describe the
+    same decision, or the audit replays something the user was never told."""
+    r = _chat(client, "Write a Python function to reverse a linked list.")
+    from smart_ai_router.taxonomy import normalize_profile
+
+    recorded = normalize_profile(client.store.usage_profiles()[0]["profile"])
+    assert recorded.describe() == r.headers["X-Prompt-Profile"]

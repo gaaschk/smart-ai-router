@@ -74,6 +74,42 @@ class ModelSpecResponse(BaseModel):
         default_factory=dict, description="per-taxonomy-field capability scores"
     )
     description: str = ""
+    profile_ratings: dict[str, str] = Field(
+        default_factory=dict,
+        description="LLM-judged relative strengths per field; empty = rules only",
+    )
+    profile_note: str = Field(
+        default="", description="one-line rationale from the profile rater"
+    )
+
+
+class ProfileRefineRequest(BaseModel):
+    """Ask an LLM to refine model profiles (admin, Models page → Refine)."""
+
+    limit: int = Field(
+        default=0, description="max models to profile; 0 = the configured default"
+    )
+    only_missing: bool = Field(
+        default=True, description="skip models that already carry LLM ratings"
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="compute and report changes without writing anything",
+    )
+    model: str | None = Field(
+        default=None, description="override the configured profiler model"
+    )
+    audit_days: int = Field(
+        default=30,
+        description="window of routed traffic to replay when auditing the change",
+    )
+
+
+class ProfileRefineResponse(BaseModel):
+    """What a refine run did, and what it would change about routing."""
+
+    enrich: dict
+    audit: dict
 
 
 class SyncRequest(BaseModel):

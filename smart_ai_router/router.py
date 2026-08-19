@@ -188,7 +188,40 @@ def select(
     Raises RuntimeError only when the matrix has no eligible model at all.
     """
     return _select(
-        store,
+        store.all_models(),
+        requirements=profile.requirements(),
+        described_as=profile.describe(),
+        needs_tools=needs_tools,
+        needs_vision=needs_vision,
+        est_tokens=est_tokens,
+        exclude=exclude,
+        scope=scope,
+        thresholds=thresholds,
+        agent_mode=agent_mode,
+    )
+
+
+def select_from(
+    models: list[ModelSpec],
+    *,
+    profile: PromptProfile,
+    needs_tools: bool = False,
+    needs_vision: bool = False,
+    est_tokens: int = 0,
+    exclude: set[str] | None = None,
+    scope: ModelScope | None = None,
+    thresholds: dict[str, float] | None = None,
+    agent_mode: bool = False,
+) -> RouteDecision:
+    """select() against an explicit candidate list instead of a store.
+
+    For callers holding models that aren't (or aren't yet) in the store: the
+    profile audit compares a decision made with today's profiles against one made
+    with proposed profiles, and both must go through the real selection rules for
+    the comparison to mean anything.
+    """
+    return _select(
+        models,
         requirements=profile.requirements(),
         described_as=profile.describe(),
         needs_tools=needs_tools,
@@ -202,7 +235,7 @@ def select(
 
 
 def _select(
-    store: MatrixStore,
+    models: list[ModelSpec],
     *,
     requirements: dict[str, float],
     described_as: str,
@@ -218,14 +251,17 @@ def _select(
 
     Split out from select() so the legacy (domain, complexity) path can supply a
     caller-tuned bar directly instead of one derived from a depth label.
+
+    Takes the candidate models rather than a store: this is a pure function of
+    (models, requirements), which is what lets the profile audit replay past
+    decisions against a hypothetical set of profiles and see which ones would
+    flip — no store, no mutation, no second copy of the selection rules to drift.
     """
     thr = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     min_rel: float = thr.get("min_reliability", 0.70)
     _exclude = exclude or set()
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
-
-    models = store.all_models()
 
     def _eligible(spec: ModelSpec) -> bool:
         if spec.value in _exclude:
@@ -322,7 +358,7 @@ def route(
     field = profile_from_labels(domain, complexity).primary_field()
     bar = thr.get(complexity, thr.get("moderate", 0.70))
     return _select(
-        store,
+        store.all_models(),
         requirements={field: bar},
         described_as=f"{domain}/{complexity} ({field} >= {bar:.2f})",
         needs_tools=needs_tools,
@@ -333,8 +369,3 @@ def route(
         thresholds=thresholds,
         agent_mode=agent_mode,
     ).model
-
-    raise RuntimeError(
-        f"route: no eligible model for domain={domain!r}, complexity={complexity!r}, "
-        f"needs_tools={needs_tools}. Run sync() to populate the matrix."
-    )

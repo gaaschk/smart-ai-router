@@ -317,6 +317,79 @@ def profile_model(
     return profile
 
 
+# ── LLM-judged shape ──────────────────────────────────────────────────────────
+# The deterministic profile above gets the *level* right — it comes from measured
+# benchmarks — and gets the *shape* only roughly, because all it can read is a
+# ~200-char blurb through a fixed cue table. A description that says "flagship
+# model for enterprise workloads" tells the cue table nothing, while a model that
+# knows the catalog can say plainly that qwen3-coder should not be answering
+# questions about drug interactions.
+#
+# So the LLM pass supplies shape, not numbers. It rates each field *relative to
+# the model's own general level*, and those ratings become signed offsets on the
+# benchmark-derived baseline. Two reasons this beats asking for 16 absolute
+# scores:
+#
+#   1. Calibration. Asked for absolute 0-1 scores, models emit 0.8-0.9 for
+#      everything, which would flatten the profile and put us back where PR 1
+#      started — every model clearing every bar.
+#   2. Durability. The judgment "this coder is weak at medicine" stays true when
+#      the catalog publishes a new intelligence_index next week. Storing ratings
+#      rather than composed numbers means a re-sync re-levels the profile for
+#      free, with no second LLM call.
+#
+# Magnitudes are set against the DEPTHS ladder (practitioner 0.68 → specialist
+# 0.85 → frontier 0.93): `weak` costs a model more than the specialist→frontier
+# gap, `unsuited` costs more than a full tier, and `specialty` is deliberately the
+# same size as _CUE_BOOST because it is the same claim ("the vendor tuned for
+# this") from a better reader.
+RATINGS: dict[str, tuple[float, str]] = {
+    "specialty": (0.04, "purpose-built or explicitly tuned for this; a headline capability"),
+    "capable":   (0.00, "handles this about as well as its overall level suggests"),
+    "weak":      (-0.10, "noticeably worse at this than its overall level suggests"),
+    "unsuited":  (-0.20, "should not be relied on for this at all"),
+}
+
+RATING_KEYS = tuple(RATINGS)
+
+# What a field gets when the rater didn't mention it. `capable` means "no
+# adjustment", so a partial reply degrades to the rules profile for the fields it
+# skipped instead of scoring them 0.
+DEFAULT_RATING = "capable"
+
+
+def apply_ratings(
+    baseline: dict[str, float], ratings: dict[str, str]
+) -> dict[str, float]:
+    """Compose LLM shape ratings onto a deterministic baseline profile.
+
+    Returns the baseline unchanged when there are no ratings, or when the
+    baseline is empty — a model with no profile to adjust (a legacy row routing
+    on its competence columns) must not end up with a fabricated one.
+    """
+    if not ratings or not baseline:
+        return dict(baseline)
+    out: dict[str, float] = {}
+    for field_name, score in baseline.items():
+        offset = RATINGS.get(ratings.get(field_name, DEFAULT_RATING), (0.0, ""))[0]
+        out[field_name] = round(
+            max(_MIN_SCORE, min(_MAX_SCORE, score + offset)), 4
+        )
+    return out
+
+
+def baseline_profile(spec) -> dict[str, float]:
+    """The deterministic profile behind a spec, before any LLM adjustment.
+
+    `profile_rules` is populated only when an LLM overlay actually changed
+    `profile`, so an un-rated model round-trips through the store byte-identical
+    to how sync wrote it. Callers that need the baseline — the enricher, so it
+    never stacks new ratings on top of old ones, and the audit, so it can show
+    what changed — go through here rather than reading either field directly.
+    """
+    return spec.profile_rules or spec.profile
+
+
 def legacy_competence(profile: dict[str, float]) -> dict[str, float]:
     """Collapse a field profile back to {coding, docs, reasoning, general}.
 
