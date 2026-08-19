@@ -173,14 +173,26 @@ class UsageGroupRow(UsageBucket):
     key: str = ""
 
 
+class UsageOverhead(BaseModel):
+    """The router's own spend: prompt classification, the refine pass, model
+    profiling. Separate from the user-traffic aggregates because it is not user
+    traffic — nobody requested these calls — but it is on the same bill, and it
+    used to be missing from this response entirely."""
+    totals: UsageBucket = Field(default_factory=UsageBucket)
+    by_kind: list[UsageGroupRow] = Field(default_factory=list)
+    by_model: list[UsageGroupRow] = Field(default_factory=list)
+
+
 class UsageSummaryResponse(BaseModel):
     """Dashboard rollup. `by_user` is present only for the admin (all-users)
-    view; a per-user request omits it."""
+    view; a per-user request omits it. Every field except `overhead` covers
+    proxied user requests only."""
     totals: UsageBucket
     by_model: list[UsageGroupRow] = Field(default_factory=list)
     by_day: list[UsageGroupRow] = Field(default_factory=list)
     by_domain: list[UsageGroupRow] = Field(default_factory=list)
     by_user: list[UsageGroupRow] | None = None
+    overhead: UsageOverhead = Field(default_factory=UsageOverhead)
 
 
 # ── Provider config ───────────────────────────────────────────────────────────

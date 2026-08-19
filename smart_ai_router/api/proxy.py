@@ -26,6 +26,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from smart_ai_router import overhead as _overhead
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
@@ -516,8 +517,18 @@ async def chat_completions(request: Request):
         profile = PromptProfile(domains=(DomainNeed("general_knowledge", "surface"),))
         classifier_used = "default"
     else:
-        chain_result = await classify_profile_two_speed(
-            prompt_text, _classifier_targets(cr), _refine_target(cr)
+        # Classification is billable work the user didn't ask for by name, so the
+        # calls it makes are collected and logged as overhead rows against this
+        # request's identity. Recorded after the fact rather than inside the
+        # classifier so the classifier stays store-free — see overhead.py.
+        with _overhead.collect() as overhead_calls:
+            chain_result = await classify_profile_two_speed(
+                prompt_text, _classifier_targets(cr), _refine_target(cr)
+            )
+        _overhead.record(
+            cr, overhead_calls,
+            user=getattr(request.state, "user", "") or "",
+            key_prefix=getattr(request.state, "key_prefix", "") or "",
         )
         if chain_result is not None:
             profile, classifier_used = chain_result

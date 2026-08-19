@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from smart_ai_router import overhead as _overhead
 from smart_ai_router import settings as _settings
 from smart_ai_router.taxonomy import (
     DEMAND_KEYS,
@@ -216,6 +217,7 @@ async def classify_profile_llm(
     model: str | None = None,
     api_key: str = "",
     system_prompt: str | None = None,
+    kind: str = _overhead.CLASSIFY,
 ) -> PromptProfile | None:
     """Profile a prompt via an OpenAI-compatible LLM. None on any failure.
 
@@ -229,6 +231,10 @@ async def classify_profile_llm(
                        unused for local Ollama).
         system_prompt: Override the rubric — used by the refine pass to append
                        the triage profile it is checking.
+        kind:          How this call is attributed in the usage log — triage or
+                       refine. Two passes at very different prices run through
+                       this one function, and a single "classifier" line would
+                       hide which of them the money went to.
     """
     if not prompt or not prompt.strip():
         return None
@@ -264,6 +270,8 @@ async def classify_profile_llm(
         content = data["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         return None
+    # Billed whether or not the reply parses, so it is noted before the parse.
+    _overhead.note(kind, model=mdl, usage=data.get("usage"))
     return _parse_profile(content)
 
 
@@ -337,6 +345,7 @@ async def classify_profile_two_speed(
         model=refine.model,
         api_key=refine.api_key,
         system_prompt=_SYSTEM_PROMPT + _REFINE_SUFFIX.format(triage=profile.describe()),
+        kind=_overhead.CLASSIFY_REFINE,
     )
     if refined is None:
         return profile, label

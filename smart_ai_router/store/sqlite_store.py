@@ -27,6 +27,15 @@ def _utcnow_iso() -> str:
 # call sites here, where the point is just "write the deterministic one".
 _baseline = baseline_profile
 
+# The one UsageRecord.kind that means "a user asked for this". Everything else is
+# the router spending on its own behalf (classification, model profiling), and the
+# SQL below uses COALESCE(kind, ...) rather than a bare comparison so a row
+# somehow written without a kind still counts as user traffic — which is what it
+# would have been before the column existed.
+_PROXY_KIND = "proxy"
+_IS_PROXY = f"COALESCE(kind, '{_PROXY_KIND}') = '{_PROXY_KIND}'"
+_IS_OVERHEAD = f"COALESCE(kind, '{_PROXY_KIND}') != '{_PROXY_KIND}'"
+
 
 class SqliteStore(MatrixStore):
     def __init__(self, path: str | Path = "~/.smart_ai_router.db"):
@@ -193,6 +202,19 @@ class SqliteStore(MatrixStore):
             try:
                 self._conn.execute(
                     "ALTER TABLE usage_log ADD COLUMN profile_json TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
+            # Additive migration: what kind of call this row is (UsageRecord.kind).
+            # The router bills for calls nobody requested — prompt classification,
+            # the refine pass, model profiling — and those used to go unrecorded, so
+            # the usage page understated the real spend. They are logged as rows of
+            # their own now, and this column is what keeps them out of the user-traffic
+            # aggregates. DEFAULT 'proxy' is correct for every pre-existing row: before
+            # this column existed, a usage row could only be a proxied request.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN kind TEXT DEFAULT 'proxy'"
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
@@ -419,12 +441,13 @@ class SqliteStore(MatrixStore):
         with self._lock:
             self._conn.execute(
                 """INSERT INTO usage_log (
-                    ts, user, key_prefix, routed_model, domain, complexity,
+                    ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
                     tokens_estimated, profile_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    ts, usage.user, usage.key_prefix, usage.routed_model,
+                    ts, usage.kind or _PROXY_KIND,
+                    usage.user, usage.key_prefix, usage.routed_model,
                     usage.domain, usage.complexity,
                     usage.prompt_tokens, usage.completion_tokens,
                     usage.cost_usd, usage.status,
@@ -436,9 +459,18 @@ class SqliteStore(MatrixStore):
             self._conn.commit()
 
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
+        """A user's recent *requests* — the rate limiter's counter.
+
+        Overhead rows are excluded on purpose. A key that sent one prompt made one
+        request, even though the router also classified it and maybe re-profiled
+        it; counting those against the key's own quota would spend its allowance on
+        work it never asked for, and would shrink the allowance whenever an
+        operator changed the classifier configuration.
+        """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM usage_log WHERE user=? AND ts>=? ORDER BY ts",
+                f"SELECT * FROM usage_log WHERE user=? AND ts>=? AND {_IS_PROXY} "
+                "ORDER BY ts",
                 (user, since_ts),
             ).fetchall()
         return [self._row_to_usage(r) for r in rows]
@@ -491,6 +523,12 @@ class SqliteStore(MatrixStore):
         a value → only that user's rows, and by_user is omitted. since_ts
         (ISO-8601) bounds the window; "" means no lower bound. Cost/token sums
         coalesce NULLs to 0 so an empty window returns zeroed totals, not None.
+
+        Every aggregate here covers **user traffic only** (kind='proxy'), so the
+        headline numbers keep meaning "what our users did" as they always have.
+        The router's own calls — prompt classification, the refine pass, model
+        profiling — are real money and are summarized separately under
+        "overhead", broken out by kind and by model.
         """
         # WHERE clause shared by every aggregate query below.
         where = "WHERE ts >= ?"
@@ -499,8 +537,11 @@ class SqliteStore(MatrixStore):
             where += " AND user = ?"
             params.append(user)
 
-        def _agg(select: str, group_by: str = "") -> list[sqlite3.Row]:
-            sql = f"SELECT {select} FROM usage_log {where}"
+        def _agg(
+            select: str, group_by: str = "", *, overhead: bool = False
+        ) -> list[sqlite3.Row]:
+            kind = _IS_OVERHEAD if overhead else _IS_PROXY
+            sql = f"SELECT {select} FROM usage_log {where} AND {kind}"
             if group_by:
                 sql += f" {group_by}"
             return self._conn.execute(sql, params).fetchall()
@@ -535,6 +576,17 @@ class SqliteStore(MatrixStore):
                 if user is None
                 else None
             )
+            oh_total = _agg(_sums, overhead=True)[0]
+            oh_by_kind = _agg(
+                f"kind AS key, {_sums}",
+                "GROUP BY kind ORDER BY cost_usd DESC, requests DESC",
+                overhead=True,
+            )
+            oh_by_model = _agg(
+                f"routed_model AS key, {_sums}",
+                "GROUP BY routed_model ORDER BY cost_usd DESC, requests DESC",
+                overhead=True,
+            )
 
         def _row(r: sqlite3.Row) -> dict:
             return {
@@ -553,6 +605,11 @@ class SqliteStore(MatrixStore):
             "by_model": _keyed(by_model),
             "by_day": _keyed(by_day),
             "by_domain": _keyed(by_domain),
+            "overhead": {
+                "totals": _row(oh_total),
+                "by_kind": _keyed(oh_by_kind),
+                "by_model": _keyed(oh_by_model),
+            },
         }
         if by_user is not None:
             result["by_user"] = _keyed(by_user)
@@ -750,6 +807,8 @@ class SqliteStore(MatrixStore):
         return UsageRecord(
             id=row["id"],
             ts=row["ts"] or "",
+            kind=(row["kind"] or _PROXY_KIND)
+            if "kind" in row.keys() else _PROXY_KIND,
             user=row["user"] or "",
             key_prefix=row["key_prefix"] or "",
             routed_model=row["routed_model"] or "",

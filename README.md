@@ -199,6 +199,23 @@ curl http://localhost:8001/api/whoami -H "Authorization: Bearer $SOME_KEY"
 
 The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
 
+#### Router overhead
+
+The router spends money on calls nobody requested: it profiles every prompt, escalates consequential ones to a stronger profiler, and rates catalog models after a sync or a Refine run. Those land in the same `usage_log`, tagged by `kind`:
+
+| kind | what it is |
+| --- | --- |
+| `proxy` | a user request, forwarded to the routed model |
+| `classify` | prompt profiling — the local classifier's triage pass |
+| `classify-refine` | the second-pass profiler on a consequential prompt |
+| `profile` | one model-shape rating during a sync or Refine run |
+
+Only `proxy` rows are user traffic, so every existing figure keeps its meaning: the headline totals, the by-model / by-day / by-task / by-user tables, and the rate limiter's counter all count `proxy` alone. One prompt is one request against a key's quota however many calls the router made to route it. `GET /api/usage` reports the rest under `overhead` (totals plus a breakdown by kind and by model), and the Usage page shows it as a **Router Overhead** card with its share of total spend.
+
+This matters because the overhead is not always small. A deployment whose prompts routinely trip the refine trigger can spend a meaningful fraction of its bill on deciding where to send things — and that is a fixable configuration problem (Settings → **Classifier**, **Model profiling**) only if it's visible. Overhead rows are attributed to the identity that caused them: the requesting user for classification, the admin who triggered the run for profiling.
+
+Local classifier calls cost $0 and are still logged — the call count is what shows the classifier is being used at all. A `dry_run` Refine is logged too: it writes no ratings but makes exactly the same paid calls.
+
 #### Per-user scope and quotas
 
 A per-user key can be constrained on three axes, all optional and all set at mint time (or via the API):
@@ -348,7 +365,7 @@ Two or more fields at specialist depth or deeper adds a further +0.04, because h
 
 ### Two-speed classification
 
-The local classifier (a small Ollama model) profiles every prompt. When it reports **high stakes**, **two or more specialist-depth fields**, or **frontier depth** — the judgments a 3B model gets wrong expensively — a second pass on a stronger model refines the profile before routing. That call fires only on prompts already headed for a costly model, and lowering the bar is as valid a correction as raising it. Set `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` (or the **Classifier** group in Settings) to empty to disable it. If no LLM classifier is reachable, a keyword profiler runs instead.
+The local classifier (a small Ollama model) profiles every prompt. When it reports **high stakes**, **two or more specialist-depth fields**, or **frontier depth** — the judgments a 3B model gets wrong expensively — a second pass on a stronger model refines the profile before routing. That call fires only on prompts already headed for a costly model, and lowering the bar is as valid a correction as raising it. Set `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` (or the **Classifier** group in Settings) to empty to disable it. If no LLM classifier is reachable, a keyword profiler runs instead. Both passes are billed and both appear on the Usage page as router overhead, so how often the second pass fires — and what it costs — is something you can look up rather than estimate.
 
 ### Model profiles
 
@@ -439,6 +456,10 @@ curl -X POST http://localhost:8001/api/models/profile \
 
 Configured under **Settings → Model profiling**
 (`SMART_ROUTER_MODEL_PROFILER_MODEL`, `SMART_ROUTER_MODEL_PROFILER_LIMIT`).
+
+Every rating call is logged to the usage log as `kind="profile"` overhead (see
+[Router overhead](#router-overhead)), including on a dry run — so what a run cost
+is a number on the Usage page, not an estimate from the model count.
 
 ### Selection
 

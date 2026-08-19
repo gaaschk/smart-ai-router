@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from smart_ai_router import overhead as _overhead
 from smart_ai_router import settings as _settings
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.profiler import (
@@ -284,9 +285,14 @@ async def rate_model(
             resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code >= 400:
             return None
-        content = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         return None
+    # A Refine run is the router's largest single burst of self-directed spend —
+    # one call per model — so it is logged as usage like anything else. Noted
+    # before the parse: an unusable reply is billed the same as a usable one.
+    _overhead.note(_overhead.PROFILE, model=rater, usage=data.get("usage"))
 
     ratings, note = _parse(content)
     # An all-`capable` reply is a real answer ("nothing unusual about this
