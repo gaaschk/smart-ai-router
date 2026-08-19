@@ -40,13 +40,26 @@ fi
 echo "[claudish-smart] routing via $ROUTER/v1 (per-request classification)" >&2
 
 # Point claudish's LiteLLM provider at the proxy.
-# claudish sends OpenAI-format requests to LITELLM_BASE_URL/chat/completions.
+# claudish sends OpenAI-format requests to LITELLM_BASE_URL/v1/chat/completions.
 # The proxy classifies each prompt and forwards to the best model.
 export LITELLM_BASE_URL="$ROUTER"
 export LITELLM_API_KEY="${API_KEY:-smart-ai-router}"
 
-# Override Bedrock config via project-level settings.local.json (higher priority
-# than ~/.claude/settings.json). Drop exec so the EXIT trap fires for cleanup.
+# Override Bedrock config and name the routed models via project-level
+# settings.local.json (higher priority than ~/.claude/settings.json). Drop exec
+# so the EXIT trap fires for cleanup.
+#
+# Naming the models here rather than relying on claudish's --model-<role> flags
+# is deliberate. claudish's proxy maps a request to a role by substring-matching
+# the model name for "opus"/"sonnet"/"haiku", so it only works if Claude Code
+# sends a recognizable Claude name. A ~/.claude/settings.json `modelOverrides`
+# map (e.g. claude-opus-5 -> a Bedrock inference-profile ARN) rewrites the name
+# first, so claudish sees the ARN, matches no role, finds no provider for it, and
+# fails the request with "[Route] No credentialed providers in chain". Setting
+# CLAUDE_CODE_USE_BEDROCK=0 doesn't help: it turns off the Bedrock transport but
+# leaves the rewrite in place, and an empty "modelOverrides": {} here doesn't
+# either, because settings merge key-wise so it can't clear inherited entries.
+# ANTHROPIC_MODEL matches no override key, so it reaches the proxy verbatim.
 _LOCAL_SETTINGS="$PWD/.claude/settings.local.json"
 _LOCAL_SETTINGS_BACKUP=""
 
@@ -76,20 +89,28 @@ fi
 cat > "$_LOCAL_SETTINGS" <<'SETTINGS'
 {
   "env": {
-    "CLAUDE_CODE_USE_BEDROCK": "0"
+    "CLAUDE_CODE_USE_BEDROCK": "0",
+    "ANTHROPIC_MODEL": "ll@smart-orchestrator",
+    "ANTHROPIC_SMALL_FAST_MODEL": "ll@smart-orchestrator",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "ll@smart-worker"
   }
 }
 SETTINGS
 _WROTE_SETTINGS=1
 
-# Orchestration roles (opus/sonnet/haiku) drive the main Claude Code loop —
-# recognizing skills, emitting Workflow/Agent tool calls. These need a
-# Claude-compliant model, so they use the 'smart-orchestrator' name which the
-# proxy forces to a Claude model (via bedrock).
+# The main Claude Code loop — recognizing skills, emitting Workflow/Agent tool
+# calls — needs a Claude-compliant model, so ANTHROPIC_MODEL above sends it to
+# 'smart-orchestrator', which the proxy forces to a Claude model (via bedrock).
+# Subagents do the fan-out work, so CLAUDE_CODE_SUBAGENT_MODEL sends them to
+# 'smart-worker', which the proxy classifies and routes to the cheapest capable
+# model (Claude fallback when nothing third-party clears the quality bar).
 #
-# The subagent role does the actual fan-out work; it uses 'smart-worker' which
-# the proxy classifies and routes to the cheapest capable model (Claude fallback
-# when nothing third-party clears the quality bar).
+# The --model-<role> flags below no longer carry that split: claudish's proxy
+# reads modelMap.opus/sonnet/haiku but never modelMap.subagent, so the subagent
+# mapping was always inert. They stay for two reasons — claudish refuses to
+# start without a model or role mapping, and they're the fallback for any
+# request that still arrives under a Claude name (a hardcoded haiku call, or a
+# session without the settings.local.json above).
 claudish \
   --model-opus     "ll@smart-orchestrator" \
   --model-sonnet   "ll@smart-orchestrator" \
