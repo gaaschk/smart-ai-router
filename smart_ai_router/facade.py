@@ -20,7 +20,9 @@ from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.store.sqlite_store import SqliteStore
 from smart_ai_router import router as _router
 from smart_ai_router import pricing as _pricing
+from smart_ai_router.router import RouteDecision
 from smart_ai_router.sync import SyncResult, sync_from_providers
+from smart_ai_router.taxonomy import PromptProfile
 
 
 class CapabilityRouter:
@@ -45,6 +47,7 @@ class CapabilityRouter:
         exclude: set[str] | None = None,
         scope: ModelScope | None = None,
         agent_mode: bool = False,
+        profile: PromptProfile | None = None,
     ) -> str:
         """Return the optimal model string for the given hints.
 
@@ -54,6 +57,36 @@ class CapabilityRouter:
             self._store,
             domain=domain,
             complexity=complexity,
+            needs_tools=needs_tools,
+            needs_vision=needs_vision,
+            est_tokens=est_tokens,
+            exclude=exclude,
+            scope=scope,
+            thresholds=self._thresholds,
+            agent_mode=agent_mode,
+            profile=profile,
+        )
+
+    def select(
+        self,
+        profile: PromptProfile,
+        *,
+        needs_tools: bool = False,
+        needs_vision: bool = False,
+        est_tokens: int = 0,
+        exclude: set[str] | None = None,
+        scope: ModelScope | None = None,
+        agent_mode: bool = False,
+    ) -> RouteDecision:
+        """Route on a full prompt profile, returning the decision *and why*.
+
+        Prefer this over route() anywhere the reason matters — the proxy surfaces
+        the binding constraint in its headers and its escalation note, and can
+        only be honest about a pick that cleared no bar if it knows that.
+        """
+        return _router.select(
+            self._store,
+            profile=profile,
             needs_tools=needs_tools,
             needs_vision=needs_vision,
             est_tokens=est_tokens,

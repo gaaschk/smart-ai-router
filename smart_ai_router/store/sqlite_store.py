@@ -1,5 +1,6 @@
 """SqliteStore — default self-contained SQLite implementation of MatrixStore."""
 from __future__ import annotations
+import json
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -155,6 +156,22 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: per-field capability profile + the provider
+            # description it was derived from. Stored as JSON rather than one
+            # column per taxonomy field so the taxonomy can grow without a
+            # schema change; an empty string means "not profiled yet", and the
+            # router falls back to the four competence columns for those rows
+            # until the next sync fills them in.
+            for column, decl in (
+                ("profile_json", "TEXT DEFAULT ''"),
+                ("description", "TEXT DEFAULT ''"),
+            ):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE models ADD COLUMN {column} {decl}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -169,8 +186,9 @@ class SqliteStore(MatrixStore):
                     value, provider, cost, ctx_k, tools, vision, reliability,
                     cost_input, cost_output,
                     competence_coding, competence_docs,
-                    competence_reasoning, competence_general
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    competence_reasoning, competence_general,
+                    profile_json, description
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -183,7 +201,9 @@ class SqliteStore(MatrixStore):
                     competence_coding=excluded.competence_coding,
                     competence_docs=excluded.competence_docs,
                     competence_reasoning=excluded.competence_reasoning,
-                    competence_general=excluded.competence_general
+                    competence_general=excluded.competence_general,
+                    profile_json=excluded.profile_json,
+                    description=excluded.description
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -195,6 +215,8 @@ class SqliteStore(MatrixStore):
                     spec.competence.get("docs", 0.0),
                     spec.competence.get("reasoning", 0.0),
                     spec.competence.get("general", 0.0),
+                    json.dumps(spec.profile, sort_keys=True) if spec.profile else "",
+                    spec.description,
                 ),
             )
             self._conn.commit()
@@ -680,7 +702,41 @@ class SqliteStore(MatrixStore):
         )
 
     @staticmethod
-    def _row_to_spec(row: sqlite3.Row) -> ModelSpec:
+    def _profile_from_row(row: sqlite3.Row) -> dict[str, float]:
+        """Decode profile_json, tolerating rows written before it existed and
+        any hand-edited value. A bad blob degrades to "not profiled" (so the
+        router uses the legacy competence columns) rather than failing every
+        read of the model matrix."""
+        try:
+            raw = row["profile_json"]
+        except (IndexError, KeyError):
+            return {}
+        if not raw:
+            return {}
+        try:
+            decoded = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        if not isinstance(decoded, dict):
+            return {}
+        out: dict[str, float] = {}
+        for key, val in decoded.items():
+            try:
+                out[str(key)] = float(val)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    @staticmethod
+    def _column(row: sqlite3.Row, name: str, default: str = "") -> str:
+        """Read a column that may predate its migration."""
+        try:
+            return row[name] or default
+        except (IndexError, KeyError):
+            return default
+
+    @classmethod
+    def _row_to_spec(cls, row: sqlite3.Row) -> ModelSpec:
         return ModelSpec(
             value=row["value"],
             provider=row["provider"] or "",
@@ -697,4 +753,6 @@ class SqliteStore(MatrixStore):
                 "reasoning": row["competence_reasoning"] or 0.0,
                 "general":   row["competence_general"]   or 0.0,
             },
+            profile=cls._profile_from_row(row),
+            description=cls._column(row, "description"),
         )

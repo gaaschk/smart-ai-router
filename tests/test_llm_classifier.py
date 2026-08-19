@@ -1,4 +1,8 @@
-"""Tests for the LLM classifier parsing + config (no network)."""
+"""Tests for the LLM profile classifier — parsing, schema, chain, two-speed.
+
+No network: every call either short-circuits before HTTP or goes through an
+httpx MockTransport.
+"""
 import asyncio
 import json
 
@@ -7,49 +11,87 @@ import httpx
 from smart_ai_router import settings as _settings
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
-    _parse_classification,
+    _parse_profile,
     classifier_fallback_model,
     classifier_model,
     classify_chain,
     classify_llm,
+    classify_profile_chain,
+    classify_profile_llm,
+    classify_profile_two_speed,
+    needs_refinement,
+    refine_model,
+)
+from smart_ai_router.taxonomy import (
+    DEMAND_KEYS,
+    DEPTH_KEYS,
+    FIELD_KEYS,
+    STAKES_KEYS,
+    DomainNeed,
+    PromptProfile,
 )
 
 
+def _profile(*needs, demands=(), stakes="low"):
+    """PromptProfile from (field, depth) pairs — test brevity helper."""
+    return PromptProfile(
+        domains=tuple(DomainNeed(f, d) for f, d in needs),
+        demands=frozenset(demands),
+        stakes=stakes,
+    )
+
+
+# ── Parsing ───────────────────────────────────────────────────────────────────
+
 def test_parses_clean_json():
-    assert _parse_classification('{"domain": "reasoning", "complexity": "hard"}') == (
-        "reasoning",
-        "hard",
+    p = _parse_profile(
+        '{"domains":[{"field":"law_regulatory","depth":"specialist"}],'
+        '"demands":["factual_precision"],"stakes":"high"}'
+    )
+    assert p == _profile(
+        ("law_regulatory", "specialist"), demands=["factual_precision"], stakes="high"
     )
 
 
 def test_parses_with_code_fence_and_prose():
-    text = 'Sure!\n```json\n{"domain":"coding","complexity":"moderate"}\n```'
-    assert _parse_classification(text) == ("coding", "moderate")
-
-
-def test_case_insensitive_labels():
-    assert _parse_classification('{"domain":"DOCS","complexity":"Trivial"}') == (
-        "docs",
-        "trivial",
+    text = (
+        'Sure!\n```json\n{"domains":[{"field":"software_engineering",'
+        '"depth":"practitioner"}],"demands":[],"stakes":"low"}\n```'
     )
+    assert _parse_profile(text) == _profile(("software_engineering", "practitioner"))
 
 
-def test_rejects_unknown_domain():
-    assert _parse_classification('{"domain":"math","complexity":"hard"}') is None
+def test_drops_out_of_vocabulary_field():
+    # "nuclear_engineering" isn't in FIELDS; the in-vocabulary entry survives.
+    p = _parse_profile(
+        '{"domains":[{"field":"nuclear_engineering","depth":"frontier"},'
+        '{"field":"natural_science","depth":"specialist"}],'
+        '"demands":[],"stakes":"low"}'
+    )
+    assert p == _profile(("natural_science", "specialist"))
 
 
-def test_rejects_unknown_complexity():
-    assert _parse_classification('{"domain":"coding","complexity":"epic"}') is None
-
-
-def test_rejects_missing_field():
-    assert _parse_classification('{"domain":"coding"}') is None
+def test_returns_none_when_no_field_survives():
+    # Nothing usable → None, so the caller falls through to the next target
+    # rather than routing on an empty profile.
+    assert _parse_profile('{"domains":[{"field":"astrology","depth":"frontier"}]}') is None
 
 
 def test_rejects_garbage():
-    assert _parse_classification("not json at all") is None
-    assert _parse_classification("") is None
+    assert _parse_profile("not json at all") is None
+    assert _parse_profile("") is None
+    assert _parse_profile("[]") is None
 
+
+def test_unknown_depth_and_stakes_fall_back_to_defaults():
+    p = _parse_profile(
+        '{"domains":[{"field":"general_knowledge","depth":"godlike"}],'
+        '"demands":["telepathy"],"stakes":"catastrophic"}'
+    )
+    assert p == _profile(("general_knowledge", "practitioner"))
+
+
+# ── Config ────────────────────────────────────────────────────────────────────
 
 def test_disabled_model_env(monkeypatch):
     # Empty env value disables the LLM path.
@@ -66,61 +108,6 @@ def test_default_model(monkeypatch):
     assert classifier_model() == shipped
 
 
-def test_classify_llm_returns_none_when_disabled(monkeypatch):
-    # No blank prompt, but the model is disabled → None (fall back), no network.
-    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "")
-    result = asyncio.run(
-        classify_llm("Derive the hydrogen orbitals", base_url="http://localhost:11434/v1")
-    )
-    assert result is None
-
-
-def test_classify_llm_returns_none_on_empty_prompt():
-    result = asyncio.run(classify_llm("", base_url="http://localhost:11434/v1"))
-    assert result is None
-
-
-def test_classify_llm_requests_json_object(monkeypatch):
-    # The request MUST ask for JSON output — without response_format, chatty
-    # instruct models answer the prompt instead of classifying, and the whole
-    # chain silently falls through to the keyword classifier (the live bug this
-    # fixes). Capture the outgoing payload via a mock transport.
-    import smart_ai_router.llm_classifier as lc
-
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": '{"domain":"coding","complexity":"hard"}'}}]},
-        )
-
-    real_client = httpx.AsyncClient
-
-    def fake_client(*args, **kwargs):
-        kwargs.pop("timeout", None)
-        return real_client(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(lc.httpx, "AsyncClient", fake_client)
-    result = asyncio.run(
-        classify_llm("write a parser", base_url="http://localhost:11434/v1", model="llama3.1:8b")
-    )
-    assert result == ("coding", "hard")
-    # A strict json_schema (not a bare json_object) is what actually constrains
-    # the reply to {domain, complexity} — a chatty model handed a "write a
-    # paper" prompt emits valid-but-wrong-shaped JSON otherwise.
-    rf = captured["body"]["response_format"]
-    assert rf["type"] == "json_schema"
-    js = rf["json_schema"]
-    assert js["strict"] is True
-    props = js["schema"]["properties"]
-    assert set(props["domain"]["enum"]) == lc._DOMAINS
-    assert set(props["complexity"]["enum"]) == lc._COMPLEXITIES
-    assert js["schema"]["required"] == ["domain", "complexity"]
-    assert captured["body"]["max_tokens"] >= 40
-
-
 def test_default_fallback_model(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_CLASSIFIER_FALLBACK", raising=False)
     assert classifier_fallback_model() == "nvidia/nemotron-nano-9b-v2:free"
@@ -131,43 +118,171 @@ def test_fallback_can_be_disabled(monkeypatch):
     assert classifier_fallback_model() == ""
 
 
+def test_default_refine_model(monkeypatch):
+    monkeypatch.delenv("SMART_ROUTER_CLASSIFIER_REFINE_MODEL", raising=False)
+    shipped = next(
+        s for s in _settings.SPECS if s.key == "classifier_refine_model"
+    ).default
+    assert refine_model() == shipped
+
+
+def test_refine_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_REFINE_MODEL", "")
+    assert refine_model() == ""
+
+
+# ── The HTTP call ─────────────────────────────────────────────────────────────
+
+def test_returns_none_when_disabled(monkeypatch):
+    # Non-blank prompt, but the model is disabled → None (fall back), no network.
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "")
+    result = asyncio.run(
+        classify_profile_llm(
+            "Derive the hydrogen orbitals", base_url="http://localhost:11434/v1"
+        )
+    )
+    assert result is None
+
+
+def test_returns_none_on_empty_prompt():
+    assert asyncio.run(classify_profile_llm("", base_url="http://localhost:11434/v1")) is None
+
+
+def _mock_reply(monkeypatch, content: str, captured: dict):
+    """Point llm_classifier's httpx at a transport returning `content`."""
+    import smart_ai_router.llm_classifier as lc
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    real_client = httpx.AsyncClient
+
+    def fake_client(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(lc.httpx, "AsyncClient", fake_client)
+
+
+def test_requests_strict_profile_schema(monkeypatch):
+    # The request MUST ask for a strict json_schema. Without a *schema* (a bare
+    # json_object, or nothing), chatty instruct models answer the prompt instead
+    # of profiling it and the whole chain silently falls through to the keyword
+    # classifier — the live bug this guards.
+    captured: dict = {}
+    _mock_reply(
+        monkeypatch,
+        '{"domains":[{"field":"software_engineering","depth":"specialist"}],'
+        '"demands":[],"stakes":"medium"}',
+        captured,
+    )
+    result = asyncio.run(
+        classify_profile_llm(
+            "write a parser", base_url="http://localhost:11434/v1", model="llama3.1:8b"
+        )
+    )
+    assert result == _profile(("software_engineering", "specialist"), stakes="medium")
+
+    rf = captured["body"]["response_format"]
+    assert rf["type"] == "json_schema"
+    js = rf["json_schema"]
+    assert js["strict"] is True
+    schema = js["schema"]
+    assert schema["required"] == ["domains", "demands", "stakes"]
+    item_props = schema["properties"]["domains"]["items"]["properties"]
+    assert tuple(item_props["field"]["enum"]) == FIELD_KEYS
+    assert tuple(item_props["depth"]["enum"]) == DEPTH_KEYS
+    assert tuple(schema["properties"]["demands"]["items"]["enum"]) == DEMAND_KEYS
+    assert tuple(schema["properties"]["stakes"]["enum"]) == STAKES_KEYS
+    # OpenAI strict mode rejects these outright, which would 400 every call.
+    assert "minItems" not in schema["properties"]["domains"]
+    assert "maxItems" not in schema["properties"]["domains"]
+    # Three {field, depth} objects plus demands need real headroom; truncated
+    # JSON parses as nothing at all.
+    assert captured["body"]["max_tokens"] >= 200
+
+
+def test_system_prompt_override_is_sent(monkeypatch):
+    # The refine pass works by appending the triage profile to the rubric.
+    captured: dict = {}
+    _mock_reply(
+        monkeypatch,
+        '{"domains":[{"field":"general_knowledge","depth":"surface"}],'
+        '"demands":[],"stakes":"low"}',
+        captured,
+    )
+    asyncio.run(
+        classify_profile_llm(
+            "hi",
+            base_url="http://x/v1",
+            model="m",
+            system_prompt="CUSTOM RUBRIC",
+        )
+    )
+    assert captured["body"]["messages"][0] == {
+        "role": "system",
+        "content": "CUSTOM RUBRIC",
+    }
+
+
+def test_http_error_returns_none(monkeypatch):
+    import smart_ai_router.llm_classifier as lc
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": "rate limited"})
+
+    real_client = httpx.AsyncClient
+
+    def fake_client(*args, **kwargs):
+        kwargs.pop("timeout", None)
+        return real_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(lc.httpx, "AsyncClient", fake_client)
+    assert asyncio.run(
+        classify_profile_llm("x", base_url="http://x/v1", model="m")
+    ) is None
+
+
+# ── The fallback chain ────────────────────────────────────────────────────────
+
 def test_chain_falls_through_to_second_target(monkeypatch):
-    # First target has an unreachable base_url (fails fast to None); the chain
-    # must try the second. We disable real network by pointing both at a bad
-    # port, but stub classify_llm to simulate first-fail / second-succeed.
+    # First target fails; the chain must try the second.
     import smart_ai_router.llm_classifier as lc
 
     calls = []
 
-    async def fake_classify_llm(prompt, *, base_url, model=None, api_key=""):
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None):
         calls.append(model)
         if model == "local-bad":
             return None
-        return ("reasoning", "hard")
+        return _profile(("math_formal", "specialist"))
 
-    monkeypatch.setattr(lc, "classify_llm", fake_classify_llm)
+    monkeypatch.setattr(lc, "classify_profile_llm", fake)
     targets = [
         ClassifierTarget(model="local-bad", base_url="http://x/v1", label="llm"),
         ClassifierTarget(model="free-good", base_url="http://y/v1", label="llm-free"),
     ]
-    result = asyncio.run(lc.classify_chain("prompt", targets))
-    assert result == ("reasoning", "hard", "llm-free")
+    profile, label = asyncio.run(classify_profile_chain("prompt", targets))
+    assert profile == _profile(("math_formal", "specialist"))
+    assert label == "llm-free"
     assert calls == ["local-bad", "free-good"]
 
 
 def test_chain_returns_none_when_all_fail(monkeypatch):
     import smart_ai_router.llm_classifier as lc
 
-    async def always_none(prompt, *, base_url, model=None, api_key=""):
+    async def always_none(prompt, *, base_url, model=None, api_key="", system_prompt=None):
         return None
 
-    monkeypatch.setattr(lc, "classify_llm", always_none)
+    monkeypatch.setattr(lc, "classify_profile_llm", always_none)
     targets = [ClassifierTarget(model="a", base_url="http://x/v1")]
-    assert asyncio.run(lc.classify_chain("prompt", targets)) is None
+    assert asyncio.run(classify_profile_chain("prompt", targets)) is None
 
 
 def test_chain_empty_targets_returns_none():
-    assert asyncio.run(classify_chain("prompt", [])) is None
+    assert asyncio.run(classify_profile_chain("prompt", [])) is None
 
 
 def test_chain_stops_at_first_success(monkeypatch):
@@ -175,15 +290,161 @@ def test_chain_stops_at_first_success(monkeypatch):
 
     calls = []
 
-    async def fake(prompt, *, base_url, model=None, api_key=""):
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None):
         calls.append(model)
-        return ("coding", "moderate")
+        return _profile(("technical_writing", "practitioner"))
 
-    monkeypatch.setattr(lc, "classify_llm", fake)
+    monkeypatch.setattr(lc, "classify_profile_llm", fake)
     targets = [
         ClassifierTarget(model="first", base_url="http://x/v1", label="llm"),
         ClassifierTarget(model="second", base_url="http://y/v1", label="llm-free"),
     ]
-    result = asyncio.run(lc.classify_chain("prompt", targets))
-    assert result == ("coding", "moderate", "llm")
+    profile, label = asyncio.run(classify_profile_chain("prompt", targets))
+    assert label == "llm"
     assert calls == ["first"]  # second target never tried
+
+
+# ── Escalation trigger ────────────────────────────────────────────────────────
+
+def test_needs_refinement_on_high_stakes():
+    assert needs_refinement(_profile(("medicine_health", "practitioner"), stakes="high"))
+
+
+def test_needs_refinement_on_two_specialist_fields():
+    # Cross-domain synthesis: where generalists produce their best nonsense.
+    assert needs_refinement(
+        _profile(("law_regulatory", "specialist"), ("natural_science", "specialist"))
+    )
+
+
+def test_needs_refinement_on_frontier_depth():
+    assert needs_refinement(_profile(("math_formal", "frontier")))
+
+
+def test_no_refinement_for_ordinary_prompts():
+    assert not needs_refinement(_profile(("software_engineering", "practitioner")))
+    assert not needs_refinement(_profile(("general_knowledge", "surface")))
+    # One specialist field at medium stakes is exactly the case the local model
+    # is trusted with — refining it would spend money on every serious prompt.
+    assert not needs_refinement(
+        _profile(("software_engineering", "specialist"), stakes="medium")
+    )
+
+
+# ── Two-speed chain ───────────────────────────────────────────────────────────
+
+_TRIAGE = ClassifierTarget(model="local", base_url="http://x/v1", label="llm")
+_REFINE = ClassifierTarget(
+    model="big", base_url="http://y/v1", api_key="k", label="llm-refined"
+)
+
+
+def _stub_two_speed(monkeypatch, triage, refined, calls):
+    import smart_ai_router.llm_classifier as lc
+
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+        calls.append(model)
+        return refined if model == "big" else triage
+
+    monkeypatch.setattr(lc, "classify_profile_llm", fake)
+
+
+def test_two_speed_skips_refine_for_ordinary_prompt(monkeypatch):
+    calls: list = []
+    triage = _profile(("software_engineering", "practitioner"))
+    _stub_two_speed(monkeypatch, triage, _profile(("math_formal", "frontier")), calls)
+    profile, label = asyncio.run(
+        classify_profile_two_speed("fix my test", [_TRIAGE], _REFINE)
+    )
+    assert (profile, label) == (triage, "llm")
+    assert calls == ["local"]  # no paid call for an ordinary prompt
+
+
+def test_two_speed_refines_consequential_prompt(monkeypatch):
+    calls: list = []
+    triage = _profile(("law_regulatory", "specialist"), ("natural_science", "specialist"))
+    refined = _profile(
+        ("law_regulatory", "frontier"),
+        ("natural_science", "specialist"),
+        demands=["factual_precision"],
+        stakes="high",
+    )
+    _stub_two_speed(monkeypatch, triage, refined, calls)
+    profile, label = asyncio.run(
+        classify_profile_two_speed("48 jurisdictions of reactor law", [_TRIAGE], _REFINE)
+    )
+    assert (profile, label) == (refined, "llm-refined")
+    assert calls == ["local", "big"]
+
+
+def test_two_speed_can_lower_the_bar(monkeypatch):
+    # Correcting downward matters as much as upward: a small model reading topic
+    # words as depth is the expensive-in-the-other-direction failure.
+    calls: list = []
+    triage = _profile(("law_regulatory", "frontier"), stakes="high")
+    refined = _profile(("general_knowledge", "surface"))
+    _stub_two_speed(monkeypatch, triage, refined, calls)
+    profile, label = asyncio.run(
+        classify_profile_two_speed("what does GDPR stand for?", [_TRIAGE], _REFINE)
+    )
+    assert (profile, label) == (refined, "llm-refined")
+
+
+def test_two_speed_keeps_triage_when_refine_fails(monkeypatch):
+    # A classifier upgrade must never turn a routable request into a failed one.
+    calls: list = []
+    triage = _profile(("math_formal", "frontier"))
+    _stub_two_speed(monkeypatch, triage, None, calls)
+    profile, label = asyncio.run(
+        classify_profile_two_speed("prove it", [_TRIAGE], _REFINE)
+    )
+    assert (profile, label) == (triage, "llm")
+    assert calls == ["local", "big"]
+
+
+def test_two_speed_without_refine_target(monkeypatch):
+    calls: list = []
+    triage = _profile(("math_formal", "frontier"))
+    _stub_two_speed(monkeypatch, triage, _profile(("general_knowledge", "surface")), calls)
+    assert asyncio.run(classify_profile_two_speed("prove it", [_TRIAGE], None)) == (
+        triage,
+        "llm",
+    )
+    assert calls == ["local"]
+
+
+def test_two_speed_returns_none_when_triage_fails(monkeypatch):
+    import smart_ai_router.llm_classifier as lc
+
+    async def always_none(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+        return None
+
+    monkeypatch.setattr(lc, "classify_profile_llm", always_none)
+    assert asyncio.run(classify_profile_two_speed("x", [_TRIAGE], _REFINE)) is None
+
+
+# ── Legacy label wrappers ─────────────────────────────────────────────────────
+
+def test_legacy_classify_llm_derives_labels(monkeypatch):
+    captured: dict = {}
+    _mock_reply(
+        monkeypatch,
+        '{"domains":[{"field":"software_engineering","depth":"specialist"}],'
+        '"demands":[],"stakes":"low"}',
+        captured,
+    )
+    assert asyncio.run(
+        classify_llm("refactor this", base_url="http://x/v1", model="m")
+    ) == ("coding", "hard")
+
+
+def test_legacy_classify_chain_derives_labels(monkeypatch):
+    import smart_ai_router.llm_classifier as lc
+
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+        return _profile(("general_knowledge", "surface"))
+
+    monkeypatch.setattr(lc, "classify_profile_llm", fake)
+    assert asyncio.run(
+        classify_chain("hi", [ClassifierTarget(model="m", base_url="http://x/v1")])
+    ) == ("general", "trivial", "llm")

@@ -4,9 +4,13 @@ Benchmark free OpenRouter models as prompt classifiers.
 
 Run this ON the mac mini (where the OpenRouter key lives in .env). It reads the
 key locally, sends a fixed set of prompts to each free candidate model, and
-reports per-model latency and whether the reply parses into a valid
-(domain, complexity) — the two things that decide if a model is usable as the
+reports per-model latency and whether the reply parses into a valid prompt
+profile — the two things that decide if a model is usable as the
 SMART_ROUTER_CLASSIFIER_FALLBACK.
+
+Sends the production strict json_schema, because honoring it is part of the job:
+a free model that 400s on the schema or ignores it is disqualified regardless of
+how fast it is.
 
 Usage:
     cd ~/ProjectHome/smart-ai-router
@@ -22,7 +26,11 @@ import statistics
 import time
 from pathlib import Path
 
-from smart_ai_router.llm_classifier import _SYSTEM_PROMPT, _parse_classification
+from smart_ai_router.llm_classifier import (
+    _RESPONSE_FORMAT,
+    _SYSTEM_PROMPT,
+    _parse_profile,
+)
 
 import httpx
 
@@ -39,13 +47,17 @@ CANDIDATES = [
     "cohere/north-mini-code:free",
 ]
 
-# (prompt, expected_domain) — expected is a sanity hint, not a hard assertion.
+# (prompt, expected_field) — expected is a sanity hint, not a hard assertion.
 PROMPTS = [
-    ("Derive the formula for the electronic orbitals about a hydrogen atom", "reasoning"),
-    ("fix the null pointer bug in the login handler", "coding"),
-    ("write a readme explaining how to install this tool", "docs"),
-    ("hello", "general"),
-    ("design a distributed rate limiter that survives node failures", "reasoning"),
+    ("Derive the formula for the electronic orbitals about a hydrogen atom",
+     "natural_science"),
+    ("fix the null pointer bug in the login handler", "software_engineering"),
+    ("write a readme explaining how to install this tool", "technical_writing"),
+    ("hello", "general_knowledge"),
+    ("design a distributed rate limiter that survives node failures",
+     "systems_architecture"),
+    ("What acetaminophen dose is safe for a 16kg 4-year-old with a 39.4C fever?",
+     "medicine_health"),
 ]
 
 _TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=30.0)
@@ -91,7 +103,8 @@ async def _classify(client: httpx.AsyncClient, key: str, model: str, prompt: str
         ],
         "stream": False,
         "temperature": 0,
-        "max_tokens": 40,
+        "response_format": _RESPONSE_FORMAT,
+        "max_tokens": 256,
     }
     t = time.monotonic()
     try:
@@ -104,8 +117,8 @@ async def _classify(client: httpx.AsyncClient, key: str, model: str, prompt: str
         if resp.status_code >= 400:
             return dt, None, f"HTTP {resp.status_code}"
         content = resp.json()["choices"][0]["message"]["content"]
-        parsed = _parse_classification(content)
-        return dt, parsed, None if parsed else f"unparseable: {content[:40]!r}"
+        parsed = _parse_profile(content)
+        return dt, parsed, None if parsed else f"unparseable: {content[:60]!r}"
     except Exception as e:  # noqa: BLE001 — benchmark, report everything
         return time.monotonic() - t, None, f"{type(e).__name__}: {e}"
 
@@ -124,8 +137,9 @@ async def main():
                 lats.append(dt)
                 if parsed:
                     oks += 1
-                    flag = "" if parsed[0] == expected else f" (got {parsed[0]}, expected {expected})"
-                    print(f"  [{model:42}] {dt:5.2f}s {str(parsed):26}{flag}")
+                    named = {n.field for n in parsed.domains}
+                    flag = "" if expected in named else f" (expected {expected})"
+                    print(f"  [{model:42}] {dt:5.2f}s {parsed.describe():52}{flag}")
                 else:
                     errs.append(err)
                     print(f"  [{model:42}] {dt:5.2f}s FAIL: {err}")

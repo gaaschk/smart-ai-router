@@ -316,17 +316,44 @@ curl -X POST http://localhost:8001/api/updates/apply
 
 ## How routing decisions work
 
-The router uses a **competence matrix** — each model has scores for `coding`, `docs`, `reasoning`, and `general` (0.0–1.0). The classifier determines which domain and complexity a prompt belongs to, then the router:
+Routing matches a **prompt profile** against a **model profile**, over the same vocabulary of 16 fields. A single "how hard is this?" number can't express the thing that matters most — a cheap coding specialist and a frontier generalist can both score 0.9 on *something*, and the cheap one wins on price even when the prompt needs the other one's strength. So both sides are scored per field, and a model must clear the bar on **every** field the prompt reaches into.
 
-1. **Filters** models by hard constraints: tool-calling support, vision, context length, minimum reliability.
-2. **Applies a competence bar** based on complexity:
-   - `trivial` → 0.50 (almost any model qualifies)
-   - `moderate` → 0.70 (filters out the weakest)
-   - `hard` → 0.88 (only top-tier models)
-3. **Sorts** qualifying models by cost tier (ascending), then competence (descending as tiebreaker).
-4. **Returns the cheapest** that clears the bar.
+### The prompt profile
 
-If nothing clears the bar, it falls back to the highest-competence model regardless of cost (typically Claude Opus via Bedrock) and marks the response as escalated.
+Each prompt is described as:
+
+- **domains** — up to 3 `(field, depth)` pairs. Fields are a closed set (`software_engineering`, `law_regulatory`, `medicine_health`, `math_formal`, `natural_science`, `finance_business`, `creative_writing`, … with `general_knowledge` as the residual).
+- **depth** — how far into that field the answer must go, as one of four described tiers rather than a float, because a 3B classifier picks reliably between four tiers and cannot calibrate a continuous score:
+
+  | Depth | Required score | Roughly |
+  |-------|---------------|---------|
+  | `surface` | 0.45 | any model that can hold a conversation |
+  | `practitioner` | 0.68 | excludes the weakest models |
+  | `specialist` | 0.85 | Sonnet / GPT-4o class and up |
+  | `frontier` | 0.93 | Opus / Fable class only |
+
+- **demands** — properties of the task that raise every bar: `factual_precision` (+0.05 — the hallucination axis: must name real statutes, standards, APIs, citations), `quantitative` (+0.03), `long_synthesis` (+0.03), `agentic` (+0.02).
+- **stakes** — consequence of being wrong: `low` / `medium` (+0.02) / `high` (+0.05).
+
+Two or more fields at specialist depth or deeper adds a further +0.04, because holding two specialist frames at once is where generalists start producing plausible nonsense. The sum of all bumps is capped at +0.08, and no requirement exceeds 0.97 — without those caps an ordinary high-stakes prompt would demand the priciest tier and undo the router's reason to exist.
+
+### Two-speed classification
+
+The local classifier (a small Ollama model) profiles every prompt. When it reports **high stakes**, **two or more specialist-depth fields**, or **frontier depth** — the judgments a 3B model gets wrong expensively — a second pass on a stronger model refines the profile before routing. That call fires only on prompts already headed for a costly model, and lowering the bar is as valid a correction as raising it. Set `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` (or the **Classifier** group in Settings) to empty to disable it. If no LLM classifier is reachable, a keyword profiler runs instead.
+
+### Model profiles
+
+Model scores are inferred during sync from provider catalog metadata: Artificial Analysis benchmark indices (`intelligence_index`, plus `coding_index` and `agentic_index` as independent evidence for their fields), whether the model supports reasoning, and the vendor description. Narrow models — coders, roleplay models, math models — take a **specialist discount** on professional fields they don't advertise, which is what stops a cheap coding model from being the answer to a legal question. The legacy `coding`/`docs`/`reasoning`/`general` competence vector is derived from the profile, never tracked separately, so the two can't disagree.
+
+### Selection
+
+1. **Filter** by hard constraints: tool-calling support, vision, context length, minimum reliability, key scope, denylists.
+2. **Qualify** — keep models whose score clears the requirement for *every* field named in the profile.
+3. **Sort** qualifying models by cost tier (ascending), then by their weakest required-field score (descending) as tiebreak, and take the cheapest.
+
+If **nothing** qualifies, the pick is the *closest miss* — ranked by how far short it falls, with cost only as a tiebreak — and the response says so: `X-Qualified: false`, a `⚠ under-qualified` chip in the chat UI, and a caveat prepended to the answer telling the caller to treat specifics (citations, standards, figures) as unverified. This is the case the old single-bar router could not even detect; it returned a confident answer from an unqualified model with no indication anything was wrong.
+
+Every response carries `X-Prompt-Profile` (the profile in words), `X-Routing-Why` (the binding constraint), `X-Qualified`, and the legacy `X-Domain` / `X-Complexity` derived from the profile.
 
 ### Cost tiers
 
@@ -368,8 +395,9 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
 | `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
-| `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `llama3.1:8b` | Primary (local Ollama) model for LLM-based prompt classification. Empty string disables the local step. |
+| `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `qwen2.5:3b-instruct` | Primary (local Ollama) model that profiles each prompt. Prefer a small **non-reasoning** instruct model — thinking models burn the classifier's tiny output budget before emitting JSON. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
+| `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `openai/gpt-5.6-luna` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). Needs an OpenRouter key; empty string disables the second pass. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |

@@ -32,6 +32,16 @@ class ModelSpec:
     cost_output: float = 0.0           # $/M output tokens (0 = unknown or free)
     competence: dict[str, float] = field(default_factory=dict)
     # competence keys: "coding" | "docs" | "reasoning" | "general"  → 0.0–1.0
+    # Legacy summary of `profile`, derived by profiler.legacy_competence() so the
+    # two can never disagree. Still read by the /route API and the matrix UI.
+    profile: dict[str, float] = field(default_factory=dict)
+    # Per-field depth scores keyed by smart_ai_router.taxonomy.FIELDS → 0.0–1.0.
+    # This is what route() matches a PromptProfile against. Empty for rows written
+    # before profiling existed; router falls back to `competence` in that case.
+    description: str = ""
+    # Provider-supplied blurb ("flagship-level Agentic Coding model"). Kept
+    # because it is the input the profiler reads specialization from — storing it
+    # means a profiler change can be re-applied without re-fetching every catalog.
 
 
 @dataclass
