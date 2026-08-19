@@ -183,11 +183,17 @@ class SqliteStore(MatrixStore):
             # into it: profile_json stays the deterministic sync output, so a
             # re-sync with fresh benchmarks re-levels the profile and the ratings
             # re-apply on read with no second LLM call.
+            #
+            # `agentic` is measured loop stamina, on its own column rather than in
+            # profile_json because it is not a taxonomy field. DEFAULT 0.0 reads as
+            # "never measured" everywhere, which is what a pre-migration row
+            # honestly is — and what the router treats as exempt, not incapable.
             for column, decl in (
                 ("profile_json", "TEXT DEFAULT ''"),
                 ("description", "TEXT DEFAULT ''"),
                 ("profile_ratings_json", "TEXT DEFAULT ''"),
                 ("profile_note", "TEXT DEFAULT ''"),
+                ("agentic", "REAL DEFAULT 0.0"),
             ):
                 try:
                     self._conn.execute(
@@ -234,8 +240,8 @@ class SqliteStore(MatrixStore):
                     competence_coding, competence_docs,
                     competence_reasoning, competence_general,
                     profile_json, description,
-                    profile_ratings_json, profile_note
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    profile_ratings_json, profile_note, agentic
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -252,7 +258,8 @@ class SqliteStore(MatrixStore):
                     profile_json=excluded.profile_json,
                     description=excluded.description,
                     profile_ratings_json=excluded.profile_ratings_json,
-                    profile_note=excluded.profile_note
+                    profile_note=excluded.profile_note,
+                    agentic=excluded.agentic
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -273,6 +280,7 @@ class SqliteStore(MatrixStore):
                     json.dumps(spec.profile_ratings, sort_keys=True)
                     if spec.profile_ratings else "",
                     spec.profile_note,
+                    float(max(0.0, min(1.0, spec.agentic))),
                 ),
             )
             self._conn.commit()
@@ -904,6 +912,15 @@ class SqliteStore(MatrixStore):
         except (IndexError, KeyError):
             return default
 
+    @staticmethod
+    def _num_column(row: sqlite3.Row, name: str, default: float = 0.0) -> float:
+        """_column for a numeric column: NULL and absent both mean the default."""
+        try:
+            val = row[name]
+        except (IndexError, KeyError):
+            return default
+        return default if val is None else float(val)
+
     @classmethod
     def _row_to_spec(cls, row: sqlite3.Row) -> ModelSpec:
         # Compose the LLM shape onto the stored baseline here, once per read,
@@ -924,6 +941,7 @@ class SqliteStore(MatrixStore):
             reliability=row["reliability"] if row["reliability"] is not None else 1.0,
             cost_input=row["cost_input"] or 0.0,
             cost_output=row["cost_output"] or 0.0,
+            agentic=cls._num_column(row, "agentic"),
             competence={
                 "coding":    row["competence_coding"]    or 0.0,
                 "docs":      row["competence_docs"]      or 0.0,

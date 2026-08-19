@@ -4,6 +4,7 @@ import pytest
 from smart_ai_router.profiler import (
     _MAX_SCORE,
     _MIN_SCORE,
+    agentic_level,
     extract_catalog_signals,
     legacy_competence,
     profile_model,
@@ -27,7 +28,7 @@ def test_profile_covers_every_field():
         {"intelligence_index": 0.0},
         {"intelligence_index": 100.0},
         {"intelligence_index": -5.0},
-        {"intelligence_index": 60.0, "coding_index": 99.0, "agentic_index": 90.0},
+        {"intelligence_index": 60.0, "coding_index": 99.0},
         {"supports_reasoning": True, "intelligence_index": 63.0},
     ],
 )
@@ -70,13 +71,35 @@ def test_midrange_index_does_not_clear_specialist():
     assert profile["law_regulatory"] < DEPTHS["specialist"]
 
 
-def test_agentic_index_overrides_the_tool_driving_field():
-    # agentic collapses far faster than intelligence for weak models, so it is
-    # real evidence rather than a restatement — it replaces, not nudges.
-    high = profile_model("openrouter/v/m", intelligence_index=40.0, agentic_index=50.0)
-    low = profile_model("openrouter/v/m", intelligence_index=40.0, agentic_index=2.0)
-    assert high["operations_process"] > low["operations_process"]
-    assert low["operations_process"] < low["general_knowledge"]
+# ── The agentic axis is not a field ───────────────────────────────────────────
+# agentic_index used to be written over `operations_process`, which conflated
+# "knows about operations work" with "can hold a tool loop together" — and since
+# that field is half of the legacy `general` column, made an agentic benchmark
+# half of every model's reported general competence. It now lives on its own axis.
+
+def test_operations_process_is_scored_like_any_other_field():
+    # The regression these tests exist for: operations_process used to be pinned
+    # to the agentic index, so it sat far below its siblings on models that were
+    # measured on both. It must now track the level like every other field.
+    profile = profile_model("openrouter/v/m", intelligence_index=29.9)
+    assert profile["operations_process"] == profile["general_knowledge"]
+
+
+def test_agentic_level_tracks_the_measured_index():
+    assert agentic_level(50.0) > agentic_level(2.0)
+
+
+def test_agentic_level_is_zero_when_never_measured():
+    # Two thirds of the catalog and every local model carry no index. 0.0 has to
+    # mean *unknown* — the router reads it as exempt, not as incapable.
+    assert agentic_level(None) == 0.0
+
+
+def test_agentic_level_stays_in_bounds():
+    assert all(
+        0.0 <= agentic_level(i) <= 1.0
+        for i in (0.0, 1.0, 16.5, 49.7, 100.0, -5.0)
+    )
 
 
 def test_coding_residual_rewards_unusual_code_strength():

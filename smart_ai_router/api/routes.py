@@ -548,6 +548,7 @@ def _to_response(spec) -> ModelSpecResponse:
         reliability=spec.reliability,
         cost_input=spec.cost_input,
         cost_output=spec.cost_output,
+        agentic=spec.agentic,
         competence=spec.competence,
         profile=spec.profile,
         description=spec.description,

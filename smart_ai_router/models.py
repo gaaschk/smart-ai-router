@@ -30,6 +30,13 @@ class ModelSpec:
     reliability: float = 1.0           # 0.0–1.0; models below threshold skipped by router
     cost_input: float = 0.0            # $/M input tokens (0 = unknown or free)
     cost_output: float = 0.0           # $/M output tokens (0 = unknown or free)
+    agentic: float = 0.0
+    # Measured ability to hold a multi-step tool loop together (profiler.
+    # agentic_level). Deliberately NOT a taxonomy field: it is not knowledge about
+    # a subject, and folding it into one made an agentic benchmark half of the
+    # legacy `general` column. **0.0 means never measured, not incapable** — only
+    # ~a third of the OpenRouter catalog carries the index and no local model
+    # does, so the router treats 0.0 as exempt rather than disqualifying.
     competence: dict[str, float] = field(default_factory=dict)
     # competence keys: "coding" | "docs" | "reasoning" | "general"  → 0.0–1.0
     # Legacy summary of `profile`, derived by profiler.legacy_competence() so the
