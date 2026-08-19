@@ -52,6 +52,22 @@ _LOCAL_SETTINGS_BACKUP=""
 
 mkdir -p "$PWD/.claude"
 
+_WROTE_SETTINGS=0
+
+cleanup() {
+  if [ -n "$_LOCAL_SETTINGS_BACKUP" ]; then
+    mv "$_LOCAL_SETTINGS_BACKUP" "$_LOCAL_SETTINGS"
+  elif [ "$_WROTE_SETTINGS" = "1" ]; then
+    rm -f "$_LOCAL_SETTINGS"
+    rmdir "$PWD/.claude" 2>/dev/null || true
+  fi
+}
+
+# Arm the trap before touching anything, so an early exit can't leave a
+# clobbered settings.local.json behind or orphan the backup in /tmp.
+# The guards keep cleanup from deleting a file we never wrote.
+trap cleanup EXIT
+
 if [ -f "$_LOCAL_SETTINGS" ]; then
   _LOCAL_SETTINGS_BACKUP=$(mktemp)
   cp "$_LOCAL_SETTINGS" "$_LOCAL_SETTINGS_BACKUP"
@@ -60,27 +76,11 @@ fi
 cat > "$_LOCAL_SETTINGS" <<'SETTINGS'
 {
   "env": {
-    "CLAUDE_CODE_USE_BEDROCK": "0",
-    "ANTHROPIC_MODEL": "",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": ""
+    "CLAUDE_CODE_USE_BEDROCK": "0"
   }
 }
 SETTINGS
-
-cleanup() {
-  if [ -n "$_LOCAL_SETTINGS_BACKUP" ]; then
-    mv "$_LOCAL_SETTINGS_BACKUP" "$_LOCAL_SETTINGS"
-  else
-    rm -f "$_LOCAL_SETTINGS"
-    rmdir "$PWD/.claude" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
+_WROTE_SETTINGS=1
 
 # Orchestration roles (opus/sonnet/haiku) drive the main Claude Code loop —
 # recognizing skills, emitting Workflow/Agent tool calls. These need a
