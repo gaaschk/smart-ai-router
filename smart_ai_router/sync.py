@@ -378,6 +378,14 @@ def _sync_openrouter(
         mid = m.get("id", "")
         if not mid or mid.startswith("openrouter/") or "/" not in mid:
             continue
+        # ':batch' variants are async-only — OpenRouter answers a synchronous
+        # /v1/chat/completions call for them with 404 "This model is only
+        # available through the Batch API". They're also priced ~50% under the
+        # sibling they mirror, so leaving them in the catalog hands every
+        # cheapest-first sort a model that cannot serve a request. Nothing about
+        # them is a preference, so this is a hard filter rather than a denylist.
+        if mid.endswith(":batch"):
+            continue
         arch = (m.get("architecture") or {})
         modality = arch.get("modality", "text->text")
         # Accept any text-in / text-out model (e.g. text->text,
