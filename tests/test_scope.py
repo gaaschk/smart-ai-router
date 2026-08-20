@@ -26,8 +26,17 @@ def test_malformed_json_falls_back_to_unrestricted_but_keeps_max_tier():
     assert s.is_restricted  # max_tier alone is a restriction
 
 
-def test_max_tier_negative_clamped_to_zero():
-    assert parse_scope("", -3).max_tier == 0
+def test_stored_non_positive_max_tier_means_no_ceiling():
+    """A stored 0/negative tier is "unset", which is None on a ModelScope.
+
+    The distinction matters since public_access grew a real tier-0 ceiling
+    ("local models only"): on a ModelScope, None means no ceiling and 0 means
+    tier 0 and nothing above it. Stored keys predate that and use the column
+    default of 0 for "unset", so parse_scope is where the two conventions meet.
+    """
+    assert parse_scope("", -3).max_tier is None
+    assert parse_scope("", 0).max_tier is None
+    assert not parse_scope("", 0).is_restricted
 
 
 # ── ModelScope.permits ────────────────────────────────────────────────────────
@@ -54,6 +63,24 @@ def test_max_tier_ceiling():
     assert s.permits(_spec("cheap", cost=2))
     assert s.permits(_spec("edge", cost=3))
     assert not s.permits(_spec("pricey", cost=8))
+
+
+def test_zero_tier_ceiling_admits_only_local():
+    """Constructed directly (not from a stored key), 0 is a real ceiling.
+
+    This is the anonymous "local models only" policy. If 0 were still read as
+    "no ceiling", the most cautious setting an operator can choose would be the
+    one that permits the most expensive model in the catalog.
+    """
+    s = ModelScope(max_tier=0)
+    assert s.is_restricted
+    assert s.permits(_spec("ollama/llama3.1:8b", cost=0))
+    assert not s.permits(_spec("openrouter/free-model", cost=1))
+    assert not s.permits(_spec("openrouter/anthropic/claude", cost=8))
+
+
+def test_no_ceiling_permits_everything():
+    assert ModelScope().permits(_spec("openrouter/anthropic/claude", cost=15))
 
 
 def test_matches_provider_field_too():

@@ -92,6 +92,37 @@ def test_normalize_serializes_types():
     assert _settings.normalize("model_denylist", "mxfp8") == "mxfp8"
 
 
+def test_float_coercion_and_round_trip(monkeypatch):
+    monkeypatch.delenv("SMART_ROUTER_PUBLIC_DAILY_BUDGET", raising=False)
+    cr = _bound_router()
+    assert _settings.get("public_daily_budget_usd") == 1.00
+    cr.set_setting("public_daily_budget_usd", _settings.normalize(
+        "public_daily_budget_usd", 2.50))
+    assert _settings.get("public_daily_budget_usd") == 2.50
+    # A dollar cap of zero is a legitimate choice ("no paid spend"), not garbage.
+    assert _settings.normalize("public_daily_budget_usd", 0) == "0.0"
+
+
+def test_malformed_float_falls_back_to_default():
+    cr = _bound_router()
+    cr.set_setting("public_daily_budget_usd", "$5")
+    assert _settings.get("public_daily_budget_usd") == 1.00
+    with pytest.raises(ValueError):
+        _settings.normalize("public_daily_budget_usd", "$5")
+
+
+def test_numeric_specs_reject_negatives():
+    """Validation used to run for str specs only, so an int spec's validate was
+    dead code — and a negative tier ceiling or window is nonsense that would be
+    stored silently."""
+    _bound_router()
+    for key in ("public_max_tier", "public_rl_window_s", "public_max_output_tokens",
+                "public_daily_budget_usd"):
+        with pytest.raises(ValueError):
+            _settings.normalize(key, -1)
+    assert _settings.normalize("public_max_tier", 0) == "0"
+
+
 def test_apply_requires_bound_store():
     _settings.bind_store(None)
     with pytest.raises(RuntimeError):

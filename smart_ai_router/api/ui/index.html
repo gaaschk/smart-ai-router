@@ -158,6 +158,25 @@
   .whoami.admin { color: var(--accent); border-color: var(--accent); }
   .whoami .whoami-icon { font-size: 0.85em; opacity: 0.85; }
 
+  /* ── Guest (anonymous) mode ───────────────────────────────────────── */
+  /* One rule hides every admin surface, so a page an anonymous visitor sees is
+     the page they can actually use — no nav buttons that only lead to a 401. */
+  body.guest [data-admin] { display: none !important; }
+  .guest-banner {
+    display: none;
+    margin: 0 1rem 0.75rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  body.guest .guest-banner { display: block; }
+  .guest-banner b { color: var(--text); font-weight: 600; }
+
   /* ── Page sections ───────────────────────────────────────────────── */
   .page { display: none; padding: 2rem; max-width: 1200px; margin: 0 auto; }
   .page.active { display: block; }
@@ -957,19 +976,22 @@
     <div class="logo-icon">R</div>
     <span class="logo-text">smart-ai-router</span>
   </div>
+  <!-- data-admin marks chrome an anonymous visitor never sees: with public chat
+       on, the page loads without a key and the whole dashboard would otherwise be
+       a wall of 401s. Chat is the only thing left standing. -->
   <nav>
-    <button class="active" onclick="showPage('dashboard')">Dashboard</button>
-    <button onclick="showPage('chat')">Chat</button>
-    <button onclick="showPage('models')">Models</button>
-    <button onclick="showPage('usage')">Usage</button>
-    <button onclick="showPage('providers')">Providers</button>
-    <button onclick="showPage('keys')">Keys</button>
-    <button onclick="showPage('settings')">Settings</button>
+    <button class="active" data-admin onclick="showPage('dashboard')">Dashboard</button>
+    <button id="nav-chat" onclick="showPage('chat')">Chat</button>
+    <button data-admin onclick="showPage('models')">Models</button>
+    <button data-admin onclick="showPage('usage')">Usage</button>
+    <button data-admin onclick="showPage('providers')">Providers</button>
+    <button data-admin onclick="showPage('keys')">Keys</button>
+    <button data-admin onclick="showPage('settings')">Settings</button>
   </nav>
   <div class="status-group">
-    <span class="model-count" id="topbar-model-count">—</span>
+    <span class="model-count" id="topbar-model-count" data-admin>—</span>
     <span class="whoami" id="topbar-whoami" title="Signed-in identity — click to sign out and enter a different key"
-          onclick="signOut()" style="display:none"></span>
+          onclick="onIdentityClick()" style="display:none"></span>
     <span class="status-label"><span class="status-dot"></span> Running</span>
   </div>
 </div>
@@ -1018,7 +1040,7 @@
 <!-- ── Chat ────────────────────────────────────────────────────────── -->
 <div class="page" id="page-chat">
   <h1 class="page-title">Chat</h1>
-  <p class="page-subtitle">Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
+  <p class="page-subtitle" data-admin>Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
 
   <div class="chat-layout">
    <aside class="chat-sidebar">
@@ -1031,6 +1053,18 @@
    </aside>
 
    <div class="chat-shell">
+    <!-- Guest-only, and deliberately about what the visitor can expect rather
+         than about the operator's budget: how much money is left is nobody
+         else's business, so the server never sends a dollar figure here. -->
+    <div class="guest-banner" id="guest-banner">
+      <b>You're chatting as a guest.</b> No account needed — the router picks a
+      model for each message and streams the reply. Your conversations are private
+      to this browser and disappear if you clear its cookies. File uploads and
+      agent mode need an API key.
+      <span id="guest-degraded" style="display:none"><br>Today's free usage is
+      running high, so replies are coming from free and local models right now.</span>
+    </div>
+
     <div class="chat-transcript" id="chat-transcript">
       <div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>
     </div>
@@ -1520,6 +1554,36 @@ function promptApiKey() {
   return getApiKey();
 }
 
+// ── Guest (anonymous) mode ────────────────────────────────────────────────────
+// When the operator enables public chat, this page loads with no key at all. Left
+// alone, every dashboard fetch would 401 and the key prompt would greet a visitor
+// who doesn't have a key and shouldn't be asked for one. So: ask /api/whoami
+// first — the one endpoint anonymous callers may reach — and if the server says
+// "anon", strip the UI down to the part that works.
+let _guestMode = false;
+
+async function detectGuestMode() {
+  if (getApiKey()) return false;          // a stored key: normal (possibly admin) UI
+  try {
+    const r = await _rawFetch(`${API}/whoami`);
+    if (!r.ok) return false;              // 401 → auth required, use the key prompt
+    const me = await r.json();
+    if (!me.anon) return false;
+    _guestMode = true;
+    document.body.classList.add('guest');
+    const deg = document.getElementById('guest-degraded');
+    if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
+    return true;
+  } catch(_) { return false; }
+}
+
+// Let a guest become the operator: the badge is the only way back in once the
+// dashboard chrome is hidden, so it doubles as the key prompt.
+function onIdentityClick() {
+  if (!_guestMode) { signOut(); return; }
+  if (promptApiKey()) location.reload();
+}
+
 // ── Identity badge ────────────────────────────────────────────────────────────
 // Show who the stored key authenticates as (root/admin, a per-user label, or
 // open mode) so it's never a mystery which key is in use. /api/whoami reads the
@@ -1539,6 +1603,9 @@ async function loadWhoAmI() {
       const px = me.key_prefix ? ` · ${escapeHtml(me.key_prefix)}…` : '';
       el.innerHTML = `<span class="whoami-icon">👤</span> ${escapeHtml(me.user)}${px}`;
       el.title = 'Signed in with a per-user key — click to sign out';
+    } else if (me.kind === 'anon') {
+      el.innerHTML = `<span class="whoami-icon">🌐</span> guest · sign in`;
+      el.title = 'Using the router anonymously — click to enter an API key';
     } else {
       el.innerHTML = `<span class="whoami-icon">🔓</span> open (no key)`;
       el.title = 'No API key required by this router';
@@ -1600,6 +1667,10 @@ window.fetch = async function(input, init = {}) {
   const sentKey = getApiKey();
   const res = await _rawFetch(input, withKey());
   if (res.status !== 401) return res;
+  // A guest has no key and shouldn't be nagged for one: a 401 here means they
+  // reached past what public access allows, which the calling code reports in
+  // place. The badge is there when they do have a key.
+  if (_guestMode) return res;
 
   const newKey = await _obtainApiKey(sentKey);
   if (newKey === null) return res;       // user cancelled — surface the 401
@@ -1628,10 +1699,27 @@ function showPage(name) {
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
+  // Identity first. A guest gets the chat page and nothing else, so none of the
+  // admin fetches below are worth making — they would only 401.
+  if (await detectGuestMode()) {
+    loadWhoAmI();
+    showChatOnly();
+    return;
+  }
   await fetchModels();
   loadWhoAmI();
   fetchProviders();
   doCheckUpdates();
+}
+
+// Guest landing: chat is the page, not a tab.
+function showChatOnly() {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-chat').classList.add('active');
+  document.querySelectorAll('.topbar nav button').forEach(b => b.classList.remove('active'));
+  const navChat = document.getElementById('nav-chat');
+  if (navChat) navChat.classList.add('active');
+  initChat();
 }
 
 // ── Models ──────────────────────────────────────────────────────────────────
@@ -2450,9 +2538,13 @@ function renderSettingField(s) {
         <input type="checkbox" id="${id}" ${s.value ? 'checked' : ''} onchange="onSettingChanged()">
         <span class="toggle-track"></span>
       </label>`;
+  } else if (s.type === 'int' || s.type === 'float') {
+    // A float setting is money (the anonymous spend cap), so it gets cents.
+    const step = s.type === 'float' ? '0.01' : '1';
+    control = `<input type="number" step="${step}" min="0" id="${id}" value="${escapeHtml(s.value)}"
+        oninput="onSettingChanged()" style="min-width:16rem">`;
   } else {
-    const inputType = s.type === 'int' ? 'number' : 'text';
-    control = `<input type="${inputType}" id="${id}" value="${escapeHtml(s.value)}"
+    control = `<input type="text" id="${id}" value="${escapeHtml(s.value)}"
         oninput="onSettingChanged()" style="min-width:16rem">`;
   }
   // An advisory about the *current* value, checked against live deployment state
@@ -2804,7 +2896,27 @@ async function persistTurn(role, content) {
 
 function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px'; }
 
+// A guest's composer: send only. Uploads and agent mode are refused by the
+// server (403 / 401), so the controls come off rather than sit there failing —
+// and the agent toggle keeps its label with an explanation, since "why can't I
+// use this" is the question a disabled control should answer.
+function applyGuestComposer() {
+  const attach = document.getElementById('btn-chat-attach');
+  if (attach) attach.style.display = 'none';
+  const agentLabel = document.getElementById('chat-agent-label');
+  const agentSel = document.getElementById('chat-agent');
+  if (agentSel) { agentSel.value = 'false'; agentSel.disabled = true; }
+  if (agentLabel) {
+    agentLabel.classList.add('disabled');
+    agentLabel.title = 'Agent mode reads and writes files on the router’s machine, '
+      + 'so it needs an API key. Sign in to use it.';
+  }
+  const note = document.getElementById('chat-cap-note');
+  if (note) note.textContent = '';
+}
+
 async function refreshChatCaps() {
+  if (_guestMode) { applyGuestComposer(); return; }
   try {
     const r = await fetch(`${API}/capabilities`);
     _chatCaps = await r.json();
@@ -2985,7 +3097,12 @@ async function sendChat() {
       signal: _chatAbort.signal,
     });
     if (!res.ok) {
-      let detail; try { detail = (await res.json()).detail; } catch(_) { detail = await res.text(); }
+      // Middleware refusals (rate limit, anonymous caps) carry "error"; route
+      // handlers carry "detail". Read both, or a guest who hit the hourly limit
+      // sees a bare "Request failed (429)" and reads it as breakage.
+      let detail;
+      try { const b = await res.json(); detail = b.detail || b.error; }
+      catch(_) { detail = await res.text(); }
       bubbleWrap.classList.add('error');
       bubble.textContent = detail || `Request failed (${res.status})`;
       _chatMessages.pop();  // don't keep a failed turn in history

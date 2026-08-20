@@ -312,6 +312,9 @@ class CapabilityRouter:
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         return self._store.recent_usage(user, since_ts)
 
+    def spend_since(self, *, user_prefix: str, since_ts: str) -> float:
+        return self._store.spend_since(user_prefix=user_prefix, since_ts=since_ts)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:

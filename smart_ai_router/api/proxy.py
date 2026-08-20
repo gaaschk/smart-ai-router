@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router import helper_models as _helpers
 from smart_ai_router import overhead as _overhead
+from smart_ai_router import public_access as _public
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
@@ -434,7 +435,13 @@ def _request_scope(request: Request) -> ModelScope | None:
     Admin/env keys and open (no-auth) requests carry no `api_key` record, so
     they are unscoped. A per-user key's scope is built from its stored
     `scope_models` JSON + `max_tier`.
+
+    Anonymous visitors are the exception: their ceiling comes from the public
+    access settings and the day's spend, not from a stored key, and it is never
+    None — an anonymous request is always scoped.
     """
+    if getattr(request.state, "is_anon", False):
+        return _public.anon_scope(request.app.state.capability_router)
     record = getattr(request.state, "api_key", None)
     if record is None:
         return None
@@ -612,9 +619,24 @@ async def chat_completions(request: Request):
     #                      tool-capable model is in scope. Otherwise fall back
     #                      silently to plain chat — auto must never lock a user
     #                      out or needlessly escalate a plain question.
+    # Anonymous visitors never get agent mode, whatever they ask for. The tools
+    # are read/write/bash over a workspace on the operator's own machine, so
+    # this is the difference between a public chat page and a public shell. A
+    # flat refusal (not a silent downgrade) so an explicit `agent: true` from a
+    # stranger is never quietly answered as if it had worked.
+    is_anon = getattr(request.state, "is_anon", False)
+    if is_anon and agent_flag is True:
+        raise HTTPException(
+            status_code=403,
+            detail="Agent (filesystem) mode is not available for anonymous use. "
+                   "Sign in with an API key to use it.",
+        )
+
     tools_available = cr.capabilities(scope=scope).tools
     agent_auto = isinstance(agent_flag, str) and agent_flag.lower() == "auto"
-    if agent_flag is True:
+    if is_anon:
+        agent_mode = False          # settled above; auto must not re-enable it
+    elif agent_flag is True:
         if not tools_available:
             raise HTTPException(
                 status_code=422,
@@ -727,6 +749,16 @@ async def chat_completions(request: Request):
     # reasoning models have budget for thinking + answer instead of truncating.
     if not forward_body.get("max_tokens"):
         forward_body["max_tokens"] = _default_max_tokens()
+    # Anonymous callers get a hard output ceiling, applied after the default and
+    # over anything they asked for. This is what bounds the damage while the
+    # spend cap is blind: a call's cost isn't known until it returns, so the
+    # protection has to be a limit on how expensive one call can possibly be.
+    if is_anon:
+        anon_cap = _public.max_output_tokens()
+        if anon_cap:
+            forward_body["max_tokens"] = min(
+                int(forward_body["max_tokens"] or anon_cap), anon_cap
+            )
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
