@@ -510,6 +510,27 @@ class SqliteStore(MatrixStore):
             ).fetchall()
         return [self._row_to_usage(r) for r in rows]
 
+    def spend_since(self, *, user_prefix: str, since_ts: str) -> float:
+        """Sum cost_usd for a family of users, counting overhead rows.
+
+        See MatrixStore.spend_since for why overhead is included. `user_prefix`
+        is matched with LIKE, so it is escaped: an unescaped '_' is a single-char
+        wildcard in SQL and 'anon:' contains none today, but a caller passing a
+        prefix with '_' would silently widen the budget to other users.
+        """
+        if not user_prefix:
+            return 0.0
+        escaped = (
+            user_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS spend FROM usage_log "
+                "WHERE user LIKE ? ESCAPE '\\' AND ts>=?",
+                (f"{escaped}%", since_ts),
+            ).fetchone()
+        return float(row["spend"] or 0.0)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:

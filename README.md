@@ -109,6 +109,7 @@ claudish-smart
 | `smart_ai_router/apikeys.py` | Per-user API key minting + hashing |
 | `smart_ai_router/scope.py` | Per-user model scope (allow/deny + cost-tier ceiling) |
 | `smart_ai_router/ratelimit.py` | Per-user request/token quotas from the usage log |
+| `smart_ai_router/public_access.py` | Anonymous chat policy: session identity, spend cap, per-IP limits |
 | `smart_ai_router/keys_cli.py` | `smart-ai-router keys` command-line key management |
 | `smart_ai_router/extract.py` | Extract text from uploaded PDF/Word/PowerPoint/Excel/text files |
 | `smart_ai_router/docgen.py` | Render Markdown-ish text into PDF/Word/PowerPoint/Excel/Markdown documents |
@@ -195,7 +196,8 @@ curl -X DELETE http://localhost:8001/api/keys/sk-smart-a1b2c3 \
 # Who am I? — report the identity the current key authenticates as
 curl http://localhost:8001/api/whoami -H "Authorization: Bearer $SOME_KEY"
 # → {"authenticated":true,"kind":"user","user":"alice","key_prefix":"sk-smart-a1b2c3","is_admin":false}
-# kind is "admin" (env key), "user" (per-user key), or "open" (no-auth mode)
+# kind is "admin" (env key), "user" (per-user key), "open" (no-auth mode),
+# or "anon" (a keyless visitor, when public access is on)
 ```
 
 The proxy adds an `X-User` response header identifying the authenticated user, and records each request (user, routed model, token counts, estimated cost) to a `usage_log` table for attribution.
@@ -255,6 +257,74 @@ smart-ai-router keys delete  sk-smart-a1b2c3      # permanent
 ```
 
 Rotating a key (recreate) is available through the REST API and web UI; the CLI covers add/disable/enable/delete.
+
+#### Public (anonymous) access
+
+Off by default. Turn on **Settings → Public access → Allow anonymous chat** and
+visitors can use the chat page with no key and no signup — which means strangers
+spending your OpenRouter balance and your GPU time, so every other setting in
+that group is a ceiling on what that can cost you.
+
+What "public" covers is narrow on purpose:
+
+- **The chat page is open; the API is not.** Both use `POST /v1/chat/completions`,
+  and the only thing distinguishing them is how the request presents itself, so an
+  anonymous request is accepted only when it looks like a browser calling its own
+  page (`Sec-Fetch-Site: same-origin`/`none`, or a matching `Origin`). A bare
+  `curl` or an endpoint scanner still gets `401`. This stops drive-by scanning,
+  not a determined abuser — the load-bearing limits are the ones below, which
+  don't care who is calling.
+- **A visitor is a real identity, not a shared one.** Each gets `anon:<session>`
+  from an HMAC-signed, `HttpOnly`, `SameSite=strict` cookie. Conversations are
+  scoped to that identity, so two visitors can't read each other's chats, and a
+  forged cookie is treated as no cookie (a new session) rather than a way into
+  someone else's history. Clearing cookies loses the history — that's the deal.
+- **Only chat.** `/v1/chat/completions`, `/v1/models`, `/api/whoami`, and
+  `/api/conversations` are reachable anonymously. Everything else — keys,
+  settings, usage, providers, file uploads — still `401`s, and the UI hides the
+  chrome that would only lead there.
+- **No agent mode, ever.** Filesystem and shell tools run on your machine, so an
+  anonymous `agent: true` is `403`, and `agent: "auto"` never escalates.
+- **A spend cap that degrades instead of refusing.** Anonymous spend is totalled
+  per UTC day (including the router's own classification calls, which are on the
+  same bill). Past ~90% of the cap the cost-tier ceiling drops from
+  `public_max_tier` to `public_degraded_max_tier` — free and local models — so
+  the site keeps answering, slightly worse, instead of returning errors for the
+  rest of the day. A cap of `0` means *no paid spend at all*, not "unlimited". If
+  spend can't be read at all, it assumes the worst and serves free models.
+
+The cap is enforced *after the fact* — a call's real cost is unknown until it
+returns — so three things bound the overshoot: the 90% soft threshold, a hard
+`max_tokens` ceiling per anonymous request, and a limit on how many anonymous
+requests may be in flight at once. Rate limits and the concurrency gate are
+in-process (they reset on restart, which is fine for abuse control); the budget
+is read from the usage log and survives restarts.
+
+Defaults, all editable on the Settings page:
+
+| Setting | Default | What it bounds |
+| --- | --- | --- |
+| Allow anonymous chat | off | the whole feature |
+| Anonymous daily spend cap (USD) | `1.00` | total paid spend per UTC day |
+| Anonymous max cost tier | `3` (≈Haiku) | how expensive a model a visitor can reach |
+| Anonymous max tier once budget is spent | `1` (free/local) | the degraded ceiling |
+| Anonymous max output tokens | `1024` | cost of any single reply |
+| Anonymous requests per window | `30` | per-IP *and* per-session request count |
+| Anonymous rate-limit window (s) | `3600` | the window those counts cover |
+| Anonymous concurrent requests | `4` | in-flight anonymous requests deployment-wide |
+
+Behind a Cloudflare tunnel, `CF-Connecting-IP` is used as the visitor's address
+(`request.client.host` is the tunnel, identical for everyone, which would turn a
+per-IP limit into a global one). Because that header is trivially spoofable by
+anything reaching the origin directly, this is only meaningful while the origin
+isn't publicly reachable except through the tunnel. Rate limiting counts per IP
+*and* per session against the same number, so a visitor is capped whichever one
+they shed — dropping the cookie doesn't buy a fresh quota, and neither does
+changing networks.
+
+An authenticated key is never affected by any of this: a real key is matched
+first, so enabling public access can't downgrade a paying caller to anonymous
+limits.
 
 ### Provider management
 
@@ -627,6 +697,14 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_OCR_DPI` ⚙ | `150` | Rasterization resolution for OCR; higher is sharper but slower. |
 | `SMART_ROUTER_ENABLE_BASH` ⚙ | `0` | If `1` (and `sandbox-exec` is present), the agent's `run_bash` tool is offered. Off by default — see the security note below. |
 | `SMART_ROUTER_BASH_TIMEOUT_S` ⚙ | `30` | Wall-clock ceiling for a single `run_bash` call. |
+| `SMART_ROUTER_PUBLIC_CHAT` ⚙ | `0` | If `1`, keyless visitors may use the chat page — see [Public (anonymous) access](#public-anonymous-access). Exposes your router, and your bill, to the public internet. |
+| `SMART_ROUTER_PUBLIC_DAILY_BUDGET` ⚙ | `1.00` | Ceiling on total anonymous spend per UTC day (USD). Past it, anonymous traffic drops to free/local models. `0` = no paid spend at all. |
+| `SMART_ROUTER_PUBLIC_MAX_TIER` ⚙ | `3` | Cost-tier ceiling for anonymous traffic while budget remains (see [Cost tiers](#cost-tiers)). |
+| `SMART_ROUTER_PUBLIC_DEGRADED_MAX_TIER` ⚙ | `1` | Cost-tier ceiling once the daily cap is reached (`1` = free + local, `0` = local only). |
+| `SMART_ROUTER_PUBLIC_MAX_OUTPUT_TOKENS` ⚙ | `1024` | Hard `max_tokens` ceiling for an anonymous request. |
+| `SMART_ROUTER_PUBLIC_RL_MAX_REQ` ⚙ | `30` | Anonymous requests allowed per window, per IP and per session (`0` = no cap). |
+| `SMART_ROUTER_PUBLIC_RL_WINDOW_S` ⚙ | `3600` | Length of that rolling window. |
+| `SMART_ROUTER_PUBLIC_MAX_CONCURRENT` ⚙ | `4` | Anonymous requests in flight at once, deployment-wide (`0` = unlimited). |
 
 Rows marked ⚙ are editable from the Settings page (env value is the fallback).
 

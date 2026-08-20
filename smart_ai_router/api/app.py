@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from smart_ai_router import public_access as _public
 from smart_ai_router import settings as _settings
 from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
@@ -20,6 +21,32 @@ from smart_ai_router.api.conversations_routes import conversations_router
 _UI_DIR = Path(__file__).parent / "ui"
 
 _OPEN_PATHS = frozenset({"/", "/favicon.ico"})
+
+# Paths an anonymous visitor may reach when public chat is enabled: enough to
+# hold a conversation, and nothing more. Everything absent from this set still
+# 401s without a key — notably /api/keys, /api/settings, /api/usage and the file
+# endpoints, so opening the chat page never opens the dashboard or the upload
+# path. Matched as exact paths or, with a trailing "/", as a prefix.
+_ANON_PATHS = frozenset({
+    "/v1/chat/completions",
+    "/v1/models",
+    "/api/whoami",
+    "/api/conversations",
+    "/api/conversations/",
+})
+
+
+def _anon_path_allowed(path: str) -> bool:
+    if path in _ANON_PATHS:
+        return True
+    return any(p.endswith("/") and path.startswith(p) for p in _ANON_PATHS)
+
+
+def _unauthorized() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
+    )
 
 
 def _get_env_api_keys() -> set[str]:
@@ -65,6 +92,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         request.state.user = ""
         request.state.key_prefix = ""
         request.state.api_key = None
+        request.state.is_anon = False
 
         # Auth is only enforced once at least one key exists (env or DB); with
         # none configured the router stays open, preserving first-run behavior.
@@ -93,6 +121,61 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                 cr.touch_api_key(record.key_hash)
                 return await call_next(request)
 
+        # Anonymous (no-key) access to the chat page, when the operator has
+        # turned it on. Deliberately the last thing tried: a real key always
+        # wins, so enabling this can never downgrade an authenticated caller to
+        # anonymous limits. See public_access.py for the policy and its limits.
+        if _public.enabled() and _anon_path_allowed(path):
+            if not _public.is_same_origin_browser_request(request):
+                # A bare client (no Origin/Sec-Fetch-Site) is asking for the API,
+                # not the chat page. The API is not open; say so as a 401 rather
+                # than silently serving it.
+                return _unauthorized()
+
+            ip = _public.client_ip(request)
+            ok, retry_after = _public.check_ip_rate(ip)
+            if not ok:
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "Rate limit reached for anonymous use. "
+                                      "Try again shortly, or use an API key."},
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+            if not _public.inflight.try_acquire():
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "Too many anonymous requests in flight. "
+                                      "Try again in a moment."},
+                    headers={"Retry-After": "5"},
+                )
+            try:
+                cookie = request.cookies.get(_public.COOKIE_NAME, "")
+                session_id = _public.read_session(cookie, cr)
+                fresh = session_id is None
+                if fresh:
+                    cookie = _public.issue_session(cr)
+                    session_id = _public.read_session(cookie, cr) or ""
+
+                record = _public.policy_key(cr, session_id=session_id)
+                request.state.user = record.user
+                request.state.api_key = record
+                request.state.is_anon = True
+
+                response = await call_next(request)
+                if fresh:
+                    # Same-site strict: this cookie is only ever presented by our
+                    # own page, and it is the visitor's private-conversation key.
+                    response.set_cookie(
+                        _public.COOKIE_NAME, cookie,
+                        max_age=_public.COOKIE_MAX_AGE_S,
+                        httponly=True, samesite="strict",
+                        secure=request.url.scheme == "https",
+                    )
+                return response
+            finally:
+                _public.inflight.release()
+
         # Browser navigations (a GET that accepts HTML, outside the JSON API
         # surface) get bounced to the UI at "/", where the key prompt lives —
         # so hitting e.g. /login shows the app instead of a raw JSON error.
@@ -102,10 +185,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         if request.method == "GET" and accepts_html and not is_api_path:
             return RedirectResponse(url="/", status_code=302)
 
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
-        )
+        return _unauthorized()
 
     app.include_router(api_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")

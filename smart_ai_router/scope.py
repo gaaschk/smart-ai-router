@@ -6,7 +6,15 @@ A key's scope has two dimensions, both optional:
     case-insensitively against a model's `value` and `provider`. `allow`
     is a whitelist (empty = allow all); `deny` is a blacklist that overrides.
   * a cost-tier ceiling (`max_tier`): models whose cost tier exceeds it are
-    out of scope. 0 means "no ceiling".
+    out of scope. **None means "no ceiling"; 0 is a real ceiling** that admits
+    only tier-0 (local) models.
+
+That distinction exists because a ceiling of zero is a coherent, and desirable,
+policy — "answer from my own hardware, spend nothing" — while a sentinel that
+reads 0 as *unlimited* turns the most cautious-looking configuration into the
+most expensive one. Stored `ApiKey.max_tier` keeps its original meaning (0 =
+unset = no ceiling, which is what every existing key has); `parse_scope` is the
+one place that translation happens.
 
 Scope is enforced inside the router's eligibility filter, so it applies to the
 fallback pick too — a scoped user gets the best model *within their scope*,
@@ -27,11 +35,11 @@ from smart_ai_router.models import ModelSpec
 class ModelScope:
     allow: tuple[str, ...] = ()      # lowercase substrings; empty = allow all
     deny: tuple[str, ...] = ()       # lowercase substrings; overrides allow
-    max_tier: int = 0                # cost-tier ceiling; 0 = no ceiling
+    max_tier: int | None = None      # cost-tier ceiling; None = no ceiling, 0 = local only
 
     @property
     def is_restricted(self) -> bool:
-        return bool(self.allow or self.deny or self.max_tier)
+        return bool(self.allow or self.deny) or self.max_tier is not None
 
     def permits(self, spec: ModelSpec) -> bool:
         """True if `spec` is within this scope."""
@@ -40,7 +48,7 @@ class ModelScope:
             return False
         if self.deny and any(d in hay for d in self.deny):
             return False
-        if self.max_tier and spec.cost > self.max_tier:
+        if self.max_tier is not None and spec.cost > self.max_tier:
             return False
         return True
 
@@ -58,6 +66,10 @@ def parse_scope(scope_models: str = "", max_tier: int = 0) -> ModelScope:
     Tolerant of empty/malformed JSON — a bad value yields an unrestricted scope
     on the allow/deny axis rather than locking a user out. `max_tier` is applied
     regardless of whether the JSON parses.
+
+    Stored keys use 0 (the column default) for "no ceiling", so a non-positive
+    value becomes None here. A caller wanting a real tier-0 ceiling builds the
+    ModelScope directly — see public_access.anon_scope.
     """
     allow: tuple[str, ...] = ()
     deny: tuple[str, ...] = ()
@@ -70,4 +82,8 @@ def parse_scope(scope_models: str = "", max_tier: int = 0) -> ModelScope:
                 deny = _clean(obj.get("deny"))
         except (ValueError, TypeError):
             pass  # malformed → no allow/deny restriction (max_tier still applies)
-    return ModelScope(allow=allow, deny=deny, max_tier=max(0, int(max_tier or 0)))
+    try:
+        tier = int(max_tier or 0)
+    except (TypeError, ValueError):
+        tier = 0
+    return ModelScope(allow=allow, deny=deny, max_tier=tier if tier > 0 else None)

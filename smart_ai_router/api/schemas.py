@@ -316,11 +316,18 @@ class WhoAmIResponse(BaseModel):
 
     Never includes the secret — only a display label and the safe key prefix.
     """
-    authenticated: bool          # False in open (no-auth) mode
-    kind: str                    # "admin" | "user" | "open"
+    authenticated: bool          # False in open (no-auth) and anonymous mode
+    kind: str                    # "admin" | "user" | "open" | "anon"
     user: str = ""               # "admin", the per-user label, or "" in open mode
     key_prefix: str = ""         # short non-secret prefix for a per-user key
     is_admin: bool = False       # may manage keys (root/env key or first-run)
+    # Anonymous (public chat) mode. `degraded` says the daily spend cap has been
+    # reached and answers now come from free/local models, which is worth telling
+    # a visitor. The dollar figures behind it are deliberately not exposed — how
+    # much budget an operator has left is nobody else's business.
+    anon: bool = False
+    degraded: bool = False
+    agent_available: bool = True  # False for anon: filesystem tools are off
 
 
 # ── Files (uploads) ────────────────────────────────────────────────────────────

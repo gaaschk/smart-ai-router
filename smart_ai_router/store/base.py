@@ -97,6 +97,17 @@ class MatrixStore(ABC):
         """Usage rows for a user at/after an ISO timestamp (for quota checks)."""
 
     @abstractmethod
+    def spend_since(self, *, user_prefix: str, since_ts: str) -> float:
+        """Total $ charged to users whose name starts with `user_prefix`.
+
+        Unlike every other aggregate here this counts **overhead rows too**: a
+        classification the visitor's prompt triggered is money spent on their
+        behalf, and a spend cap that ignored it would understate the bill it
+        exists to cap. Prefix-matched because anonymous visitors are many users
+        ("anon:<session>") sharing one budget.
+        """
+
+    @abstractmethod
     def usage_summary(
         self, *, user: str | None = None, since_ts: str = ""
     ) -> dict:

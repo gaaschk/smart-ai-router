@@ -28,7 +28,7 @@ class SettingSpec:
 
     key: str
     env: str
-    type: str  # "str" | "int" | "bool"
+    type: str  # "str" | "int" | "float" | "bool"
     default: Any
     label: str
     group: str
@@ -64,6 +64,21 @@ def _reject_auto_triage(value: str) -> None:
             "triage model available (see helper_models.py). Name a model, or "
             "leave it empty to disable local triage."
         )
+
+
+def _reject_negative(value: str) -> None:
+    """Refuse a negative number for a cap/ceiling.
+
+    Caps are the only thing standing between anonymous traffic and the operator's
+    bill, and a negative one reads as "no limit" in a naive comparison. Rejecting
+    it here means the failure is a 422 on the Settings page rather than a cap that
+    silently never triggers.
+    """
+    try:
+        if float(value) < 0:
+            raise ValueError("must be zero or greater")
+    except ValueError as exc:
+        raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
 # The registry. Order here is the order the UI renders. Keep keys stable — they
@@ -228,6 +243,105 @@ SPECS: tuple[SettingSpec, ...] = (
         "Security-sensitive: this turns on code execution.",
         sensitive=True,
     ),
+    # ── Public access ───────────────────────────────────────────────────────────
+    # An anonymous visitor spends the operator's money, so every setting here is a
+    # ceiling and the feature ships off. See public_access.py for the policy these
+    # values feed, and why a *degraded* ceiling beats refusing service.
+    SettingSpec(
+        key="public_chat_enabled",
+        env="SMART_ROUTER_PUBLIC_CHAT",
+        type="bool",
+        default=False,
+        label="Allow anonymous chat",
+        group="Public access",
+        help="Let visitors without an API key use the chat page. The OpenAI API "
+        "(/v1) still requires a key — anonymous requests are accepted only from "
+        "the chat UI itself (same-origin, with a session cookie). Anonymous "
+        "users can never use agent mode, upload files, or see admin pages. "
+        "Security-sensitive: this exposes your router, and your bill, to the "
+        "public internet.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="public_daily_budget_usd",
+        env="SMART_ROUTER_PUBLIC_DAILY_BUDGET",
+        type="float",
+        default=1.00,
+        label="Anonymous daily spend cap (USD)",
+        group="Public access",
+        help="Ceiling on what all anonymous traffic may cost per UTC day. Past "
+        "it, anonymous users are limited to free and local models rather than "
+        "cut off. Set 0 to allow no paid spend at all (free/local only).",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_max_tier",
+        env="SMART_ROUTER_PUBLIC_MAX_TIER",
+        type="int",
+        default=3,
+        label="Anonymous max cost tier",
+        group="Public access",
+        help="Most expensive cost tier anonymous traffic may reach while budget "
+        "remains (0 = local only, 1 = adds free models, 3 ≈ Haiku, 5 ≈ Sonnet, "
+        "8 ≈ Opus). Kept low so no single conversation can drain the daily cap.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_degraded_max_tier",
+        env="SMART_ROUTER_PUBLIC_DEGRADED_MAX_TIER",
+        type="int",
+        default=1,
+        label="Anonymous max tier once budget is spent",
+        group="Public access",
+        help="Tier ceiling applied after the daily cap is reached. 1 keeps the "
+        "site working on free and local models; 0 restricts it to local only.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_max_output_tokens",
+        env="SMART_ROUTER_PUBLIC_MAX_OUTPUT_TOKENS",
+        type="int",
+        default=1024,
+        label="Anonymous max output tokens",
+        group="Public access",
+        help="Hard ceiling on max_tokens for an anonymous request. This is what "
+        "bounds how far concurrent requests can overshoot the daily cap, since a "
+        "call's real cost is only known after it returns.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_rl_max_req",
+        env="SMART_ROUTER_PUBLIC_RL_MAX_REQ",
+        type="int",
+        default=30,
+        label="Anonymous requests per window",
+        group="Public access",
+        help="Per-IP request cap inside the rate-limit window (0 = no cap). The "
+        "IP is the real defense: a session cookie is trivially discarded.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_rl_window_s",
+        env="SMART_ROUTER_PUBLIC_RL_WINDOW_S",
+        type="int",
+        default=3600,
+        label="Anonymous rate-limit window (s)",
+        group="Public access",
+        help="Length of the rolling window for anonymous rate limits.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="public_max_concurrent",
+        env="SMART_ROUTER_PUBLIC_MAX_CONCURRENT",
+        type="int",
+        default=4,
+        label="Anonymous concurrent requests",
+        group="Public access",
+        help="How many anonymous requests may be in flight at once across the "
+        "whole deployment (0 = unlimited). Protects the local GPU from being "
+        "monopolized, and bounds budget overshoot.",
+        validate=_reject_negative,
+    ),
 )
 
 _BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SPECS}
@@ -255,6 +369,11 @@ def _coerce(spec: SettingSpec, raw: str) -> Any:
     if spec.type == "int":
         try:
             return int(raw)
+        except (TypeError, ValueError):
+            return spec.default
+    if spec.type == "float":
+        try:
+            return float(raw)
         except (TypeError, ValueError):
             return spec.default
     return raw
@@ -345,11 +464,18 @@ def normalize(key: str, value: Any) -> str:
         raise ValueError(f"{key} expects a boolean")
     if spec.type == "int":
         try:
-            return str(int(value))
+            text = str(int(value))
         except (TypeError, ValueError):
             raise ValueError(f"{key} expects an integer")
-    # str
-    text = str(value)
+    elif spec.type == "float":
+        try:
+            text = repr(float(value))
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} expects a number")
+    else:
+        text = str(value)
+    # Applied to every type, not just str: a value can be well-typed and still
+    # wrong (a negative spend cap, `auto` for the triage model).
     if spec.validate is not None:
         spec.validate(text)
     return text

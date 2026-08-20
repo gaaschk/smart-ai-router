@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from smart_ai_router import public_access as _public
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
 from smart_ai_router.models import ApiKey, ProviderConfig
 from smart_ai_router.scope import parse_scope
@@ -54,6 +55,11 @@ def _is_admin(request: Request) -> bool:
     """
     if (getattr(request.state, "user", "") or "") == "admin":
         return True
+    # An anonymous visitor is never an admin, even on a deployment with no keys
+    # configured. Without this, turning on public chat on a first-run install
+    # would hand the internet the Keys page.
+    if getattr(request.state, "is_anon", False):
+        return False
     return (
         not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
         and not request.app.state.capability_router.all_api_keys()
@@ -170,6 +176,20 @@ def whoami(request: Request):
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
+
+    # An anonymous visitor: a real (per-session) identity, but not authenticated
+    # and never an admin. Reported before the generic per-user branch below
+    # because the session id is not something to display.
+    if getattr(request.state, "is_anon", False):
+        cr = _router_instance(request)
+        return WhoAmIResponse(
+            authenticated=False,
+            kind="anon",
+            is_admin=False,
+            anon=True,
+            degraded=_public.budget_status(cr).degraded,
+            agent_available=False,
+        )
 
     if user == "admin":
         return WhoAmIResponse(
