@@ -9,8 +9,8 @@ for prompts whose vocabulary isn't in the deterministic classifier's hint sets
 
 Two-speed classification
 ────────────────────────
-A 3B model on the hot path of every request is the right tool for "this is a
-coding question at practitioner depth" and the wrong tool for judging whether a
+A small local model on the hot path of every request is the right tool for "this
+is a coding question at practitioner depth" and the wrong tool for judging whether a
 multi-jurisdiction regulatory analysis needs specialist or frontier depth in law
 — and that second judgment is the expensive one to get wrong in either
 direction. So triage runs on the small local model, and only when it reports
@@ -290,7 +290,7 @@ async def classify_profile_chain(
 
 
 def needs_refinement(profile: PromptProfile) -> bool:
-    """Whether this triage profile is too consequential to trust to a 3B model.
+    """Whether this profile is too consequential to trust to the triage model.
 
     The three triggers are the judgments where a small classifier's error is
     expensive in one direction or the other:

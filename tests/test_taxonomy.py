@@ -193,9 +193,39 @@ def test_normalize_deduplicates_and_caps_field_count():
     ]
 
 
-@pytest.mark.parametrize("raw", [None, "coding", 42, [], {}, {"domains": []}])
+@pytest.mark.parametrize("raw", [None, "coding", 42, [], {}, {"stakes": "low"}])
 def test_normalize_returns_none_on_unusable_input(raw):
     assert normalize_profile(raw) is None
+
+
+def test_an_empty_domains_list_is_an_answer_not_a_failure():
+    """Measured on the live host: `{"domains": [], "demands": [], "stakes":
+    "low"}` was ~31% of a 3B triage model's replies — 'hi', 'what's the capital
+    of France?', 'how do I reverse a list in python?' — schema-valid every time,
+    and every one of them discarded, which silently downgraded the two-speed
+    chain to the keyword classifier on exactly the prompts it should be best at.
+    Naming no field *is* the profile of a trivial prompt."""
+    p = normalize_profile({"domains": [], "demands": [], "stakes": "low"})
+    assert p is not None
+    assert p.domains == (DomainNeed("general_knowledge", "surface"),)
+
+
+def test_an_empty_domains_list_keeps_demands_and_stakes():
+    """What bounds the underrouting risk of trusting an empty list: a model that
+    names no field but reports high stakes still escalates."""
+    p = normalize_profile(
+        {"domains": [], "demands": ["factual_precision"], "stakes": "high"}
+    )
+    assert p.stakes == "high"
+    assert p.demands == frozenset({"factual_precision"})
+
+
+def test_dropped_domains_still_fall_through():
+    """The distinction the empty-list rule rests on. A reply naming only
+    out-of-vocabulary fields hasn't judged the prompt to need no expertise — it
+    has misunderstood the vocabulary, so the whole reply is suspect."""
+    assert normalize_profile({"domains": [{"field": "astrology", "depth": "frontier"}]}) is None
+    assert normalize_profile({"domains": ["nuclear_engineering"]}) is None
 
 
 # ── Legacy adaptation ─────────────────────────────────────────────────────────

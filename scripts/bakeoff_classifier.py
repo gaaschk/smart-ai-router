@@ -22,6 +22,22 @@ What to look at, in priority order:
                  model is not a realistic bar, and off-by-one is what the refine
                  pass exists to fix.
 
+Last measured (2026-08-19, 17 cases × 2 repeats, live Ollama on the deploy host).
+This is what set the shipped `classifier_model` default:
+
+  model                 parsed  field  depth  escal  MISS  false     p50     p95
+  llama3.1:8b            32/32     26     26     28     0      4   1.04s   1.83s
+  qwen2.5:3b-instruct    32/32     19     18     29     2      1   0.56s   0.79s
+  gemma4:12b             10/32     10     10     10     0      0  10.35s  11.87s
+  qwen3:30b-a3b           0/32      0      0      0     0      0   4.23s   4.38s
+
+Read in priority order that says llama3.1:8b: it misses no escalation where the
+3B misses two, and buys that for ~0.5s. The 3B's losses are real reads, not parse
+noise — it answers "write a regex that validates an RFC 5322 email address" with
+`general_knowledge @ surface`. gemma4:12b parses only a third of the time and is
+10× slower; qwen3:30b-a3b is a thinking model and returns empty content with
+finish_reason=length every time, which is the budget failure named above.
+
 Usage:  python scripts/bakeoff_classifier.py [model ...]
 """
 from __future__ import annotations
