@@ -1227,6 +1227,30 @@
       </div>
     </div>
 
+    <!-- Which profiler decided each request. Worth its own table because every
+         failure in the classifier chain is a silent fall-through to a cheaper
+         judgment: a deployment that means to profile with an LLM and sees mostly
+         `keyword` here is routing on the fallback and would never otherwise
+         know. Hidden until there is data, like the overhead section. -->
+    <div class="usage-section" id="usage-classifier-section" style="display:none">
+      <div class="section-title">By classifier</div>
+      <p class="page-subtitle" style="margin-bottom:0.75rem">
+        Which profiler produced the routing decision. <code>llm</code> is the local
+        triage model, <code>llm-refined</code> the second pass on a consequential
+        prompt, <code>llm-free</code> the remote backstop, and <code>keyword</code>
+        the deterministic fallback used when the LLM chain fails.
+      </p>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>Classifier</th><th>Requests</th><th>Share</th>
+            <th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-by-classifier"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Router overhead, hidden when there is none. Kind first (which pass spent
          the money) then model, since the fix for an expensive line is usually to
          change the model that pass uses. -->
@@ -1674,7 +1698,7 @@ async function fetchUsage() {
   } catch (e) {
     console.error(e);
     // Treat a failure like empty so the page isn't left showing stale dashes.
-    renderUsage({ totals: {}, by_model: [], by_day: [], by_domain: [] });
+    renderUsage({ totals: {}, by_model: [], by_day: [], by_domain: [], by_classifier: [] });
   } finally {
     if (spin) spin.style.display = 'none';
   }
@@ -1728,6 +1752,28 @@ function renderUsage(data) {
         <td>${_fmtInt(_tokens(row))}</td>
         <td>${_fmtCost(row.cost_usd)}</td>
       </tr>`).join('');
+
+  // By classifier. Share is the number that matters — "keyword: 100%" on a
+  // deployment with a configured LLM classifier is a broken pin, not a stat.
+  // Rows written before this was recorded have an empty key; labelled rather
+  // than dropped, so the percentages still add up to the request count shown.
+  const byClf = (data.by_classifier || []).filter(row => row.requests > 0);
+  const clfSection = document.getElementById('usage-classifier-section');
+  if (byClf.length) {
+    clfSection.style.display = 'block';
+    const clfTotal = byClf.reduce((n, row) => n + (row.requests || 0), 0) || 1;
+    document.getElementById('usage-by-classifier').innerHTML =
+      byClf.map(row => `
+        <tr>
+          <td>${escapeHtml(row.key || '(not recorded)')}</td>
+          <td>${_fmtInt(row.requests)}</td>
+          <td>${Math.round((row.requests / clfTotal) * 100)}%</td>
+          <td>${_fmtInt(_tokens(row))}</td>
+          <td>${_fmtCost(row.cost_usd)}</td>
+        </tr>`).join('');
+  } else {
+    clfSection.style.display = 'none';
+  }
 
   // By user — admin only; the API omits by_user for a per-user key.
   const userSection = document.getElementById('usage-by-user-section');
@@ -2409,11 +2455,18 @@ function renderSettingField(s) {
     control = `<input type="${inputType}" id="${id}" value="${escapeHtml(s.value)}"
         oninput="onSettingChanged()" style="min-width:16rem">`;
   }
+  // An advisory about the *current* value, checked against live deployment state
+  // (e.g. a classifier model that isn't in the catalog). Shown here because every
+  // way that setting can be wrong degrades silently at runtime.
+  const advisory = s.warning
+    ? `<div style="font-size:0.73rem;color:var(--danger,#e06c5a);margin-top:0.3rem">&#9888; ${escapeHtml(s.warning)}</div>`
+    : '';
   return `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:0.6rem 0;border-bottom:1px solid var(--border)">
       <div style="max-width:60%">
         <div style="font-size:0.85rem;font-weight:500">${warn}${escapeHtml(s.label)}</div>
         <div style="font-size:0.73rem;color:var(--text-muted);margin-top:0.2rem">${escapeHtml(s.help)}</div>
+        ${advisory}
         <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.25rem;font-family:var(--font-mono)">${srcNote}</div>
       </div>
       <div style="flex-shrink:0;padding-top:0.15rem">${control}</div>

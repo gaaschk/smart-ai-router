@@ -198,3 +198,67 @@ def test_put_settings_rejects_bad_value(monkeypatch):
     r = client.put("/api/settings", headers=hdr,
                    json={"updates": {"ocr_dpi": "not-a-number"}})
     assert r.status_code == 422
+
+
+# ── The triage model refuses "auto" ─────────────────────────────────────────────
+
+def test_classifier_model_rejects_auto():
+    """Routing triage is a measured regression, not a preference — see
+    helper_models' "Why triage is not a HelperTask". The word is rejected at the
+    setting rather than quietly reinterpreted, so nobody types it and believes it
+    took effect."""
+    with pytest.raises(ValueError):
+        _settings.normalize("classifier_model", "auto")
+    with pytest.raises(ValueError):
+        _settings.normalize("classifier_model", " AUTO ")
+
+
+def test_classifier_model_accepts_a_name_and_the_off_switch():
+    assert _settings.normalize("classifier_model", "llama3.1:8b") == "llama3.1:8b"
+    assert _settings.normalize("classifier_model", "") == ""
+
+
+def test_helper_settings_still_accept_auto():
+    # The two calls that *are* routed keep the word; the guard is triage-only.
+    assert _settings.normalize("classifier_refine_model", "auto") == "auto"
+    assert _settings.normalize("model_profiler_model", "auto") == "auto"
+
+
+def test_put_settings_rejects_auto_triage(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
+    cr = CapabilityRouter(store=SqliteStore(":memory:"))
+    client = _client(cr)
+    r = client.put("/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"},
+                   json={"updates": {"classifier_model": "auto"}})
+    assert r.status_code == 422
+    assert cr.get_setting("classifier_model") is None   # nothing persisted
+
+
+# ── Advisories ride along with the settings payload ─────────────────────────────
+
+def test_settings_response_carries_a_classifier_advisory(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "not-pulled:9b")
+    cr = CapabilityRouter(store=SqliteStore(":memory:"))
+    client = _client(cr)
+    rows = {s["key"]: s for s in client.get(
+        "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
+    ).json()["settings"]}
+    assert "not in the model catalog" in rows["classifier_model"]["warning"]
+    # Every other setting stays quiet — an advisory is per-key, not a banner.
+    assert rows["ocr_dpi"]["warning"] == ""
+
+
+def test_a_healthy_classifier_pin_produces_no_advisory(monkeypatch):
+    from smart_ai_router.models import ModelSpec
+
+    monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "llama3.1:8b")
+    cr = CapabilityRouter(store=SqliteStore(":memory:"))
+    cr.upsert_model(ModelSpec(value="ollama/llama3.1:8b", provider="ollama",
+                              cost=0, reliability=1.0, structured_outputs=True))
+    client = _client(cr)
+    rows = {s["key"]: s for s in client.get(
+        "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
+    ).json()["settings"]}
+    assert rows["classifier_model"]["warning"] == ""

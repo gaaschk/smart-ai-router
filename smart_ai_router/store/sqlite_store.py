@@ -233,6 +233,18 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: which classifier produced the profile that routed
+            # this request (UsageRecord.classifier). Every failure in the classifier
+            # chain degrades silently to a cheaper judgment and still answers the
+            # request, so a broken pin looks exactly like a working one from the
+            # outside. '' for rows written before the column, which is honest —
+            # those rows genuinely don't know.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN classifier TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -465,8 +477,8 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO usage_log (
                     ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
-                    tokens_estimated, profile_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tokens_estimated, profile_json, classifier
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.kind or _PROXY_KIND,
                     usage.user, usage.key_prefix, usage.routed_model,
@@ -476,6 +488,7 @@ class SqliteStore(MatrixStore):
                     1 if usage.tokens_estimated else 0,
                     json.dumps(usage.profile, sort_keys=True)
                     if usage.profile else "",
+                    usage.classifier,
                 ),
             )
             self._conn.commit()
@@ -590,6 +603,14 @@ class SqliteStore(MatrixStore):
                 f"(domain || '/' || complexity) AS key, {_sums}",
                 "GROUP BY key ORDER BY requests DESC",
             )
+            # Which classifier decided each request. Ordered by request count
+            # rather than cost because these rows all cost the same to route and
+            # what matters is the *mix*: a deployment expecting `llm` and seeing
+            # mostly `keyword` is silently routing on the fallback profiler.
+            by_classifier = _agg(
+                f"classifier AS key, {_sums}",
+                "GROUP BY classifier ORDER BY requests DESC",
+            )
             by_user = (
                 _agg(
                     f"user AS key, {_sums}",
@@ -627,6 +648,7 @@ class SqliteStore(MatrixStore):
             "by_model": _keyed(by_model),
             "by_day": _keyed(by_day),
             "by_domain": _keyed(by_domain),
+            "by_classifier": _keyed(by_classifier),
             "overhead": {
                 "totals": _row(oh_total),
                 "by_kind": _keyed(oh_by_kind),
@@ -845,6 +867,8 @@ class SqliteStore(MatrixStore):
                 if "tokens_estimated" in row.keys() else 0
             ),
             profile=cls._json_column(row, "profile_json"),
+            classifier=(row["classifier"] or "")
+            if "classifier" in row.keys() else "",
         )
 
     @staticmethod

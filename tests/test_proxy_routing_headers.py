@@ -150,3 +150,21 @@ def test_usage_log_profile_matches_the_header_the_caller_saw(client):
 
     recorded = normalize_profile(client.store.usage_profiles()[0]["profile"])
     assert recorded.describe() == r.headers["X-Prompt-Profile"]
+
+
+def test_usage_log_records_which_classifier_ran(client):
+    """The header already says which classifier profiled one request; the log is
+    what turns that into a rate, which is the only form in which "the configured
+    model stopped answering and nobody noticed" is visible."""
+    r = _chat(client, "Write a Python function to reverse a linked list.")
+    assert r.headers["X-Classifier"] == "keyword"   # no models configured here
+    rows = client.store.recent_usage("", "1970-01-01T00:00:00+00:00")
+    assert [row.classifier for row in rows] == ["keyword"]
+
+
+def test_usage_log_classifier_matches_the_header(client):
+    """An empty prompt is profiled as "default" rather than by any classifier —
+    a distinct value, so it can't be mistaken for a fallback."""
+    r = _chat(client, "")
+    rows = client.store.recent_usage("", "1970-01-01T00:00:00+00:00")
+    assert rows[0].classifier == r.headers["X-Classifier"] == "default"

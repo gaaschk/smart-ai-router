@@ -56,6 +56,36 @@ own pick being chosen by profiles the profiler exists to correct is a real
 circularity. It is bounded by the same things that bound any Refine run — the
 dry run, the audit, and the pin.
 
+Why triage is not a HelperTask
+─────────────────────────────
+The obvious third entry here is the *triage* classifier — the local call that
+profiles every prompt — and it is deliberately absent. It stays a pinned model
+name (`classifier_model`, which refuses `auto` for this reason). Routing it was
+tried against the live catalog and is measurably worse than pinning:
+
+  • Routing means "cheapest model that clears the bar". Every local candidate is
+    free — nine ollama rows, all cost tier 0, all reliability 1.0, all flagged
+    structured_outputs — so cost discriminates nothing and the sort falls through
+    to its next key, competence margin. Triage therefore routes to the *biggest*
+    local model, which is the opposite of what a hot-path JSON call wants.
+  • On the live host that pick was `qwen3:30b-a3b` (general_knowledge 0.82, the
+    highest of the nine). Measured with scripts/bakeoff_classifier.py, that model
+    emits a usable profile on **0 of 32** attempts: it thinks, and finish_reason
+    comes back `length` before any JSON appears. Routing triage would hand every
+    request's profiling to a model that cannot profile, and because the chain
+    degrades silently, nothing would look broken.
+  • Excluding reasoning models doesn't rescue it. The next pick is
+    `qwen2.5:3b-instruct` (0.78), ranked above `llama3.1:8b` (0.76) — the exact
+    inverse of the bakeoff, where the 3B misses 2 escalations to the 8B's 0 and
+    names the right field 19 times to its 26.
+
+The reason is structural, not a scoring bug: competence measures what a model
+knows, and triage fitness is "does it emit strict JSON inside a 256-token budget
+without thinking first". Those are different properties, and only the second one
+decides whether the call works at all. Until a *measured* triage-fitness signal
+exists in the catalog, the honest configuration is a name someone benchmarked,
+and the bakeoff script is how that name gets chosen.
+
 Failure contract
 ────────────────
 resolve() returns None rather than raising, for any reason a call can't be made:

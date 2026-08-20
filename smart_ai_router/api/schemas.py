@@ -210,6 +210,15 @@ class UsageSummaryResponse(BaseModel):
     by_model: list[UsageGroupRow] = Field(default_factory=list)
     by_day: list[UsageGroupRow] = Field(default_factory=list)
     by_domain: list[UsageGroupRow] = Field(default_factory=list)
+    by_classifier: list[UsageGroupRow] = Field(
+        default_factory=list,
+        description=(
+            "which classifier profiled each request — llm | llm-free | "
+            "llm-refined | keyword | default, or \"\" for rows logged before the "
+            "column existed. A keyword-heavy mix means the configured model is "
+            "not answering"
+        ),
+    )
     by_user: list[UsageGroupRow] | None = None
     overhead: UsageOverhead = Field(default_factory=UsageOverhead)
 
@@ -247,6 +256,14 @@ class SettingResponse(BaseModel):
     env: str = Field(..., description="Env var that serves as the fallback")
     source: str = Field(..., description="db | env | default — where value came from")
     sensitive: bool = False
+    warning: str = Field(
+        "",
+        description=(
+            "Advisory about the current value, checked against live deployment "
+            "state rather than its type — e.g. a classifier model that isn't in "
+            "the catalog. Empty when the value looks usable."
+        ),
+    )
 
 
 class SettingsResponse(BaseModel):

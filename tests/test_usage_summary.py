@@ -139,3 +139,70 @@ def test_migration_adds_tokens_estimated_to_preexisting_db(tmp_path):
     assert rec.prompt_tokens == 10
     # And aggregation works over the migrated table.
     assert store.usage_summary()["totals"]["requests"] == 1
+
+
+# ── Classifier attribution ────────────────────────────────────────────────────
+
+def test_by_classifier_groups_and_sums():
+    """The mix is the point: this is how a deployment notices that every request
+    is being profiled by the keyword fallback instead of the model it configured."""
+    store = SqliteStore(":memory:")
+    for user, clf in (("alice", "llm"), ("alice", "llm"), ("bob", "keyword")):
+        rec = _rec(user, "ollama/x", "2026-07-01T10:00:00+00:00")
+        rec.classifier = clf
+        store.record_usage(rec)
+    by_clf = {r["key"]: r for r in store.usage_summary()["by_classifier"]}
+    assert by_clf["llm"]["requests"] == 2
+    assert by_clf["keyword"]["requests"] == 1
+
+
+def test_classifier_round_trips_through_record_and_read():
+    store = SqliteStore(":memory:")
+    rec = _rec("alice", "ollama/x", "2026-07-01T00:00:00+00:00")
+    rec.classifier = "llm-refined"
+    store.record_usage(rec)
+    assert store.recent_usage("alice", "2026-07-01T00:00:00+00:00")[0].classifier == (
+        "llm-refined"
+    )
+
+
+def test_by_classifier_excludes_overhead_rows():
+    """A classify call is itself billed as an overhead row. Counting those here
+    would double-count: one user request would report two classifications."""
+    store = SqliteStore(":memory:")
+    proxy = _rec("alice", "ollama/x", "2026-07-01T00:00:00+00:00")
+    proxy.classifier = "llm"
+    store.record_usage(proxy)
+    oh = _rec("alice", "ollama/llama3.1:8b", "2026-07-01T00:00:01+00:00")
+    oh.kind = "classify"
+    store.record_usage(oh)
+    by_clf = {r["key"]: r for r in store.usage_summary()["by_classifier"]}
+    assert by_clf == {"llm": by_clf["llm"]}
+    assert by_clf["llm"]["requests"] == 1
+
+
+def test_migration_adds_classifier_to_preexisting_db(tmp_path):
+    """Old rows genuinely don't know which classifier ran, so they read back as
+    "" rather than being attributed to whatever is configured today."""
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("""
+        CREATE TABLE usage_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, user TEXT,
+            key_prefix TEXT, routed_model TEXT, domain TEXT, complexity TEXT,
+            prompt_tokens INTEGER, completion_tokens INTEGER, cost_usd REAL,
+            status INTEGER
+        )
+    """)
+    conn.execute(
+        "INSERT INTO usage_log (ts, user, routed_model, prompt_tokens, "
+        "completion_tokens, cost_usd, status) VALUES "
+        "('2026-07-01T00:00:00+00:00','alice','m',10,5,0.001,200)"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteStore(db)
+    assert store.recent_usage("alice", "2026-07-01T00:00:00+00:00")[0].classifier == ""
+    by_clf = {r["key"]: r for r in store.usage_summary()["by_classifier"]}
+    assert by_clf[""]["requests"] == 1

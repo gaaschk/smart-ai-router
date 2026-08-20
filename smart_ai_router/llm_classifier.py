@@ -35,6 +35,7 @@ import httpx
 
 from smart_ai_router import overhead as _overhead
 from smart_ai_router import settings as _settings
+from smart_ai_router.models import ModelSpec
 from smart_ai_router.taxonomy import (
     DEMAND_KEYS,
     DEPTH_KEYS,
@@ -183,6 +184,47 @@ def classifier_fallback_model() -> str:
     UI-managed (Settings page) with SMART_ROUTER_CLASSIFIER_FALLBACK as env
     fallback."""
     return _settings.get_str("classifier_fallback").strip()
+
+
+def classifier_advisory(models: list[ModelSpec]) -> str:
+    """Why the configured triage model is a bad choice, or "" if it looks fine.
+
+    Takes the catalog rather than reading a store, so this module stays
+    store-free (see the module docstring). Advisory only: nothing here changes
+    routing or blocks a save, because the catalog can legitimately lag behind a
+    model someone just pulled, and refusing to run on a stale catalog would be
+    worse than the thing being warned about.
+
+    It exists because every way this setting can be wrong produces *no visible
+    error*. The chain falls through to the free remote model and then to the
+    keyword classifier, the request succeeds, and the deployment routes on a
+    coarser judgment than its operator believes it is using. Two failures are
+    worth naming before they cost anything:
+
+      reasoning model — thinking burns the classifier's small output budget
+        before any JSON is emitted. Measured on the live host: qwen3:30b-a3b
+        returned empty content with finish_reason=length on 32 of 32 attempts.
+      not in the catalog — a typo, or a model never pulled on this host. Every
+        profiling call 404s.
+    """
+    name = classifier_model()
+    if not name:
+        return ""   # deliberately disabled — the keyword classifier is the plan
+    spec = next((m for m in models if m.value.split("/", 1)[-1] == name), None)
+    if spec is None:
+        return (
+            f"{name!r} is not in the model catalog — check the name, pull it on "
+            "the host, or run Sync Models. Until then every request falls back "
+            "to the keyword classifier."
+        )
+    if spec.reasoning:
+        return (
+            f"{name!r} is flagged as a reasoning model. Thinking models spend "
+            "the classifier's output budget before emitting JSON and can return "
+            "nothing at all; prefer a small non-reasoning instruct model, and "
+            "measure it with scripts/bakeoff_classifier.py."
+        )
+    return ""
 
 
 def _parse_profile(text: str) -> PromptProfile | None:

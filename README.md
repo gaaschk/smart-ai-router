@@ -217,6 +217,8 @@ This matters because the overhead is not always small. A deployment whose prompt
 
 Local classifier calls cost $0 and are still logged — the call count is what shows the classifier is being used at all. A `dry_run` Refine is logged too: it writes no ratings but makes exactly the same paid calls.
 
+Each `proxy` row also records **which** classifier produced the profile that routed it (`llm`, `llm-free`, `llm-refined`, `keyword`, or `default`), reported as `by_classifier` and rendered as the Usage page's **By classifier** table. The per-request value is already in the `X-Classifier` header; the interesting figure is the *rate*, because that's the only form in which a silently-failing classifier is visible (see the classification fall-through chain under Configuration). The count is over `proxy` rows only — a `classify` overhead row is the classifier call itself, and counting it here would report two classifications per request. Rows written before this column existed read as blank, which they honestly are.
+
 #### Per-user scope and quotas
 
 A per-user key can be constrained on three axes, all optional and all set at mint time (or via the API):
@@ -508,6 +510,33 @@ One caveat worth stating plainly: the profiler's own pick is chosen using the sa
 profiles the profiler exists to correct. That circularity is bounded by the things
 that bound any Refine run — the dry-run preview, the routing audit, and the pin.
 
+**Triage is deliberately not one of these.** The local classifier that profiles
+every prompt stays a pinned name; `SMART_ROUTER_CLASSIFIER_MODEL` **rejects
+`auto`** rather than quietly accepting a word that wouldn't work. Routing it was
+measured against the live catalog and is worse than pinning:
+
+- Routing means "cheapest model clearing the bar", and every local candidate is
+  free — nine Ollama rows, all cost tier 0, reliability 1.0, `structured_outputs`.
+  Cost discriminates nothing, so the sort falls through to competence margin and
+  triage routes to the **biggest** local model. That's the opposite of what a
+  hot-path JSON call wants.
+- On the live host that pick was `qwen3:30b-a3b`, which `scripts/bakeoff_classifier.py`
+  measures at **0 usable profiles out of 32**: it thinks, and `finish_reason` comes
+  back `length` before any JSON appears. Every request's profiling would go to a
+  model that cannot profile — and because the chain degrades silently, nothing
+  would look broken.
+- Excluding reasoning models doesn't rescue it. The next pick, `qwen2.5:3b-instruct`,
+  outranks `llama3.1:8b` on competence — the exact inverse of the bakeoff, where
+  the 3B misses 2 escalations to the 8B's 0 and names the right field 19 times to
+  its 26.
+
+The reason is structural, not a scoring bug. Competence measures what a model
+*knows*; triage fitness is "does it emit strict JSON inside a 256-token budget
+without thinking first". Only the second decides whether the call works at all,
+and nothing in the catalog measures it. Until something does, the honest
+configuration is a name someone benchmarked — which is what the bakeoff script is
+for.
+
 ### Capability flags
 
 Two facts about a model's *shape* (not its quality) are persisted alongside its
@@ -583,7 +612,7 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
 | `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
-| `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `llama3.1:8b` | Primary (local Ollama) model that profiles each prompt. Prefer a small **non-reasoning** instruct model — thinking models burn the classifier's tiny output budget before emitting JSON. Empty string disables the local step. Before changing it, bake off the candidate: `python scripts/bakeoff_classifier.py <model>` scores it on the real code path, and the script's docstring records what the current default was measured against. |
+| `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `llama3.1:8b` | Primary (local Ollama) model that profiles each prompt. Prefer a small **non-reasoning** instruct model — thinking models burn the classifier's tiny output budget before emitting JSON. Empty string disables the local step. Unlike the two settings below it does **not** accept `auto` — routing triage is measured to pick the worst available triage model (see [The router's own calls](#the-routers-own-calls)), so the word is rejected instead of silently reinterpreted. Before changing it, bake off the candidate: `python scripts/bakeoff_classifier.py <model>` scores it on the real code path, and the script's docstring records what the current default was measured against. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
 | `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `auto` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). `auto` routes it (see [The router's own calls](#the-routers-own-calls)); a model name pins it; empty string disables the second pass. |
 | `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `auto` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. `auto` routes it, a model name pins it, empty string disables refinement. |
@@ -625,6 +654,11 @@ symlink escapes are all rejected).
 3. **Keyword** — the built-in deterministic classifier.
 
 Each LLM step is skipped if its model is unset or provider unavailable, and any failure (network error, timeout, unparseable output) advances to the next step. **Classification never blocks or fails a request.** The `X-Classifier` response header reports which step succeeded: `llm` (local), `llm-free` (OpenRouter), `keyword`, or `default` (empty prompt).
+
+That resilience has a cost worth knowing about: a misconfigured classifier looks *exactly* like a working one from the outside. Every request still succeeds, just routed on a coarser judgment than you think you're using. Two things make it visible instead:
+
+- The classifier that ran is recorded per request, and the Usage page shows the mix as **By classifier**. A healthy local deployment is nearly all `llm`; a column of `keyword` means the configured model isn't answering. That's the number to look at after changing the setting or the host's pulled models.
+- Settings flags a pin that can't work — a name absent from the model catalog (a typo, or never pulled here), or a model flagged `reasoning`. It's an advisory, not a block: the catalog can legitimately lag a model you just pulled, and refusing to start on a stale catalog would be worse than the warning.
 
 ## Service management (macOS)
 

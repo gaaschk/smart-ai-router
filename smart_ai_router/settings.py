@@ -34,6 +34,36 @@ class SettingSpec:
     group: str
     help: str = ""
     sensitive: bool = False  # flagged in the UI (e.g. toggles code execution)
+    # Optional extra check on an incoming value, beyond its type. Raises
+    # ValueError (→ 422) to reject. For values that are well-typed but wrong in a
+    # way the type system can't see — a word that means something for every
+    # *other* setting in the group but not this one.
+    validate: Callable[[str], None] | None = None
+
+
+# The word every *other* helper-model setting uses for "route it". Defined here
+# rather than imported from helper_models to keep settings dependency-free.
+AUTO_WORD = "auto"
+
+
+def _reject_auto_triage(value: str) -> None:
+    """Refuse `auto` for the triage classifier, with the reason.
+
+    Every other model setting in the Classifier group takes `auto` to mean "route
+    it like any other prompt", so typing it here is the obvious move and it would
+    fail in the worst way: `auto` is not a model, so every request's profiling
+    call would 404 and fall through to the keyword classifier, silently.
+
+    Triage is excluded from routing on purpose, and the reason is measured rather
+    than stylistic — see helper_models.py, "Why triage is not a HelperTask".
+    """
+    if value.strip().lower() == AUTO_WORD:
+        raise ValueError(
+            "classifier_model does not accept 'auto': routing picks the "
+            "highest-scoring free local model, which is measured to be the worst "
+            "triage model available (see helper_models.py). Name a model, or "
+            "leave it empty to disable local triage."
+        )
 
 
 # The registry. Order here is the order the UI renders. Keep keys stable — they
@@ -82,7 +112,10 @@ SPECS: tuple[SettingSpec, ...] = (
         "burn the classifier's tiny output budget before emitting the JSON. "
         "Pinned rather than routed (unlike the refine model below) on purpose — "
         "this runs on every request, so changing which model does triage needs a "
-        "measured comparison first (scripts/bakeoff_classifier.py).",
+        "measured comparison first (scripts/bakeoff_classifier.py). Does not "
+        "accept `auto`: routing would pick the highest-scoring free local model, "
+        "which is measured to be the worst triage model available.",
+        validate=_reject_auto_triage,
     ),
     SettingSpec(
         key="classifier_fallback",
@@ -316,7 +349,10 @@ def normalize(key: str, value: Any) -> str:
         except (TypeError, ValueError):
             raise ValueError(f"{key} expects an integer")
     # str
-    return str(value)
+    text = str(value)
+    if spec.validate is not None:
+        spec.validate(text)
+    return text
 
 
 def apply(updates: dict[str, Any]) -> None:
