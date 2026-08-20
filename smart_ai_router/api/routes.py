@@ -447,6 +447,29 @@ def delete_provider(name: str, request: Request):
 
 # ── Settings (UI-managed runtime config) ────────────────────────────────────────
 
+def _settings_with_advisories(request: Request) -> list[SettingResponse]:
+    """Effective settings, each annotated with any advisory about its value.
+
+    Type validation already happens on write. This is the other half: values that
+    are well-formed but won't work in *this* deployment — a classifier model that
+    was never pulled, or one whose catalog row says it thinks. Those fail silently
+    at runtime by design (profiling degrades, the request still succeeds), so the
+    Settings page is the one place an operator can be told before it costs them.
+    """
+    from smart_ai_router import settings as _settings
+    from smart_ai_router.llm_classifier import classifier_advisory
+
+    cr = _router_instance(request)
+    try:
+        advisories = {"classifier_model": classifier_advisory(cr.all_models())}
+    except Exception:  # noqa: BLE001 — an advisory must never break the page
+        advisories = {}
+    return [
+        SettingResponse(**s, warning=advisories.get(s["key"], ""))
+        for s in _settings.effective()
+    ]
+
+
 @api_router.get("/settings", response_model=SettingsResponse)
 def get_settings(request: Request):
     """Effective runtime settings + metadata for the Settings page.
@@ -455,10 +478,7 @@ def get_settings(request: Request):
     for everyone, and a per-user key must not read/alter deployment policy.
     """
     _require_admin(request)
-    from smart_ai_router import settings as _settings
-    return SettingsResponse(
-        settings=[SettingResponse(**s) for s in _settings.effective()]
-    )
+    return SettingsResponse(settings=_settings_with_advisories(request))
 
 
 @api_router.put("/settings", response_model=SettingsResponse)
@@ -474,9 +494,7 @@ def update_settings(body: SettingsUpdateRequest, request: Request):
         _settings.apply(body.updates)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return SettingsResponse(
-        settings=[SettingResponse(**s) for s in _settings.effective()]
-    )
+    return SettingsResponse(settings=_settings_with_advisories(request))
 
 
 # ── API keys (per-user auth) ────────────────────────────────────────────────────

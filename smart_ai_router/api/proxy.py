@@ -445,7 +445,8 @@ def _request_scope(request: Request) -> ModelScope | None:
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                complexity: str, usage: dict | None, status: int,
                tokens_estimated: bool = False,
-               profile: PromptProfile | None = None) -> None:
+               profile: PromptProfile | None = None,
+               classifier: str = "") -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
@@ -458,6 +459,11 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     change be judged against traffic that really happened — see
     profile_audit.py — so a routing change can be evaluated on its effect rather
     than on how its score diff reads.
+
+    `classifier` is which profiler produced it, stored for the same reason it is
+    reported in X-Classifier: the chain degrades silently, so the only way to
+    notice that every request is being profiled by the keyword fallback is to
+    count.
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
@@ -480,6 +486,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             cost_usd=cost_usd, status=status,
             tokens_estimated=tokens_estimated,
             profile=profile.to_dict() if profile is not None else None,
+            classifier=classifier,
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
@@ -793,7 +800,7 @@ async def chat_completions(request: Request):
 
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
                    complexity=complexity, usage=None, status=200,
-                   profile=profile)
+                   profile=profile, classifier=classifier_used)
 
         def _register_file(data: bytes, filename: str, mime: str) -> str:
             """Register an agent-created file in the Files API, owned by the
@@ -852,7 +859,7 @@ async def chat_completions(request: Request):
                     routed_model=routed_model, domain=domain,
                     complexity=complexity, usage=usage,
                     status=status, tokens_estimated=estimated,
-                    profile=profile,
+                    profile=profile, classifier=classifier_used,
                 )
 
             try:
@@ -934,6 +941,6 @@ async def chat_completions(request: Request):
             routed_model=routed_model, domain=domain, complexity=complexity,
             usage=data.get("usage") if isinstance(data, dict) else None,
             status=resp.status_code,
-            profile=profile,
+            profile=profile, classifier=classifier_used,
         )
         return JSONResponse(content=data, headers=routing_headers)

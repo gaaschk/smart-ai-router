@@ -198,5 +198,18 @@ class UsageRecord:
     # see which real decisions would flip. Empty for rows written before
     # profiles, and for the legacy (domain, complexity) route() path.
     profile: dict | None = None
+    # Which classifier produced that profile: "llm", "llm-free", "llm-refined",
+    # "keyword", or "default" (an empty prompt). Already reported per-request in
+    # the X-Classifier header; stored because the interesting number is the
+    # *rate*, not the individual value.
+    #
+    # This is the deployment's early warning that prompt profiling is quietly
+    # broken. Every failure in the chain is by design a silent fall-through to a
+    # cheaper judgment — a pinned model that isn't installed, a thinking model
+    # that never emits JSON inside the classifier's token budget, an Ollama that
+    # isn't running — and the request still succeeds, so nothing surfaces. A
+    # deployment that believes it is profiling with an LLM while every row says
+    # `keyword` is the failure this column exists to make visible.
+    classifier: str = ""
     id: int = 0
     ts: str = ""

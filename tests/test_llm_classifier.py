@@ -12,6 +12,7 @@ from smart_ai_router import settings as _settings
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     _parse_profile,
+    classifier_advisory,
     classifier_fallback_model,
     classifier_model,
     classify_chain,
@@ -475,3 +476,47 @@ def test_legacy_classify_chain_derives_labels(monkeypatch):
     assert asyncio.run(
         classify_chain("hi", [ClassifierTarget(model="m", base_url="http://x/v1")])
     ) == ("general", "trivial", "llm")
+
+
+# ── Advisory on the configured triage model ───────────────────────────────────
+
+def _catalog_spec(value: str, **kw):
+    from smart_ai_router.models import ModelSpec
+
+    return ModelSpec(value=value, provider="ollama", cost=0, reliability=1.0,
+                     structured_outputs=True, **kw)
+
+
+def test_advisory_silent_when_deliberately_disabled(monkeypatch):
+    # "" means the operator chose the keyword classifier. Not a mistake.
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "")
+    assert classifier_advisory([_catalog_spec("ollama/llama3.1:8b")]) == ""
+
+
+def test_advisory_silent_for_a_healthy_pin(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "llama3.1:8b")
+    assert classifier_advisory([_catalog_spec("ollama/llama3.1:8b")]) == ""
+
+
+def test_advisory_warns_when_the_name_is_not_in_the_catalog(monkeypatch):
+    """The failure this catches: a typo or an un-pulled model 404s on every
+    profiling call, and the chain hides it by degrading to keywords."""
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "llama3.1:8b")
+    warning = classifier_advisory([_catalog_spec("ollama/qwen2.5:3b-instruct")])
+    assert "not in the model catalog" in warning
+    assert "llama3.1:8b" in warning
+
+
+def test_advisory_warns_for_a_reasoning_model(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "qwen3:30b-a3b")
+    warning = classifier_advisory(
+        [_catalog_spec("ollama/qwen3:30b-a3b", reasoning=True)]
+    )
+    assert "reasoning model" in warning
+
+
+def test_advisory_matches_a_bare_name_against_a_prefixed_catalog_value(monkeypatch):
+    """The setting holds a provider-side name; the catalog stores it prefixed.
+    Comparing them naively would warn about every correctly-configured host."""
+    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "qwen2.5:3b-instruct")
+    assert classifier_advisory([_catalog_spec("ollama/qwen2.5:3b-instruct")]) == ""

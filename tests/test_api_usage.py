@@ -99,3 +99,34 @@ def test_days_window_bounds_which_rows_count(monkeypatch):
 
 def test_usage_requires_auth_when_keys_configured(admin_client):
     assert admin_client.get("/api/usage").status_code == 401
+
+
+def test_by_classifier_reaches_the_wire(store, admin_client):
+    """A response_model that omits the field would drop it silently, leaving the
+    dashboard section permanently empty rather than obviously broken."""
+    rec = _rec("alice", "openrouter/gpt-4", "2099-01-02T00:00:00+00:00")
+    rec.classifier = "llm"
+    store.record_usage(rec)
+    body = admin_client.get("/api/usage?days=365000", headers=_auth(_ADMIN)).json()
+    rows = {r["key"]: r for r in body["by_classifier"]}
+    assert rows["llm"]["requests"] == 1
+    # The two fixture rows predate any classifier attribution and say so.
+    assert rows[""]["requests"] == 2
+
+
+def test_by_classifier_is_scoped_to_the_calling_user(store, admin_client):
+    """Same scoping rule as every other aggregate: a per-user key must not learn
+    the shape of anyone else's traffic."""
+    alice = _rec("alice", "openrouter/gpt-4", "2099-01-02T00:00:00+00:00")
+    alice.classifier = "llm"
+    store.record_usage(alice)
+    bob = _rec("bob", "ollama/llama3", "2099-01-02T00:00:00+00:00", cost=0.0)
+    bob.classifier = "keyword"
+    store.record_usage(bob)
+    created = admin_client.post(
+        "/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)
+    ).json()
+    body = admin_client.get(
+        "/api/usage?days=365000", headers=_auth(created["key"])
+    ).json()
+    assert {r["key"] for r in body["by_classifier"]} == {"llm", ""}
