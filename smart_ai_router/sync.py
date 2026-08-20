@@ -238,6 +238,15 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
             ctx_k=ctx_k,
             tools=True,
             vision=True,
+            # Left False because it is unverified, not because Claude can't do
+            # it: Bedrock's OpenAI-compatible endpoint implements a subset of the
+            # request body, and no Bedrock provider was configured on any
+            # deployment available to test `response_format: json_schema`
+            # against. False is the safe direction — it keeps these rows out of
+            # the router's schema-constrained helper calls rather than sending
+            # them a schema they might ignore. Flip it once measured.
+            structured_outputs=False,
+            reasoning=True,
             reliability=0.95,
             cost_input=cost_input,
             cost_output=cost_output,
@@ -331,7 +340,8 @@ def _sync_ollama(
         # us: whether the model can think. Local models still land on the same
         # per-field scale as catalog models, so route() needs no per-provider
         # special case.
-        profile = profile_model(value, supports_reasoning="thinking" in caps)
+        thinking = "thinking" in caps
+        profile = profile_model(value, supports_reasoning=thinking)
 
         spec = ModelSpec(
             value=value,
@@ -340,6 +350,14 @@ def _sync_ollama(
             ctx_k=ctx_k,
             tools="tools" in caps,
             vision="vision" in caps,
+            # True for every Ollama model, and not a claim about the model:
+            # Ollama implements `response_format` as constrained decoding in the
+            # server, so the schema is enforced by the runtime whatever the
+            # weights would have emitted. Verified against qwen2.5:3b-instruct,
+            # which is small enough that it would certainly ignore a schema it
+            # was merely asked to follow.
+            structured_outputs=True,
+            reasoning=thinking,
             reliability=1.0,
             cost_input=0.0,
             cost_output=0.0,
@@ -415,6 +433,13 @@ def _sync_openrouter(
         supports = m.get("supported_parameters") or []
         tools = "tools" in supports
         vision = "image" in inp  # inp = input side of modality (e.g. "text+image")
+        # `structured_outputs`, not `response_format`. OpenRouter lists them
+        # separately and 23 models on the live catalog carry only the latter,
+        # meaning they accept `json_object` but ignore a schema — which is the
+        # silent failure this flag exists to prevent, not a weaker version of the
+        # capability. Measured at the time of the change: 336 of 415 models
+        # advertise `structured_outputs`, 359 advertise `response_format`.
+        structured_outputs = "structured_outputs" in supports
         reliability = 0.5 if mid.endswith(":free") else 0.9
 
         # Per-field capability profile from the catalog's own evidence: measured
@@ -428,6 +453,10 @@ def _sync_openrouter(
         # ignored so a future signal added to extract_catalog_signals() still
         # fails loudly here rather than being silently dropped.
         agentic = agentic_level(signals.pop("agentic_index"))
+        # Read, not popped: the profiler uses this to lift the reasoning-heavy
+        # fields, and the spec stores it as a shape flag. One derivation, two
+        # consumers — deriving it twice from `supports` would let them disagree.
+        reasoning = bool(signals.get("supports_reasoning"))
         profile = profile_model(value, **signals)
 
         spec = ModelSpec(
@@ -437,6 +466,8 @@ def _sync_openrouter(
             ctx_k=ctx_k,
             tools=tools,
             vision=vision,
+            structured_outputs=structured_outputs,
+            reasoning=reasoning,
             reliability=reliability,
             cost_input=cost_input,
             cost_output=cost_output,

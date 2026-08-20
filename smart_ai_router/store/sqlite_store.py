@@ -188,12 +188,21 @@ class SqliteStore(MatrixStore):
             # profile_json because it is not a taxonomy field. DEFAULT 0.0 reads as
             # "never measured" everywhere, which is what a pre-migration row
             # honestly is — and what the router treats as exempt, not incapable.
+            #
+            # structured_outputs / reasoning are capability flags in the same family
+            # as tools and vision, and get columns for the same reason: the router
+            # filters on them. DEFAULT 0 makes a pre-migration row read as "does not
+            # support schema-constrained replies", which is the safe direction — it
+            # keeps that row out of helper duty until the next sync says otherwise,
+            # rather than sending it a schema it would silently ignore.
             for column, decl in (
                 ("profile_json", "TEXT DEFAULT ''"),
                 ("description", "TEXT DEFAULT ''"),
                 ("profile_ratings_json", "TEXT DEFAULT ''"),
                 ("profile_note", "TEXT DEFAULT ''"),
                 ("agentic", "REAL DEFAULT 0.0"),
+                ("structured_outputs", "INTEGER DEFAULT 0"),
+                ("reasoning", "INTEGER DEFAULT 0"),
             ):
                 try:
                     self._conn.execute(
@@ -240,8 +249,9 @@ class SqliteStore(MatrixStore):
                     competence_coding, competence_docs,
                     competence_reasoning, competence_general,
                     profile_json, description,
-                    profile_ratings_json, profile_note, agentic
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    profile_ratings_json, profile_note, agentic,
+                    structured_outputs, reasoning
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -259,7 +269,9 @@ class SqliteStore(MatrixStore):
                     description=excluded.description,
                     profile_ratings_json=excluded.profile_ratings_json,
                     profile_note=excluded.profile_note,
-                    agentic=excluded.agentic
+                    agentic=excluded.agentic,
+                    structured_outputs=excluded.structured_outputs,
+                    reasoning=excluded.reasoning
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -281,6 +293,8 @@ class SqliteStore(MatrixStore):
                     if spec.profile_ratings else "",
                     spec.profile_note,
                     float(max(0.0, min(1.0, spec.agentic))),
+                    1 if spec.structured_outputs else 0,
+                    1 if spec.reasoning else 0,
                 ),
             )
             self._conn.commit()
@@ -921,6 +935,15 @@ class SqliteStore(MatrixStore):
             return default
         return default if val is None else float(val)
 
+    @staticmethod
+    def _bool_column(row: sqlite3.Row, name: str, default: bool = False) -> bool:
+        """_column for a flag column: NULL and absent both mean the default."""
+        try:
+            val = row[name]
+        except (IndexError, KeyError):
+            return default
+        return default if val is None else bool(val)
+
     @classmethod
     def _row_to_spec(cls, row: sqlite3.Row) -> ModelSpec:
         # Compose the LLM shape onto the stored baseline here, once per read,
@@ -942,6 +965,8 @@ class SqliteStore(MatrixStore):
             cost_input=row["cost_input"] or 0.0,
             cost_output=row["cost_output"] or 0.0,
             agentic=cls._num_column(row, "agentic"),
+            structured_outputs=cls._bool_column(row, "structured_outputs"),
+            reasoning=cls._bool_column(row, "reasoning"),
             competence={
                 "coding":    row["competence_coding"]    or 0.0,
                 "docs":      row["competence_docs"]      or 0.0,

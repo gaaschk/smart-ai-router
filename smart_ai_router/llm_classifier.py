@@ -28,6 +28,7 @@ Classification must never be the reason a request fails.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -184,12 +185,6 @@ def classifier_fallback_model() -> str:
     return _settings.get_str("classifier_fallback").strip()
 
 
-def refine_model() -> str:
-    """The configured second-pass profiler model, or "" if disabled. UI-managed
-    (Settings page) with SMART_ROUTER_CLASSIFIER_REFINE_MODEL as env fallback."""
-    return _settings.get_str("classifier_refine_model").strip()
-
-
 def _parse_profile(text: str) -> PromptProfile | None:
     """Parse a model reply into a validated PromptProfile, or None.
 
@@ -319,7 +314,7 @@ def needs_refinement(profile: PromptProfile) -> bool:
 async def classify_profile_two_speed(
     prompt: str,
     targets: list[ClassifierTarget],
-    refine: ClassifierTarget | None = None,
+    refine: Callable[[], ClassifierTarget | None] | None = None,
 ) -> tuple[PromptProfile, str] | None:
     """Profile a prompt, escalating to a stronger model only when it matters.
 
@@ -327,8 +322,14 @@ async def classify_profile_two_speed(
     ("llm", "llm-free", or the refine target's label), or None if every attempt
     failed and the caller should use the deterministic classifier.
 
+    `refine` is a *factory*, not a target: which model refines is now a routing
+    decision (see helper_models.py), so resolving it reads the model catalog. The
+    refine pass fires on a small minority of prompts, so nothing is resolved
+    until one actually escalates — and callers, which build their arguments up
+    front on every request, don't pay for a decision that usually isn't made.
+
     The refine pass is strictly an improvement attempt: if it fails for any
-    reason — no model configured, no key, network error, malformed reply — the
+    reason — no model available, no key, network error, malformed reply — the
     triage profile is returned as-is. A classifier upgrade must never be able to
     turn a routable request into a failed one.
     """
@@ -336,20 +337,23 @@ async def classify_profile_two_speed(
     if triaged is None:
         return None
     profile, label = triaged
-    if refine is None or not refine.model or not needs_refinement(profile):
+    if refine is None or not needs_refinement(profile):
+        return profile, label
+    target = refine()
+    if target is None or not target.model:
         return profile, label
 
     refined = await classify_profile_llm(
         prompt,
-        base_url=refine.base_url,
-        model=refine.model,
-        api_key=refine.api_key,
+        base_url=target.base_url,
+        model=target.model,
+        api_key=target.api_key,
         system_prompt=_SYSTEM_PROMPT + _REFINE_SUFFIX.format(triage=profile.describe()),
         kind=_overhead.CLASSIFY_REFINE,
     )
     if refined is None:
         return profile, label
-    return refined, refine.label
+    return refined, target.label
 
 
 async def classify_llm(

@@ -151,6 +151,12 @@ class EnrichResult:
     failed: int = 0              # models whose rating call failed (left as-is)
     written: int = 0             # rows actually upserted (0 when dry_run)
     dry_run: bool = False
+    rater: str = ""              # the model that did the rating
+    rater_why: str = ""
+    # Why that model. Reported because the rater is now chosen by routing rather
+    # than typed into settings: a run that reshapes profiles across the catalog
+    # should say which model reshaped them and on what grounds, or the next admin
+    # to read the report has no way to judge it.
     errors: list[str] = field(default_factory=list)
     changes: list[dict] = field(default_factory=list)
     # Per-model detail: {"model", "note", "ratings" (only the non-`capable`
@@ -170,15 +176,11 @@ class EnrichResult:
             "failed": self.failed,
             "written": self.written,
             "dry_run": self.dry_run,
+            "rater": self.rater,
+            "rater_why": self.rater_why,
             "errors": list(self.errors),
             "changes": list(self.changes),
         }
-
-
-def profiler_model() -> str:
-    """The configured model-profiling model, or "" if disabled. UI-managed
-    (Settings page) with SMART_ROUTER_MODEL_PROFILER_MODEL as env fallback."""
-    return _settings.get_str("model_profiler_model").strip()
 
 
 def profiler_limit() -> int:
@@ -251,7 +253,7 @@ async def rate_model(
     spec: ModelSpec,
     *,
     base_url: str,
-    model: str | None = None,
+    model: str = "",
     api_key: str = "",
 ) -> tuple[dict[str, str], str] | None:
     """Ask the rater to judge one model's shape. None on any failure.
@@ -259,8 +261,12 @@ async def rate_model(
     A `None` here means "leave this model's profile exactly as sync computed it",
     which is a safe outcome: the deterministic profile is what the router has been
     using all along.
+
+    `model` is the rater to use, and it is the caller's to choose: which model
+    rates is a routing decision now (helper_models.PROFILER), and routing needs
+    both the store and the provider config, neither of which belongs here.
     """
-    rater = model if model is not None else profiler_model()
+    rater = model
     if not rater or not base_url:
         return None
 
@@ -377,7 +383,8 @@ async def enrich_models(
     *,
     base_url: str,
     api_key: str = "",
-    model: str | None = None,
+    model: str = "",
+    rater_why: str = "",
     only_missing: bool = True,
     limit: int = 0,
     dry_run: bool = False,
@@ -389,7 +396,9 @@ async def enrich_models(
         models:       The candidate pool (typically store.all_models()).
         base_url:     OpenAI-compatible base URL for the rater.
         api_key:      Bearer token for that endpoint.
-        model:        Override the configured rater; "" disables the run.
+        model:        The rater. Chosen by the caller (see helper_models.PROFILER);
+                      "" means none is available and no run happens.
+        rater_why:    Why that rater, for the run's own report.
         only_missing: Skip models that already carry ratings (resumable runs).
         limit:        Ceiling on models rated; 0 means the configured default.
         dry_run:      Compute and report changes without writing anything.
@@ -397,11 +406,11 @@ async def enrich_models(
     Never raises for a provider failure — failures are counted and the affected
     models keep the profiles sync gave them.
     """
-    rater = model if model is not None else profiler_model()
-    result = EnrichResult(dry_run=dry_run)
+    rater = model
+    result = EnrichResult(dry_run=dry_run, rater=rater, rater_why=rater_why)
     if not rater:
         result.errors.append(
-            "no model profiler configured (Settings → Model profiling)"
+            "no model profiler available (Settings → Model profiling)"
         )
         return result
     if not base_url:

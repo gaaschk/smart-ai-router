@@ -27,6 +27,20 @@ class ModelSpec:
     ctx_k: int = 0                      # context window in K tokens
     tools: bool = False                 # supports tool/function calling
     vision: bool = False                # supports image inputs
+    structured_outputs: bool = False
+    # Honors `response_format: {"type": "json_schema"}` — a *schema*, not merely
+    # valid JSON. The distinction is the whole reason this is stored: a model that
+    # accepts `json_object` but ignores the schema answers the prompt instead of
+    # filling in the requested shape, which parses as nothing and fails silently.
+    # The router's own helper calls (prompt refinement, model profiling) depend on
+    # schema-constrained replies, so this is a hard filter for them.
+    reasoning: bool = False
+    # Emits thinking tokens before the answer. Not a quality signal in either
+    # direction — it is a *shape* signal: a thinking model handed a small output
+    # budget spends it reasoning and returns an empty message, which is why the
+    # prompt classifier wants a model without it. Stored rather than re-derived so
+    # a profiler change can be re-applied without re-fetching every catalog, the
+    # same reason `description` is stored.
     reliability: float = 1.0           # 0.0–1.0; models below threshold skipped by router
     cost_input: float = 0.0            # $/M input tokens (0 = unknown or free)
     cost_output: float = 0.0           # $/M output tokens (0 = unknown or free)

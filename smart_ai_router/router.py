@@ -200,6 +200,7 @@ def select(
     profile: PromptProfile,
     needs_tools: bool,
     needs_vision: bool = False,
+    needs_structured: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
     scope: ModelScope | None = None,
@@ -213,6 +214,10 @@ def select(
         profile:      What the prompt demands (see taxonomy.PromptProfile).
         needs_tools:  If True, exclude models where tools=False.
         needs_vision: If True, exclude models where vision=False.
+        needs_structured: If True, exclude models that don't honor a
+                      `response_format` json_schema. Set by callers whose reply
+                      must fill in a fixed shape rather than read as an answer —
+                      the router's own helper calls (see helper_models.py).
         est_tokens:   Estimated prompt size in tokens (0 = skip ctx filter).
         exclude:      Model value strings to skip (e.g. previously rate-limited).
         scope:        Per-user ModelScope; models outside it are ineligible
@@ -232,6 +237,7 @@ def select(
         needs_tools=needs_tools,
         needs_agentic=_needs_agentic(profile, needs_tools, agent_mode),
         needs_vision=needs_vision,
+        needs_structured=needs_structured,
         est_tokens=est_tokens,
         exclude=exclude,
         scope=scope,
@@ -246,6 +252,7 @@ def select_from(
     profile: PromptProfile,
     needs_tools: bool = False,
     needs_vision: bool = False,
+    needs_structured: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
     scope: ModelScope | None = None,
@@ -266,6 +273,7 @@ def select_from(
         needs_tools=needs_tools,
         needs_agentic=_needs_agentic(profile, needs_tools, agent_mode),
         needs_vision=needs_vision,
+        needs_structured=needs_structured,
         est_tokens=est_tokens,
         exclude=exclude,
         scope=scope,
@@ -282,6 +290,7 @@ def _select(
     needs_tools: bool,
     needs_agentic: bool = False,
     needs_vision: bool = False,
+    needs_structured: bool = False,
     est_tokens: int = 0,
     exclude: set[str] | None = None,
     scope: ModelScope | None = None,
@@ -337,6 +346,8 @@ def _select(
             agentic_excluded += 1
             return False
         if needs_vision and not spec.vision:
+            return False
+        if needs_structured and not spec.structured_outputs:
             return False
         if est_tokens > 0 and spec.ctx_k > 0 and est_tokens > spec.ctx_k * 1000:
             return False

@@ -1109,6 +1109,11 @@
         <span class="chip" onclick="toggleFilter(this, 'tools')">Tools</span>
         <span class="chip" onclick="toggleFilter(this, 'vision')">Vision</span>
         <span class="chip" onclick="toggleFilter(this, 'rated')">LLM-rated</span>
+        <!-- Filters rather than columns: the table already carries ten, and these
+             two answer a narrow question ("what could do a schema-constrained
+             job?") rather than one you scan a whole catalog for. -->
+        <span class="chip" onclick="toggleFilter(this, 'structured')" title="honors a response_format json_schema — required for the router's own classifier and profiler calls">JSON schema</span>
+        <span class="chip" onclick="toggleFilter(this, 'reasoning')" title="emits thinking tokens before the answer">Thinking</span>
         <span class="chip" onclick="toggleFilter(this, 'openrouter')">OpenRouter</span>
         <span class="chip" onclick="toggleFilter(this, 'ollama')">Ollama</span>
         <span class="chip" onclick="toggleFilter(this, 'bedrock')">Bedrock</span>
@@ -1833,6 +1838,15 @@ function _agenticCell(m) {
     : `<span style="font-size:0.75rem">${pct}%</span>`;
 }
 
+// Full id plus the flags that have no column of their own, on hover. The chips
+// above filter on these; this is how you read them for a row you're looking at.
+function _modelTitle(m) {
+  const flags = [];
+  if (m.structured_outputs) flags.push('json schema');
+  if (m.reasoning) flags.push('thinking');
+  return flags.length ? `${m.value} — ${flags.join(', ')}` : m.value;
+}
+
 function renderModels() {
   const q = (document.getElementById('models-search').value || '').toLowerCase();
   let filtered = _allModels.filter(m => {
@@ -1840,6 +1854,8 @@ function renderModels() {
     if (_activeFilters.has('tools') && !m.tools) return false;
     if (_activeFilters.has('vision') && !m.vision) return false;
     if (_activeFilters.has('rated') && !_isRated(m)) return false;
+    if (_activeFilters.has('structured') && !m.structured_outputs) return false;
+    if (_activeFilters.has('reasoning') && !m.reasoning) return false;
     if (_activeFilters.has('openrouter') && m.provider !== 'openrouter') return false;
     if (_activeFilters.has('ollama') && m.provider !== 'ollama') return false;
     if (_activeFilters.has('bedrock') && m.provider !== 'bedrock') return false;
@@ -1876,7 +1892,7 @@ function renderModels() {
     const compPct = (bestComp * 100).toFixed(0);
     const compClass = bestComp >= 0.85 ? 'high' : bestComp >= 0.7 ? 'mid' : 'low';
     return `<tr>
-      <td class="model-name" title="${m.value}">${m.value.replace(/^(openrouter|ollama|bedrock)\//, '')}</td>
+      <td class="model-name" title="${_modelTitle(m)}">${m.value.replace(/^(openrouter|ollama|bedrock)\//, '')}</td>
       <td>${m.provider}</td>
       <td>${m.cost}</td>
       <td>${m.ctx_k > 0 ? m.ctx_k + 'K' : '—'}</td>
@@ -1963,6 +1979,16 @@ async function doRefineProfiles(dryRun) {
 function _renderRefineReport(enrich, audit, dryRun) {
   const muted = 'font-size:0.72rem;color:var(--text-muted)';
   const out = [];
+
+  // Who did the rating, first line. The rater is chosen by routing now, so it can
+  // differ between runs — a report of shifted profiles that doesn't name the
+  // model that shifted them can't be judged.
+  if (enrich.rater) {
+    out.push(`<div style="${muted};margin-bottom:0.5rem">Rated by
+      <strong>${escapeHtml(enrich.rater)}</strong>${
+        enrich.rater_why ? ` — ${escapeHtml(enrich.rater_why)}` : ''
+      }</div>`);
+  }
 
   // Routing effect first. The score diffs below are only interesting insofar as
   // they move real traffic, so lead with the traffic.

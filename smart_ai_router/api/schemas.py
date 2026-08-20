@@ -66,6 +66,17 @@ class ModelSpecResponse(BaseModel):
     ctx_k: int
     tools: bool
     vision: bool
+    structured_outputs: bool = Field(
+        default=False,
+        description=(
+            "honors a response_format json_schema, so a reply can be constrained "
+            "to a shape; required for the router's own helper calls"
+        ),
+    )
+    reasoning: bool = Field(
+        default=False,
+        description="emits thinking tokens before the answer",
+    )
     reliability: float
     cost_input: float
     cost_output: float
@@ -104,7 +115,8 @@ class ProfileRefineRequest(BaseModel):
         description="compute and report changes without writing anything",
     )
     model: str | None = Field(
-        default=None, description="override the configured profiler model"
+        default=None,
+        description="pin the rater for this run instead of routing to it",
     )
     audit_days: int = Field(
         default=30,

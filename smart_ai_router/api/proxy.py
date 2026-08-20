@@ -28,6 +28,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from smart_ai_router import helper_models as _helpers
 from smart_ai_router import overhead as _overhead
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
@@ -38,7 +39,6 @@ from smart_ai_router.llm_classifier import (
     classifier_fallback_model,
     classifier_model,
     classify_profile_two_speed,
-    refine_model,
 )
 from smart_ai_router.models import ModelSpec, UsageRecord
 from smart_ai_router.ratelimit import check_rate_limit, window_start_for
@@ -292,16 +292,29 @@ def _header_safe(text: str, limit: int = 400) -> str:
 def _refine_target(cr) -> ClassifierTarget | None:
     """The second-pass profiler, or None when it isn't available.
 
-    Requires both a configured refine model and a stored OpenRouter key. Absent
-    either, the two-speed chain simply routes on the local triage profile —
-    degrading the routing decision, never the request.
+    Which model this is comes from helper_models.resolve(), so by default it is
+    the cheapest model that clears frontier depth and honors a JSON schema rather
+    than a name someone typed. Called lazily — only for a prompt that actually
+    escalates — because resolving it reads the model catalog.
+
+    Absent an available model or a provider to reach it through, the two-speed
+    chain simply routes on the local triage profile: a degraded routing decision,
+    never a failed request. That is why the HTTPException _resolve_provider raises
+    is swallowed here — for a user request it is a fixable 422, but for an
+    optional second opinion it is just a reason to skip.
     """
-    model = refine_model()
-    or_key = _openrouter_key(cr)
-    if not model or not or_key:
+    choice = _helpers.resolve(_helpers.REFINE, cr)
+    if choice is None:
+        return None
+    try:
+        base_url, api_key, real_model = _resolve_provider(choice.model, cr)
+    except HTTPException:
         return None
     return ClassifierTarget(
-        model=model, base_url=_OPENROUTER_BASE, api_key=or_key, label="llm-refined"
+        model=real_model,
+        base_url=base_url,
+        api_key=api_key,
+        label=_helpers.REFINE.label,
     )
 
 
@@ -536,7 +549,12 @@ async def chat_completions(request: Request):
         # classifier so the classifier stays store-free — see overhead.py.
         with _overhead.collect() as overhead_calls:
             chain_result = await classify_profile_two_speed(
-                prompt_text, _classifier_targets(cr), _refine_target(cr)
+                prompt_text,
+                _classifier_targets(cr),
+                # Passed unevaluated: resolving the refine model routes, and the
+                # pass fires on a small minority of prompts. See
+                # classify_profile_two_speed().
+                lambda: _refine_target(cr),
             )
         _overhead.record(
             cr, overhead_calls,
