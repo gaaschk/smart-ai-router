@@ -74,7 +74,7 @@ SPECS: tuple[SettingSpec, ...] = (
         key="classifier_model",
         env="SMART_ROUTER_CLASSIFIER_MODEL",
         type="str",
-        default="qwen2.5:3b-instruct",
+        default="llama3.1:8b",
         label="Classifier model",
         group="Classifier",
         help="Local model used to profile each prompt (which fields it needs and "
@@ -82,7 +82,7 @@ SPECS: tuple[SettingSpec, ...] = (
         "burn the classifier's tiny output budget before emitting the JSON. "
         "Pinned rather than routed (unlike the refine model below) on purpose — "
         "this runs on every request, so changing which model does triage needs a "
-        "measured comparison first.",
+        "measured comparison first (scripts/bakeoff_classifier.py).",
     ),
     SettingSpec(
         key="classifier_fallback",
@@ -102,7 +102,7 @@ SPECS: tuple[SettingSpec, ...] = (
         group="Classifier",
         help="Second-pass profiler, used only when the local classifier reports "
         "high stakes, two or more specialist-depth fields, or frontier depth — "
-        "the judgments a 3B model gets wrong expensively. Runs only on prompts "
+        "the judgments a small local model gets wrong expensively. Runs only on prompts "
         "already headed for a costly model. `auto` routes it like any other "
         "prompt — cheapest model that clears frontier depth and honors a JSON "
         "schema. A model name pins it instead. Empty disables the second pass.",

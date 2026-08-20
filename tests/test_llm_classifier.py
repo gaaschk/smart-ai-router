@@ -70,6 +70,15 @@ def test_drops_out_of_vocabulary_field():
     assert p == _profile(("natural_science", "specialist"))
 
 
+def test_an_empty_domains_reply_profiles_as_a_trivial_prompt():
+    """The live 3B triage model answers 'hi' and 'what's the capital of France?'
+    with a schema-valid `{"domains": []}`. Dropping that on the floor cost the
+    two-speed chain a third of its replies — all of them the easy prompts — and
+    the fallback it landed on was the keyword classifier."""
+    p = _parse_profile('{"domains": [], "demands": [], "stakes": "low"}')
+    assert p == _profile(("general_knowledge", "surface"))
+
+
 def test_returns_none_when_no_field_survives():
     # Nothing usable → None, so the caller falls through to the next target
     # rather than routing on an empty profile.

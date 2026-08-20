@@ -273,13 +273,17 @@ def normalize_profile(raw: object) -> PromptProfile | None:
     an object, unknown field names, a missing depth) but never invents a demand
     or a field that wasn't in-vocabulary — an out-of-vocabulary label is dropped,
     and if nothing survives we return None so the caller can fall back.
+
+    The one exception is an explicitly *empty* domains list, which is an answer
+    rather than a failure: see below.
     """
     if not isinstance(raw, dict):
         return None
 
+    entries = raw.get("domains")
     needs: list[DomainNeed] = []
     seen: set[str] = set()
-    for entry in raw.get("domains") or []:
+    for entry in entries or []:
         if isinstance(entry, str):
             field, depth = entry, "practitioner"
         elif isinstance(entry, dict):
@@ -297,7 +301,21 @@ def normalize_profile(raw: object) -> PromptProfile | None:
             break
 
     if not needs:
-        return None
+        # `"domains": []` is a judgment — "nothing here needs expertise in any
+        # particular field" — and it's the honest profile of every trivial
+        # prompt. Measured on the live host, it was ~31% of a 3B triage model's
+        # replies, all of them chit-chat and one-line lookups, every one thrown
+        # away here and silently downgraded to the keyword classifier.
+        #
+        # Dropped entries are a different thing and still fall through: a model
+        # naming `nuclear_engineering` misunderstood the vocabulary, so its whole
+        # reply is suspect. Only the empty list is trusted.
+        #
+        # Underrouting risk is bounded: demands and stakes survive, so a reply
+        # of "no field, but high stakes" still escalates to the refine pass.
+        if not isinstance(entries, list) or entries:
+            return None
+        needs = [DomainNeed(field="general_knowledge", depth="surface")]
 
     # Demands arrive either as a list of names or as an object of booleans;
     # accept both, since which shape a small model emits is not reliable.
