@@ -121,6 +121,17 @@ def _seed(store: SqliteStore, *, with_key: bool = True) -> None:
         name="openrouter", kind="openrouter",
         api_key="sk-or-test" if with_key else "", enabled=False,
     ))
+    # A model for the profiler to route to. Profiling picks its rater by routing
+    # now, so a run needs something in the catalog that clears the profiler's bar
+    # (general_knowledge @ specialist) and honors a json_schema — the bedrock
+    # models this sync introduces do neither. Priced at the top so it never wins
+    # the traffic these tests audit, and pre-noted so `only_missing` runs skip
+    # rating it: it is here to *do* the rating, not to receive one.
+    store.upsert_model(ModelSpec(
+        value="openrouter/rater", provider="openrouter", cost=12, reliability=1.0,
+        structured_outputs=True, profile={f: 0.95 for f in FIELD_KEYS},
+        profile_note="seeded rater",
+    ))
 
 
 def _fake_rating(monkeypatch, ratings=None, note="rated"):

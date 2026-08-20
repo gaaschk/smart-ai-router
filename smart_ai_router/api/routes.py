@@ -221,6 +221,51 @@ async def sync(body: SyncRequest, request: Request):
     )
 
 
+def _rater_target(cr, pinned: str = "") -> tuple[str, str, str, str] | None:
+    """(base_url, api_key, model, why) for the model profiler, or None if there
+    is no rater to use.
+
+    None means "don't profile": either the setting is empty (profiling off) or
+    nothing in the catalog qualifies to rate models. Both callers treat that as a
+    reason to skip rather than an error.
+
+    `pinned` overrides the choice for a single run — the Refine endpoint's `model`
+    field, which is how an admin tries a specific rater without changing settings.
+
+    Raises HTTPException when the chosen model can't actually be reached — no
+    provider configured for it, or one configured without a key. That is a real,
+    fixable setup problem for someone who pressed Refine, so it propagates there;
+    the sync path catches it, because a sync must not fail over an optional
+    profiling pass.
+    """
+    from smart_ai_router import helper_models as _helpers
+    from smart_ai_router.api.proxy import _resolve_provider
+
+    choice = (
+        _helpers.HelperChoice(model=pinned, why="requested for this run", pinned=True)
+        if pinned
+        else _helpers.resolve(_helpers.PROFILER, cr)
+    )
+    if choice is None:
+        return None
+    base_url, api_key, real_model = _resolve_provider(choice.model, cr)
+    # A hosted provider with no key would 401 once per model in the run. Said
+    # plainly here instead, because it is fixable on the Providers page — and
+    # because _resolve_provider hands back a keyless base URL rather than
+    # raising, which is right for the proxy (a request can carry its own key)
+    # and wrong for a burst the router initiates itself. Local providers
+    # legitimately have no key, so only the remote ones are checked.
+    if not api_key and not choice.model.startswith("ollama/"):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"No API key for the provider behind {real_model!r}. "
+                "Add one on the Providers page."
+            ),
+        )
+    return base_url, api_key, real_model, choice.why
+
+
 async def _profile_new_models(
     cr, result, override: bool | None, *, admin: bool = True, user: str = ""
 ) -> tuple[ProfileRefineResponse | None, int]:
@@ -242,7 +287,6 @@ async def _profile_new_models(
     """
     from smart_ai_router import llm_profiler
     from smart_ai_router import settings as _settings
-    from smart_ai_router.api.proxy import _OPENROUTER_BASE, _openrouter_key
 
     enabled = (
         override if override is not None
@@ -256,17 +300,25 @@ async def _profile_new_models(
         # the catalog, and the models keep their deterministic profiles.
         return None, len(result.needs_profiling)
 
-    api_key = _openrouter_key(cr)
-    if not api_key or not llm_profiler.profiler_model():
-        # Not configured is not an error here — the sync itself succeeded, and
-        # the models keep the deterministic profiles it just computed.
+    try:
+        rater = _rater_target(cr)
+    except HTTPException:
+        # The chosen rater's provider isn't configured. A sync must survive that.
+        rater = None
+    if rater is None:
+        # No rater available — disabled in settings, or nothing in the catalog
+        # qualifies. Not an error here: the sync itself succeeded, and the models
+        # keep the deterministic profiles it just computed.
         return None, len(result.needs_profiling)
+    base_url, api_key, real_model, why = rater
 
     limit = llm_profiler.profiler_limit()
     try:
         out = await cr.refine_model_profiles(
-            base_url=_OPENROUTER_BASE,
+            base_url=base_url,
             api_key=api_key,
+            model=real_model,
+            rater_why=why,
             # The caller already narrowed this to models whose shape evidence
             # changed, which includes re-rating a model whose description was
             # rewritten — so the "skip already-rated" filter must not apply.
@@ -292,26 +344,28 @@ async def refine_profiles(body: ProfileRefineRequest, request: Request):
     which real routed prompts would change model — and writes nothing, which is
     the intended way to look before committing.
 
-    422 when no OpenRouter provider is configured, since that is a fixable
-    setup problem rather than a failed run.
+    422 when there is no rater to run it with, since that is a fixable setup
+    problem rather than a failed run.
     """
     _require_admin(request)
-    from smart_ai_router.api.proxy import _OPENROUTER_BASE, _openrouter_key
 
     cr = _router_instance(request)
-    api_key = _openrouter_key(cr)
-    if not api_key:
+    rater = _rater_target(cr, pinned=(body.model or "").strip())
+    if rater is None:
         raise HTTPException(
             status_code=422,
-            detail="Model profiling needs an OpenRouter provider with an API key.",
+            detail="No model available to profile with. Set 'Model profiler "
+            "model' to auto (and sync the catalog) or name a model explicitly.",
         )
+    base_url, api_key, real_model, why = rater
     since = (
         datetime.now(timezone.utc) - timedelta(days=max(0, body.audit_days))
     ).isoformat()
     out = await cr.refine_model_profiles(
-        base_url=_OPENROUTER_BASE,
+        base_url=base_url,
         api_key=api_key,
-        model=body.model,
+        model=real_model,
+        rater_why=why,
         only_missing=body.only_missing,
         limit=body.limit,
         dry_run=body.dry_run,
@@ -545,6 +599,8 @@ def _to_response(spec) -> ModelSpecResponse:
         ctx_k=spec.ctx_k,
         tools=spec.tools,
         vision=spec.vision,
+        structured_outputs=spec.structured_outputs,
+        reasoning=spec.reasoning,
         reliability=spec.reliability,
         cost_input=spec.cost_input,
         cost_output=spec.cost_output,

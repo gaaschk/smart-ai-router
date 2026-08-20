@@ -79,7 +79,10 @@ SPECS: tuple[SettingSpec, ...] = (
         group="Classifier",
         help="Local model used to profile each prompt (which fields it needs and "
         "how deep). Prefer a small non-reasoning instruct model: thinking models "
-        "burn the classifier's tiny output budget before emitting the JSON.",
+        "burn the classifier's tiny output budget before emitting the JSON. "
+        "Pinned rather than routed (unlike the refine model below) on purpose — "
+        "this runs on every request, so changing which model does triage needs a "
+        "measured comparison first.",
     ),
     SettingSpec(
         key="classifier_fallback",
@@ -94,28 +97,30 @@ SPECS: tuple[SettingSpec, ...] = (
         key="classifier_refine_model",
         env="SMART_ROUTER_CLASSIFIER_REFINE_MODEL",
         type="str",
-        default="openai/gpt-5.6-luna",
+        default="auto",
         label="Classifier refine model",
         group="Classifier",
         help="Second-pass profiler, used only when the local classifier reports "
         "high stakes, two or more specialist-depth fields, or frontier depth — "
-        "the judgments a 3B model gets wrong expensively. Runs on OpenRouter "
-        "(~$0.0003/call at the default model) and only on prompts already headed "
-        "for a costly model. Empty disables the second pass.",
+        "the judgments a 3B model gets wrong expensively. Runs only on prompts "
+        "already headed for a costly model. `auto` routes it like any other "
+        "prompt — cheapest model that clears frontier depth and honors a JSON "
+        "schema. A model name pins it instead. Empty disables the second pass.",
     ),
     SettingSpec(
         key="model_profiler_model",
         env="SMART_ROUTER_MODEL_PROFILER_MODEL",
         type="str",
-        default="openai/gpt-5.6-luna",
+        default="auto",
         label="Model profiler model",
         group="Model profiling",
         help="Model asked to judge what each catalog model is good and bad at, "
         "refining the deterministic profile sync computes from benchmarks. Runs "
         "when you press Refine on the Models page, and after a sync for models it "
-        "just added — never on a request path. Needs broad knowledge of the model "
-        "landscape, so use a capable model; it is one short call per model "
-        "profiled. Empty disables refinement entirely.",
+        "just added — never on a request path. `auto` routes it like any other "
+        "prompt — cheapest model that clears specialist depth and honors a JSON "
+        "schema. A model name pins it instead. Empty disables refinement "
+        "entirely.",
     ),
     SettingSpec(
         key="model_profiler_limit",

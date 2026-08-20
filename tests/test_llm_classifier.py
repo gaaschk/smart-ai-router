@@ -20,7 +20,6 @@ from smart_ai_router.llm_classifier import (
     classify_profile_llm,
     classify_profile_two_speed,
     needs_refinement,
-    refine_model,
 )
 from smart_ai_router.taxonomy import (
     DEMAND_KEYS,
@@ -116,19 +115,6 @@ def test_default_fallback_model(monkeypatch):
 def test_fallback_can_be_disabled(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_FALLBACK", "")
     assert classifier_fallback_model() == ""
-
-
-def test_default_refine_model(monkeypatch):
-    monkeypatch.delenv("SMART_ROUTER_CLASSIFIER_REFINE_MODEL", raising=False)
-    shipped = next(
-        s for s in _settings.SPECS if s.key == "classifier_refine_model"
-    ).default
-    assert refine_model() == shipped
-
-
-def test_refine_can_be_disabled(monkeypatch):
-    monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_REFINE_MODEL", "")
-    assert refine_model() == ""
 
 
 # ── The HTTP call ─────────────────────────────────────────────────────────────
@@ -355,7 +341,7 @@ def test_two_speed_skips_refine_for_ordinary_prompt(monkeypatch):
     triage = _profile(("software_engineering", "practitioner"))
     _stub_two_speed(monkeypatch, triage, _profile(("math_formal", "frontier")), calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("fix my test", [_TRIAGE], _REFINE)
+        classify_profile_two_speed("fix my test", [_TRIAGE], lambda: _REFINE)
     )
     assert (profile, label) == (triage, "llm")
     assert calls == ["local"]  # no paid call for an ordinary prompt
@@ -372,7 +358,7 @@ def test_two_speed_refines_consequential_prompt(monkeypatch):
     )
     _stub_two_speed(monkeypatch, triage, refined, calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("48 jurisdictions of reactor law", [_TRIAGE], _REFINE)
+        classify_profile_two_speed("48 jurisdictions of reactor law", [_TRIAGE], lambda: _REFINE)
     )
     assert (profile, label) == (refined, "llm-refined")
     assert calls == ["local", "big"]
@@ -386,7 +372,7 @@ def test_two_speed_can_lower_the_bar(monkeypatch):
     refined = _profile(("general_knowledge", "surface"))
     _stub_two_speed(monkeypatch, triage, refined, calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("what does GDPR stand for?", [_TRIAGE], _REFINE)
+        classify_profile_two_speed("what does GDPR stand for?", [_TRIAGE], lambda: _REFINE)
     )
     assert (profile, label) == (refined, "llm-refined")
 
@@ -397,10 +383,41 @@ def test_two_speed_keeps_triage_when_refine_fails(monkeypatch):
     triage = _profile(("math_formal", "frontier"))
     _stub_two_speed(monkeypatch, triage, None, calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("prove it", [_TRIAGE], _REFINE)
+        classify_profile_two_speed("prove it", [_TRIAGE], lambda: _REFINE)
     )
     assert (profile, label) == (triage, "llm")
     assert calls == ["local", "big"]
+
+
+def test_two_speed_does_not_resolve_a_refine_model_it_will_not_use(monkeypatch):
+    """The refine target is a factory, not a value, because resolving it now means
+    routing — a read of the whole model catalog. The escalation fires on a small
+    minority of prompts, and the caller builds its arguments on every one, so the
+    decision must not be made until a prompt actually escalates."""
+    calls: list = []
+    resolved: list[str] = []
+    triage = _profile(("software_engineering", "practitioner"))
+    _stub_two_speed(monkeypatch, triage, _profile(("math_formal", "frontier")), calls)
+
+    def factory():
+        resolved.append("resolved")
+        return _REFINE
+
+    asyncio.run(classify_profile_two_speed("fix my test", [_TRIAGE], factory))
+    assert resolved == []
+
+
+def test_two_speed_keeps_triage_when_no_refine_model_is_available(monkeypatch):
+    """A factory returning None is the normal outcome of "nothing qualified to
+    refine with" (helper_models.resolve). It degrades the routing decision to the
+    local model's read of the prompt; it must never fail the request."""
+    calls: list = []
+    triage = _profile(("math_formal", "frontier"))
+    _stub_two_speed(monkeypatch, triage, _profile(("general_knowledge", "surface")), calls)
+    assert asyncio.run(
+        classify_profile_two_speed("prove it", [_TRIAGE], lambda: None)
+    ) == (triage, "llm")
+    assert calls == ["local"]
 
 
 def test_two_speed_without_refine_target(monkeypatch):
@@ -421,7 +438,7 @@ def test_two_speed_returns_none_when_triage_fails(monkeypatch):
         return None
 
     monkeypatch.setattr(lc, "classify_profile_llm", always_none)
-    assert asyncio.run(classify_profile_two_speed("x", [_TRIAGE], _REFINE)) is None
+    assert asyncio.run(classify_profile_two_speed("x", [_TRIAGE], lambda: _REFINE)) is None
 
 
 # ── Legacy label wrappers ─────────────────────────────────────────────────────

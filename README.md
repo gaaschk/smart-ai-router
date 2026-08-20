@@ -366,7 +366,7 @@ Two or more fields at specialist depth or deeper adds a further +0.04, because h
 
 ### Two-speed classification
 
-The local classifier (a small Ollama model) profiles every prompt. When it reports **high stakes**, **two or more specialist-depth fields**, or **frontier depth** — the judgments a 3B model gets wrong expensively — a second pass on a stronger model refines the profile before routing. That call fires only on prompts already headed for a costly model, and lowering the bar is as valid a correction as raising it. Set `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` (or the **Classifier** group in Settings) to empty to disable it. If no LLM classifier is reachable, a keyword profiler runs instead. Both passes are billed and both appear on the Usage page as router overhead, so how often the second pass fires — and what it costs — is something you can look up rather than estimate.
+The local classifier (a small Ollama model) profiles every prompt. When it reports **high stakes**, **two or more specialist-depth fields**, or **frontier depth** — the judgments a 3B model gets wrong expensively — a second pass on a stronger model refines the profile before routing. That call fires only on prompts already headed for a costly model, and lowering the bar is as valid a correction as raising it. Which model runs that second pass is itself a routing decision (see [The router's own calls](#the-routers-own-calls)); set `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` (or the **Classifier** group in Settings) to empty to disable it. If no LLM classifier is reachable, a keyword profiler runs instead. Both passes are billed and both appear on the Usage page as router overhead, so how often the second pass fires — and what it costs — is something you can look up rather than estimate.
 
 ### Model profiles
 
@@ -460,11 +460,78 @@ curl -X POST http://localhost:8001/api/models/profile \
 ```
 
 Configured under **Settings → Model profiling**
-(`SMART_ROUTER_MODEL_PROFILER_MODEL`, `SMART_ROUTER_MODEL_PROFILER_LIMIT`).
+(`SMART_ROUTER_MODEL_PROFILER_MODEL`, `SMART_ROUTER_MODEL_PROFILER_LIMIT`). The
+rater defaults to `auto` — routed, not pinned (see below) — and every run reports
+which model it used and why, since a report of shifted profiles can't be judged
+without knowing who shifted them.
 
 Every rating call is logged to the usage log as `kind="profile"` overhead (see
 [Router overhead](#router-overhead)), including on a dry run — so what a run cost
 is a number on the Usage page, not an estimate from the model count.
+
+### The router's own calls
+
+The router makes LLM calls of its own: the refine pass that re-profiles a
+consequential prompt, and the rating pass that judges what a model is for. Both
+used to be pinned to a hand-typed model name aimed at a hardcoded provider — so
+the one part of the system nobody routed was the part the router runs itself. The
+denylist didn't apply to it, neither did the reliability floor, a retired model
+name failed silently instead of re-routing, and nothing noticed when a cheaper
+qualified model appeared.
+
+Both settings now take three values:
+
+| Value | Meaning |
+|-------|---------|
+| `auto` *(default)* | Route it. Cheapest model clearing the bar for that task, same rules as user traffic. |
+| a model name | Pin it, verbatim — the escape hatch for "the router's pick is wrong and I need it fixed now". Works even for a model absent from the catalog. |
+| empty | Don't make the call at all. |
+
+Each task carries a hand-written prompt profile rather than being classified,
+because the workload is known: both ask for broad `general_knowledge`, and depth
+is the only real difference. The refine pass demands **frontier** — it exists only
+for prompts already headed to the top tier, so a model that doesn't clear the top
+bar has nothing to add. The profiler demands **specialist**, because it runs one
+call per model and a frontier bar would price a catalog-wide run out for judgment
+specialist depth already covers.
+
+Both also require `structured_outputs` (below), and both take only a *qualified*
+pick. Ordinary routing falls back to the closest available model when nothing
+clears every bar, which is right for a request — some answer beats none — and
+wrong here: a rater too weak to judge a model, or a refine pass no better than the
+triage model it second-guesses, spends money to make the decision worse. When
+nothing qualifies, the call is skipped: routing falls back to the local
+classifier's read, or a profiling run reports that it had no rater. A degraded
+decision, never a failed request.
+
+One caveat worth stating plainly: the profiler's own pick is chosen using the same
+profiles the profiler exists to correct. That circularity is bounded by the things
+that bound any Refine run — the dry-run preview, the routing audit, and the pin.
+
+### Capability flags
+
+Two facts about a model's *shape* (not its quality) are persisted alongside its
+profile, derived on every sync:
+
+- **`structured_outputs`** — honors `response_format: {"type": "json_schema"}`, a
+  schema rather than merely valid JSON. The distinction is the whole reason it's
+  stored: a model that accepts `json_object` but ignores the schema answers the
+  prompt instead of filling in the requested shape, which parses as nothing and
+  fails silently. On the live OpenRouter catalog, 336 of 415 models advertise
+  `structured_outputs` while 359 advertise `response_format` — that 23-model gap
+  is exactly the silent-failure population, which is why the flag reads the former.
+  Ollama models are all flagged capable, since Ollama implements the constraint
+  server-side as constrained decoding regardless of the weights. Bedrock is
+  flagged *not* capable: unverified through its OpenAI-compatible endpoint, and
+  the safe direction is to not use a model rather than to trust one.
+- **`reasoning`** — emits thinking tokens before the answer. Not a quality signal
+  in either direction. It's a shape signal: a thinking model handed a small output
+  budget spends it reasoning and returns an empty message, which is why the local
+  classifier wants a model without it.
+
+Both are filter chips on the Models page (**JSON schema**, **Thinking**) and show
+on hover over a model's name. `structured_outputs` is a hard routing filter for
+the router's own calls above.
 
 ### Selection
 
@@ -518,8 +585,8 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
 | `SMART_ROUTER_CLASSIFIER_MODEL` ⚙ | `qwen2.5:3b-instruct` | Primary (local Ollama) model that profiles each prompt. Prefer a small **non-reasoning** instruct model — thinking models burn the classifier's tiny output budget before emitting JSON. Empty string disables the local step. |
 | `SMART_ROUTER_CLASSIFIER_FALLBACK` ⚙ | `nvidia/nemotron-nano-9b-v2:free` | Free OpenRouter model tried if the local classifier fails. Only used when an OpenRouter key is configured. Empty string disables it. |
-| `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `openai/gpt-5.6-luna` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). Needs an OpenRouter key; empty string disables the second pass. |
-| `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `openai/gpt-5.6-luna` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. Needs an OpenRouter key; empty string disables refinement. |
+| `SMART_ROUTER_CLASSIFIER_REFINE_MODEL` ⚙ | `auto` | Second-pass profiler, run only on prompts the local classifier flags as high-stakes, multi-specialist, or frontier-depth (see [Two-speed classification](#two-speed-classification)). `auto` routes it (see [The router's own calls](#the-routers-own-calls)); a model name pins it; empty string disables the second pass. |
+| `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `auto` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. `auto` routes it, a model name pins it, empty string disables refinement. |
 | `SMART_ROUTER_MODEL_PROFILER_LIMIT` ⚙ | `40` | Default ceiling on models rated per Refine run, cheapest first. Also caps the pass that runs after a sync. |
 | `SMART_ROUTER_MODEL_PROFILER_ON_SYNC` ⚙ | `1` | Profile the models each sync adds (and any whose description was rewritten), so a new model doesn't route on a cue-table guess. Never re-profiles a model that only changed price or benchmark scores. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |

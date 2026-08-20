@@ -255,13 +255,15 @@ def test_enrich_records_an_all_capable_verdict(monkeypatch):
     assert store.get("general").profile_note == "broad general-purpose model"
 
 
-def test_enrich_refuses_to_run_without_a_configured_rater():
+def test_enrich_refuses_to_run_without_a_rater():
+    """The rater is the caller's to choose (helper_models.PROFILER); "" means it
+    found none, and rating with no rater is not a thing this can improvise."""
     store = _store_with(_spec("m"))
     result = asyncio.run(llm_profiler.enrich_models(
         store, store.all_models(), base_url="http://x/v1", model="",
     ))
     assert result.rated == 0
-    assert "no model profiler configured" in result.errors[0]
+    assert "no model profiler available" in result.errors[0]
 
 
 def test_enrich_refuses_to_run_without_a_base_url():
