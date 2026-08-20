@@ -12,11 +12,28 @@ command when the fix needs a human (e.g. sudo). Previously this fired the
 restart blind and always claimed success, so a blocked merge or a failed
 kickstart both looked like "Restarting…" and the update banner simply came
 back with no explanation.
+
+Restarting has two routes, because kickstart only covers one kind of install:
+
+  1. `launchctl kickstart` the job — clean and immediate, but only possible for
+     a job in this user's gui/user domain.
+  2. Exit, and let launchd's own KeepAlive start a new process on the new code.
+     This is the route that works for a root-owned system LaunchDaemon, which
+     an unprivileged kickstart can never touch. Guarded by an interlock: launchd
+     must report *this* pid as the job's, which is both proof that the job is
+     supervising us and what keeps the route from firing in a test run or in a
+     hand-started process, where exiting would just take the app down.
 """
 from __future__ import annotations
 
 import os
+import plistlib
+import signal
 import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -26,6 +43,16 @@ APP_DAEMON_LABEL = os.environ.get("SMART_ROUTER_LABEL", "com.smart-ai-router")
 # gui/user domains can be kickstarted by this process; one registered in the
 # `system` domain belongs to root and cannot (see _restart_target).
 _USER_DOMAINS = ("gui", "user")
+
+# Where launchd reads job definitions from, and the domain each directory
+# implies. Scanned so the app can find its own job by what it *runs* rather than
+# by a configured label — a label that doesn't match the installed plist is the
+# exact reason the live deployment pulled fine and never restarted.
+_PLIST_DIRS = (
+    (Path("/Library/LaunchDaemons"), "system"),
+    (Path.home() / "Library" / "LaunchAgents", "gui"),
+    (Path("/Library/LaunchAgents"), "gui"),
+)
 
 
 def _git(*args) -> subprocess.CompletedProcess:
@@ -76,13 +103,128 @@ def source_update_status(fetch: bool = True) -> dict:
     }
 
 
-def _job_exists(domain: str, label: str) -> bool:
-    """True if launchd has `label` registered in `domain`."""
+def _job_print(domain: str, label: str) -> str | None:
+    """launchd's description of `domain/label`, or None if it has no such job.
+
+    Readable without privilege even for a root-owned system daemon, which is what
+    makes both the existence check and the pid interlock available here.
+    """
     proc = subprocess.run(
         ["launchctl", "print", f"{domain}/{label}"],
         capture_output=True, text=True,
     )
-    return proc.returncode == 0
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _job_exists(domain: str, label: str) -> bool:
+    """True if launchd has `label` registered in `domain`."""
+    return _job_print(domain, label) is not None
+
+
+def _job_pid(domain: str, label: str) -> int | None:
+    """The pid launchd currently has for `domain/label`, or None.
+
+    None also covers a job that is registered but not running, which is why this
+    is a stronger signal than existence for "is that job *this* process".
+    """
+    printed = _job_print(domain, label)
+    if printed is None:
+        return None
+    for line in printed.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "pid":
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _relaunches_on_exit(keep_alive) -> bool:
+    """Whether launchd would start a new process if this one ended now.
+
+    Only the unconditional form is trusted. The dictionary form is a set of
+    conditions (network state, other jobs, exit status), and `SuccessfulExit:
+    false` is the one that clearly covers dying on a signal; anything else is
+    read as "don't gamble the app on an assumption" and reported instead.
+    """
+    if keep_alive is True:
+        return True
+    if isinstance(keep_alive, dict):
+        return keep_alive.get("SuccessfulExit") is False
+    return False
+
+
+@dataclass(frozen=True)
+class _Job:
+    """A launchd job that runs this application."""
+    label: str
+    domain: str
+    relaunch_on_exit: bool
+    path: Path
+
+
+def _runs_this_app(exe: str, args: list[str]) -> bool:
+    """Whether a plist's program is this app rather than something adjacent.
+
+    Keyed on the executable living in this interpreter's own bin directory,
+    which covers both `python -m smart_ai_router` and the console script while
+    excluding jobs that merely mention the app — e.g. the cloudflared tunnel
+    plist on the live host, which names it in its config path.
+    """
+    if not exe:
+        return False
+    try:
+        if Path(exe).parent.resolve() != Path(sys.executable).parent.resolve():
+            return False
+    except OSError:
+        return False
+    return any("smart_ai_router" in a or "smart-ai-router" in a for a in (exe, *args))
+
+
+def _own_job() -> _Job | None:
+    """The launchd job that runs this app, found by reading the installed plists."""
+    for directory, kind in _PLIST_DIRS:
+        try:
+            paths = sorted(directory.glob("*.plist"))
+        except OSError:
+            continue
+        for path in paths:
+            try:
+                data = plistlib.loads(path.read_bytes())
+            except Exception:
+                continue  # unreadable or malformed: not ours to reason about
+            if not isinstance(data, dict):
+                continue
+            args = [str(a) for a in (data.get("ProgramArguments") or [])]
+            exe = str(data.get("Program") or (args[0] if args else ""))
+            label = str(data.get("Label") or "")
+            if not label or not _runs_this_app(exe, args):
+                continue
+            domain = kind if kind == "system" else f"{kind}/{os.getuid()}"
+            return _Job(
+                label=label,
+                domain=domain,
+                relaunch_on_exit=_relaunches_on_exit(data.get("KeepAlive")),
+                path=path,
+            )
+    return None
+
+
+def _exit_for_relaunch(delay: float = 0.5, grace: float = 15.0) -> None:
+    """End this process so launchd starts a new one, once the response is out.
+
+    SIGTERM rather than a hard exit, so uvicorn drains what's in flight — but a
+    long-lived stream must not be able to hold the restart open forever, hence
+    the escalation. KeepAlive relaunches either way.
+    """
+    def _stop() -> None:
+        time.sleep(delay)
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(grace)
+        os._exit(1)
+
+    threading.Thread(target=_stop, daemon=True, name="restart").start()
 
 
 def _restart_target(label: str = "") -> tuple[str, str] | None:
@@ -133,45 +275,62 @@ def apply_source_update() -> dict:
     subprocess.run([uv, "pip", "install", "-e", str(ROOT)], capture_output=True, text=True)
 
     pulled = _git("rev-parse", "HEAD").stdout.strip()[:7]
+    return _restart(pulled)
+
+
+def _restart(pulled: str) -> dict:
+    """Restart the app by whichever route this install actually allows."""
+    job = _own_job()
+    # The configured label first, so an explicit SMART_ROUTER_LABEL still wins;
+    # then the label read off the installed plist, which is what makes this work
+    # on a host whose daemon is named something else entirely.
     target = _restart_target()
-    if target is None:
-        return {
-            "ok": False,
-            "detail": (
-                f"Pulled {pulled}, but no launchd job named "
-                f"{APP_DAEMON_LABEL!r} was found, so the app could not restart "
-                "itself. New code is on disk and takes effect on next restart."
-            ),
-            "hint": "Set SMART_ROUTER_LABEL to the daemon's label, then restart it.",
-        }
+    if target is None and job is not None:
+        target = _restart_target(job.label)
 
-    domain, label = target
-    if domain == "system":
-        # A root-owned LaunchDaemon. This process runs unprivileged, so
-        # kickstart would fail with EPERM; say so plainly instead of pretending.
-        return {
-            "ok": False,
-            "detail": (
-                f"Pulled {pulled}. Restart needs root: {label} is a system "
-                "LaunchDaemon, so the app cannot restart itself. New code is "
-                "on disk and takes effect on next restart."
-            ),
-            "hint": f"sudo launchctl kickstart -k system/{label}",
-        }
-
-    # gui/user domain — we own this job and can restart it. Note this kills the
-    # current process, so the HTTP response may never reach the client; the UI
-    # treats a dropped connection here as success and polls for the app's
-    # return. Any *error* we can still report means the restart did not happen.
-    kick = subprocess.run(
-        ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
-        capture_output=True, text=True,
-    )
-    if kick.returncode != 0:
+    if target is not None and target[0] != "system":
+        # gui/user domain — we own this job and can restart it. Note this kills
+        # the current process, so the HTTP response may never reach the client;
+        # the UI treats a dropped connection here as success and polls for the
+        # app's return.
+        domain, label = target
+        kick = subprocess.run(
+            ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
+            capture_output=True, text=True,
+        )
+        if kick.returncode == 0:
+            return {"ok": True, "detail": f"Pulled {pulled} and restarting…"}
         err = (kick.stderr or kick.stdout or "").strip()[:200]
+        blocked = f"restart failed: {err or 'kickstart failed'}"
+        hint = f"launchctl kickstart -k {domain}/{label}"
+    elif target is not None:
+        # A root-owned LaunchDaemon: kickstart from this process is denied.
+        blocked = (
+            f"restart needs root — {target[1]} is a system LaunchDaemon"
+        )
+        hint = f"sudo launchctl kickstart -k system/{target[1]}"
+    else:
+        blocked = f"no launchd job named {APP_DAEMON_LABEL!r} was found"
+        hint = "Set SMART_ROUTER_LABEL to the daemon's label, then restart it."
+
+    # Nothing kickstartable, so ask launchd for a new process the other way: end
+    # this one and let KeepAlive replace it. Only when launchd confirms this pid
+    # is the job's — otherwise exiting is just an outage.
+    if job is not None and job.relaunch_on_exit and _job_pid(job.domain, job.label) == os.getpid():
+        _exit_for_relaunch()
         return {
-            "ok": False,
-            "detail": f"Pulled {pulled} but restart failed: {err or 'kickstart failed'}",
-            "hint": f"launchctl kickstart -k {domain}/{label}",
+            "ok": True,
+            "detail": (
+                f"Pulled {pulled} and restarting… (exiting so launchd relaunches "
+                f"{job.label} on the new code)"
+            ),
         }
-    return {"ok": True, "detail": f"Pulled {pulled} and restarting…"}
+
+    return {
+        "ok": False,
+        "detail": (
+            f"Pulled {pulled}, but the app could not restart itself: {blocked}. "
+            "New code is on disk and takes effect on next restart."
+        ),
+        "hint": hint,
+    }

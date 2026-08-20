@@ -579,7 +579,7 @@ admin secret) and stay environment-only.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SMART_ROUTER_PORT` | `8001` | Port the server listens on |
-| `SMART_ROUTER_LABEL` | `com.smart-ai-router` | launchd service label |
+| `SMART_ROUTER_LABEL` | `com.smart-ai-router` | launchd service label. Only a fallback — the job is normally found by reading the installed plists ([Pull & Restart](#pull--restart)) |
 | `SMART_ROUTER_URL` | `http://$(hostname):8001` | Used by `claudish-smart` to find the router |
 | `SMART_ROUTER_API_KEYS` | *(empty)* | Comma-separated **admin** keys — unrestricted access, and the only keys allowed to manage per-user keys. Empty (with no DB keys) leaves the router open. |
 | `SMART_ROUTER_OPTIONAL` | `0` | If `1`, `claudish-smart` falls back to plain claudish when unreachable |
@@ -644,6 +644,27 @@ launchctl unload ~/Library/LaunchAgents/com.smart-ai-router.plist
 tail -f /path/to/smart-ai-router/logs/server.log
 tail -f /path/to/smart-ai-router/logs/server.err
 ```
+
+### Pull & Restart
+
+The dashboard's **Pull & Restart** button fast-forwards to `origin/main`, reinstalls
+dependencies, and restarts the server. It finds its own launchd job by reading the
+installed plists and matching the program against this interpreter — so a job named
+anything at all is found, and `SMART_ROUTER_LABEL` is only needed for an install
+launchd knows about but no plist describes (e.g. `launchctl submit`).
+
+Restarting itself takes whichever of two routes the install allows:
+
+| Install | Route |
+|---|---|
+| LaunchAgent (`gui/<uid>`) | `launchctl kickstart -k` — immediate |
+| LaunchDaemon (`system`), or a kickstart that fails | exit, and let launchd's `KeepAlive` start the new code |
+
+The second route is what makes a root-owned `/Library/LaunchDaemons` install
+restartable without `sudo`. It only fires when launchd reports *this* pid as the
+job's, which is the proof that something will start a replacement — a job without
+`KeepAlive`, or a hand-started `python -m smart_ai_router`, reports `ok: false` with
+the exact command to run instead rather than exiting into an outage.
 
 ## Development
 
