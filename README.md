@@ -20,23 +20,28 @@ Beyond the routing proxy, the built-in web UI at `http://localhost:8001/` is a f
 
 ## Quick start
 
+**One-line install (macOS):**
+
 ```bash
-# Clone and install
+curl -fsSL https://raw.githubusercontent.com/gaaschk/smart-ai-router/main/install.sh | bash
+```
+
+**Or manual install:**
+
+```bash
 git clone https://github.com/gaaschk/smart-ai-router.git
 cd smart-ai-router
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-
-# Run the setup wizard
 smart-ai-router setup
 ```
 
-The setup wizard will:
+Either way, the setup wizard will:
 - Ask for your provider credentials (OpenRouter API key, Ollama URL, and/or AWS Bedrock)
 - Save them to the local SQLite store
 - Run an initial model sync
 - Install a macOS LaunchAgent so the router starts at login (no sudo needed)
-- Symlink `claudish-smart` to `~/.local/bin`
+- Symlink `claudish-smart` to `~/.local/bin` for immediate use
 
 After setup, the router is available at `http://localhost:8001`.
 
