@@ -416,6 +416,13 @@ class UpdateStatusResponse(BaseModel):
     ahead: int = 0
     update_available: bool = False
     detail: str = ""
+    instance: str = Field(
+        default="",
+        description=(
+            "identity of the process answering, minted at startup; a changed "
+            "value is how the UI proves the app restarted onto new code"
+        ),
+    )
 
 
 class ApplyUpdateResponse(BaseModel):
@@ -424,3 +431,8 @@ class ApplyUpdateResponse(BaseModel):
     # Set when finishing the update needs a human (e.g. the daemon is
     # root-owned): a copy-pasteable command shown alongside the failure.
     hint: str = ""
+    pulled: str = Field(default="", description="short sha the pull landed on")
+    instance: str = Field(
+        default="",
+        description="identity of the process that pulled, i.e. the one to outlive",
+    )

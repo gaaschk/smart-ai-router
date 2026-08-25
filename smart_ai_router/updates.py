@@ -35,9 +35,22 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).parent.parent
 APP_DAEMON_LABEL = os.environ.get("SMART_ROUTER_LABEL", "com.smart-ai-router")
+
+# Identity of this process, minted once at import and reported in every status
+# response. It is what makes "did it restart?" answerable: the UI remembers the
+# value before applying an update and reloads when a *different* one answers.
+#
+# The previous test — watch for the app to stop answering, then come back — lost
+# a race it cannot win. launchd's KeepAlive relaunched the app inside one poll
+# interval, so every poll got a 200, the gap was never observed, and a
+# successful update sat under an "update available" banner looking broken. The
+# commit sha can't stand in for this: `git rev-parse` reads the working tree, so
+# the *old* process happily reports the new sha the moment the pull lands.
+INSTANCE = uuid4().hex[:12]
 
 # launchd domains to probe, in the order a self-restart would prefer. A job in
 # gui/user domains can be kickstarted by this process; one registered in the
@@ -78,12 +91,20 @@ def source_update_status(fetch: bool = True) -> dict:
     if fetch:
         f = _git("fetch", "origin", "main")
         if f.returncode != 0:
-            return {"ok": False, "detail": f"git fetch failed: {_git_error(f, 200)}"}
+            return {
+                "ok": False,
+                "detail": f"git fetch failed: {_git_error(f, 200)}",
+                "instance": INSTANCE,
+            }
 
     local = _git("rev-parse", "HEAD").stdout.strip()
     remote = _git("rev-parse", "origin/main").stdout.strip()
     if not local or not remote:
-        return {"ok": False, "detail": "could not resolve HEAD / origin/main"}
+        return {
+            "ok": False,
+            "detail": "could not resolve HEAD / origin/main",
+            "instance": INSTANCE,
+        }
 
     counts = _git("rev-list", "--left-right", "--count", "HEAD...origin/main").stdout.strip()
     ahead = behind = 0
@@ -100,6 +121,7 @@ def source_update_status(fetch: bool = True) -> dict:
         "ahead": ahead,
         "update_available": behind > 0,
         "detail": "up to date" if behind == 0 else f"{behind} commit(s) behind origin/main",
+        "instance": INSTANCE,
     }
 
 
@@ -252,12 +274,17 @@ def _restart_target(label: str = "") -> tuple[str, str] | None:
 def apply_source_update() -> dict:
     """Pull latest source and restart the app daemon. Deliberate, on-demand.
 
-    Returns {ok, detail} and, when a human has to finish the job, `hint` with
-    the exact command to run.
+    Returns {ok, detail}, the `instance` of the process that did the pulling (so
+    the caller can tell a restart from a survivor), and — when a human has to
+    finish the job — `hint` with the exact command to run.
     """
     f = _git("fetch", "origin", "main")
     if f.returncode != 0:
-        return {"ok": False, "detail": f"fetch failed: {_git_error(f, 200)}"}
+        return {
+            "ok": False,
+            "detail": f"fetch failed: {_git_error(f, 200)}",
+            "instance": INSTANCE,
+        }
 
     merge = _git("merge", "--ff-only", "origin/main")
     if merge.returncode != 0:
@@ -268,6 +295,7 @@ def apply_source_update() -> dict:
         return {
             "ok": False,
             "detail": f"git merge --ff-only failed: {_git_error(merge)}",
+            "instance": INSTANCE,
         }
 
     # Reinstall deps in case pyproject.toml changed.
@@ -275,7 +303,10 @@ def apply_source_update() -> dict:
     subprocess.run([uv, "pip", "install", "-e", str(ROOT)], capture_output=True, text=True)
 
     pulled = _git("rev-parse", "HEAD").stdout.strip()[:7]
-    return _restart(pulled)
+    result = _restart(pulled)
+    result["pulled"] = pulled
+    result["instance"] = INSTANCE
+    return result
 
 
 def _restart(pulled: str) -> dict:
