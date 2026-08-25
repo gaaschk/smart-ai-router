@@ -617,6 +617,84 @@
   .competence-bar .bar-fill.mid { background: var(--warning); }
   .competence-bar .bar-fill.low { background: var(--error); }
 
+  /* ── Profile cell ────────────────────────────────────────────────── */
+  /* A full profile is 16 fields plus a rater note, which is a paragraph, not a
+     table cell — spelled out inline it made every row 40 lines tall. So the
+     cell carries a one-line count and opens the detail in a modal. */
+  .profile-cell { white-space: nowrap; cursor: pointer; }
+  .profile-cell:hover .profile-counts { color: var(--text); }
+  .profile-counts {
+    margin-left: 0.4rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .profile-counts .count-chip {
+    display: inline-block;
+    margin-right: 0.2rem;
+    padding: 1px 5px;
+    border-radius: 20px;
+    font-size: 0.62rem;
+    font-weight: 600;
+  }
+
+  .profile-note {
+    margin: 0.6rem 0 0.9rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  .profile-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-height: 52vh;
+    overflow-y: auto;
+  }
+  .profile-row {
+    display: grid;
+    grid-template-columns: 1fr 64px 2.6rem 5.2rem;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+  .profile-row .field { color: var(--text-secondary); }
+  .profile-row .bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .profile-row .bar-fill { height: 100%; border-radius: 2px; }
+  /* Colored against the router's depth tiers, not the Competence column's
+     thresholds: below 0.45 a model cannot clear even a surface question, which
+     is the only band worth alarming about. */
+  .profile-row .bar-fill.specialist { background: var(--success); }
+  .profile-row .bar-fill.practitioner { background: var(--warning); }
+  .profile-row .bar-fill.surface { background: var(--border-hover); }
+  .profile-row .bar-fill.below { background: var(--error); }
+  .profile-row .score {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: right;
+  }
+  .rating-chip {
+    justify-self: start;
+    padding: 1px 6px;
+    border-radius: 20px;
+    font-size: 0.62rem;
+    font-weight: 600;
+  }
+  .profile-legend {
+    margin-top: 0.8rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .rating-specialty { background: var(--success-soft); color: var(--success); }
+  .rating-weak { background: var(--warning-soft); color: var(--warning); }
+  .rating-unsuited { background: var(--error-soft); color: var(--error); }
+
   /* ── Providers ───────────────────────────────────────────────────── */
   .providers-grid {
     display: grid;
@@ -1168,7 +1246,7 @@
                  knowledge, and it is the one score most of the catalog has no
                  measurement for. -->
             <th onclick="sortModels('agentic')" title="Measured ability to hold a multi-step tool loop together. Blank = never measured, which the router treats as exempt.">Tool loop</th>
-            <th>Profile</th>
+            <th title="Who judged this model, and how many taxonomy fields they called out: S = specialty, W = weak, U = unsuited. Click a cell for the note and every field score.">Profile</th>
             <th onclick="sortModels('reliability')">Reliability</th>
           </tr>
         </thead>
@@ -1942,17 +2020,126 @@ function _isRated(m) {
   return Object.keys(m.profile_ratings || {}).length > 0 || !!m.profile_note;
 }
 
-// Short summary of what the rater said, for the Profile column. Only the
-// deviations are shown, since `capable` is the default and listing it for a
-// dozen fields would bury the two entries that actually change routing.
-function _ratingSummary(m) {
-  const entries = Object.entries(m.profile_ratings || {});
-  if (!entries.length) return _isRated(m) ? 'no deviations' : '';
-  const order = { specialty: 0, weak: 1, unsuited: 2 };
-  entries.sort((a, b) => (order[a[1]] ?? 3) - (order[b[1]] ?? 3));
-  return entries
-    .map(([field, rating]) => `${rating}: ${field.replace(/_/g, ' ')}`)
-    .join('; ');
+// How many fields the rater called out, by kind — the whole Profile column in
+// one line. Only deviations are counted, since `capable` is the default and a
+// model with sixteen of them has said nothing.
+//
+// Abbreviated to S/W/U because the spelled-out version needs 300px, which pushed
+// Reliability off the right edge; the names are one click away in the modal, and
+// the cell's own tooltip spells them out. Returns {html, title}.
+function _ratingCounts(m) {
+  const n = { specialty: 0, weak: 0, unsuited: 0 };
+  for (const rating of Object.values(m.profile_ratings || {})) {
+    if (rating in n) n[rating]++;
+  }
+  const kinds = [
+    ['specialty', 'S'],
+    ['weak', 'W'],
+    ['unsuited', 'U'],
+  ].filter(([k]) => n[k]);
+  if (!kinds.length) {
+    return _isRated(m)
+      ? { html: 'none', title: 'Rated, and no field deviates from capable' }
+      : { html: '', title: 'Scored from the cue table; no rater has looked at it' };
+  }
+  return {
+    html: kinds.map(([k, abbr, cls]) =>
+      `<span class="count-chip rating-${k}">${n[k]}${abbr}</span>`).join(''),
+    title: kinds.map(([k]) => `${n[k]} ${k}`).join(', '),
+  };
+}
+
+// ── Profile detail modal ────────────────────────────────────────────────────
+// The whole profile: the rater's note, and every taxonomy field with the score
+// the router actually compares against a prompt's demand. Scores come from the
+// same payload the table is drawn from, so opening this costs no request.
+// Labels from taxonomy.FIELDS, copied rather than fetched — /api/models sends
+// keys only. A key that drifts out of this map falls back to a prettified key
+// rather than rendering blank, so a rename in taxonomy.py degrades, not breaks.
+const _FIELD_LABELS = {
+  software_engineering: 'Software engineering',
+  systems_architecture: 'Systems architecture',
+  data_analysis: 'Data & statistics',
+  math_formal: 'Math & formal reasoning',
+  natural_science: 'Natural science & eng.',
+  medicine_health: 'Medicine & health',
+  law_regulatory: 'Law & regulatory',
+  finance_business: 'Finance & business',
+  humanities_social: 'Humanities & social sci.',
+  creative_writing: 'Creative writing',
+  technical_writing: 'Technical writing',
+  education_explanation: 'Teaching & explanation',
+  translation_multilingual: 'Translation & multilingual',
+  product_design: 'Product & design',
+  operations_process: 'Operations & process',
+  general_knowledge: 'General knowledge',
+};
+
+function _fieldLabel(key) {
+  if (_FIELD_LABELS[key]) return _FIELD_LABELS[key];
+  const s = key.replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function openProfileModal(value) {
+  const m = _allModels.find(x => x.value === value);
+  if (!m) return;
+
+  const rated = _isRated(m);
+  const ratings = m.profile_ratings || {};
+  const scores = m.profile || {};
+
+  const head = `<span class="badge-pill ${rated ? 'badge-yes' : 'badge-no'}">${rated ? 'LLM' : 'rules'}</span>
+    <span style="margin-left:0.5rem;color:var(--text-muted);font-size:0.75rem">${m.provider} · cost tier ${m.cost}</span>`;
+
+  const note = rated
+    ? (m.profile_note
+        ? `<div class="profile-note">${escapeHtml(m.profile_note)}</div>`
+        : `<div class="profile-note">The rater found nothing unusual — no field deviates from capable.</div>`)
+    : `<div class="profile-note">No rater has looked at this model yet. The scores below come
+        from the cue table, which reads the catalog description.</div>`;
+
+  // Every field, best-first: the question a profile answers is "what is this
+  // model for", and the specialty should be the first line, not the last.
+  const keys = Object.keys(scores).length
+    ? Object.keys(scores)
+    : Object.keys(ratings);
+  const rows = keys
+    .slice()
+    .sort((a, b) => (scores[b] || 0) - (scores[a] || 0))
+    .map(k => {
+      const v = scores[k] || 0;
+      const pct = (v * 100).toFixed(0);
+      // Mirrors taxonomy.DEPTHS. A display threshold only — the routing decision
+      // arrives already made, so drift mislabels a bar, nothing more.
+      const cls = v >= 0.85 ? 'specialist' : v >= 0.68 ? 'practitioner'
+        : v >= 0.45 ? 'surface' : 'below';
+      const tier = v >= 0.93 ? 'frontier questions' : v >= 0.85 ? 'specialist questions'
+        : v >= 0.68 ? 'practitioner questions' : v >= 0.45 ? 'surface questions only'
+        : 'below the surface bar — not routed here';
+      const r = ratings[k];
+      return `<div class="profile-row" title="${escapeHtml(_fieldLabel(k))}: ${tier}">
+        <span class="field">${escapeHtml(_fieldLabel(k))}</span>
+        <div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <span class="score">${v.toFixed(2)}</span>
+        ${r ? `<span class="rating-chip rating-${escapeHtml(r)}">${escapeHtml(r)}</span>` : '<span></span>'}
+      </div>`;
+    })
+    .join('');
+
+  const legend = rows
+    ? `<div class="profile-legend">A prompt is routed to a model whose score clears the depth
+        it demands: 0.45 surface · 0.68 practitioner · 0.85 specialist · 0.93 frontier.</div>`
+    : '';
+
+  document.getElementById('profile-modal-title').textContent = m.value;
+  document.getElementById('profile-modal-body').innerHTML =
+    `${head}${note}<div class="profile-grid">${rows || '<span style="color:var(--text-muted)">No profile recorded.</span>'}</div>${legend}`;
+  document.getElementById('profile-modal').classList.add('open');
+}
+
+function closeProfileModal() {
+  document.getElementById('profile-modal').classList.remove('open');
 }
 
 // Mirrors taxonomy.AGENTIC_FLOOR. Duplicated rather than fetched because it is a
@@ -2025,6 +2212,7 @@ function renderModels() {
     const bestComp = Math.max(...Object.values(m.competence || {coding:0}));
     const compPct = (bestComp * 100).toFixed(0);
     const compClass = bestComp >= 0.85 ? 'high' : bestComp >= 0.7 ? 'mid' : 'low';
+    const counts = _ratingCounts(m);
     return `<tr>
       <td class="model-name" title="${_modelTitle(m)}">${m.value.replace(/^(openrouter|ollama|bedrock)\//, '')}</td>
       <td>${m.provider}</td>
@@ -2034,11 +2222,12 @@ function renderModels() {
       <td><span class="badge-pill ${m.vision ? 'badge-yes' : 'badge-no'}">${m.vision ? 'yes' : '—'}</span></td>
       <td><div class="competence-bar"><div class="bar"><div class="bar-fill ${compClass}" style="width:${compPct}%"></div></div><span style="font-size:0.7rem;color:var(--text-muted)">${compPct}%</span></div></td>
       <td>${_agenticCell(m)}</td>
-      <td title="${escapeHtml(m.profile_note || '')}">${
-        _isRated(m)
-          ? `<span class="badge-pill badge-yes">LLM</span><div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.15rem">${escapeHtml(_ratingSummary(m))}</div>`
-          : '<span class="badge-pill badge-no">rules</span>'
-      }</td>
+      <td class="profile-cell" data-model="${escapeHtml(m.value)}"
+          onclick="openProfileModal(this.dataset.model)"
+          title="${escapeHtml(counts.title)} — click for the note and all 16 field scores">
+        <span class="badge-pill ${_isRated(m) ? 'badge-yes' : 'badge-no'}">${_isRated(m) ? 'LLM' : 'rules'}</span>
+        <span class="profile-counts">${counts.html}</span>
+      </td>
       <td>${(m.reliability * 100).toFixed(0)}%</td>
     </tr>`;
   }).join('');
@@ -3416,9 +3605,9 @@ function renderInline(text) {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('key-modal').classList.contains('open')) {
-    closeKeyModal();
-  }
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('key-modal').classList.contains('open')) closeKeyModal();
+  if (document.getElementById('profile-modal').classList.contains('open')) closeProfileModal();
 });
 initDashboard();
 </script>
@@ -3435,6 +3624,17 @@ initDashboard();
     <div class="modal-actions">
       <button class="btn btn-sm" id="btn-modal-copy" onclick="copyModalKey()">Copy key</button>
       <button class="btn btn-sm btn-primary" onclick="closeKeyModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Model profile detail (Models table → Profile cell) ─────────────── -->
+<div class="modal-backdrop" id="profile-modal" onclick="if(event.target===this)closeProfileModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <div class="modal-title" id="profile-modal-title" style="font-family:var(--font-mono);font-size:0.9rem;word-break:break-all"></div>
+    <div class="modal-body" id="profile-modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm btn-primary" onclick="closeProfileModal()">Close</button>
     </div>
   </div>
 </div>
