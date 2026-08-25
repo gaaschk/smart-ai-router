@@ -410,3 +410,90 @@ def test_status_fetch_failure_reports_git_output(monkeypatch):
     )
     out = updates.source_update_status()
     assert out["ok"] is False and "network unreachable" in out["detail"]
+
+
+# ── Proof of restart ─────────────────────────────────────────────────────────
+# The UI can only tell "restarted onto new code" from "never restarted" by
+# noticing that a *different* process is answering. That needs an id that is
+# stable for the life of a process and reported on every path, including the
+# failure paths — a status call that omits it reads as "old build with no
+# instance support" and sends the UI down its weaker fallback.
+
+def test_instance_is_stable_across_calls(monkeypatch):
+    monkeypatch.setattr(
+        updates, "_git",
+        _fake_git({
+            "rev-parse": _Proc(stdout="1111111aaaa\n"),
+            "rev-list": _Proc(stdout="0\t0\n"),
+        }),
+    )
+    first = updates.source_update_status()["instance"]
+    second = updates.source_update_status()["instance"]
+    assert first and first == second == updates.INSTANCE
+
+
+def test_every_status_path_carries_the_instance(monkeypatch):
+    monkeypatch.setattr(
+        updates, "_git",
+        _fake_git({"fetch": _Proc(returncode=1, stderr="offline")}),
+    )
+    assert updates.source_update_status()["instance"] == updates.INSTANCE
+
+    # HEAD unresolvable — the other early return.
+    monkeypatch.setattr(updates, "_git", _fake_git({"rev-parse": _Proc(stdout="\n")}))
+    assert updates.source_update_status()["instance"] == updates.INSTANCE
+
+
+def test_apply_reports_the_pulled_sha_and_the_pulling_instance(monkeypatch):
+    monkeypatch.setattr(updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")}))
+    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
+    _no_job(monkeypatch)
+    monkeypatch.setattr(updates, "APP_DAEMON_LABEL", "com.example.router")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Proc())
+
+    out = updates.apply_source_update()
+    assert out["ok"] is True
+    assert out["pulled"] == "abcdef1"
+    # Whoever answers next with a different id is the new process.
+    assert out["instance"] == updates.INSTANCE
+
+
+def test_the_endpoint_does_not_strip_the_instance(monkeypatch):
+    """A response_model that omits a key drops it silently, which would leave the
+    UI unable to detect a restart with nothing in the logs to say why."""
+    import warnings
+
+    from fastapi.testclient import TestClient
+
+    from smart_ai_router.api.app import create_app
+    from smart_ai_router.facade import CapabilityRouter
+    from smart_ai_router.store.sqlite_store import SqliteStore
+
+    monkeypatch.delenv("SMART_ROUTER_API_KEYS", raising=False)
+    monkeypatch.setattr(
+        updates, "_git",
+        _fake_git({
+            "rev-parse": _Proc(stdout="1111111aaaa\n"),
+            "rev-list": _Proc(stdout="0\t0\n"),
+        }),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        client = TestClient(create_app(CapabilityRouter(store=SqliteStore(":memory:"))))
+
+    body = client.get("/api/updates?fetch=false").json()
+    assert body["instance"] == updates.INSTANCE
+
+
+def test_apply_failure_still_names_the_surviving_instance(monkeypatch):
+    """The restart failed, so this process lives on — and the UI must be able to
+    recognise it as the same one rather than waiting out a restart that will
+    never come."""
+    monkeypatch.setattr(updates, "_git", _fake_git({}))
+    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: False)
+    _no_job(monkeypatch)
+    _no_pip(monkeypatch)
+
+    out = updates.apply_source_update()
+    assert out["ok"] is False
+    assert out["instance"] == updates.INSTANCE

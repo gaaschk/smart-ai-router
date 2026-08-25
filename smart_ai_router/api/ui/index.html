@@ -883,6 +883,23 @@
     font-weight: 500;
   }
 
+  .update-banner .update-banner-status {
+    margin-left: 0.6rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  .update-banner .update-banner-detail {
+    display: none;
+    margin-top: 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  .update-banner .update-banner-detail.show { display: block; }
+
   .update-banner .update-text code {
     font-family: var(--font-mono);
     background: rgba(0,0,0,0.2);
@@ -1077,9 +1094,16 @@
 <!-- ── Dashboard ───────────────────────────────────────────────────── -->
 <div class="page active" id="page-dashboard">
 
+  <!-- The status lives next to the button on purpose: the same handler used to
+       report only into the Settings page, so a failure — or a restart it failed
+       to notice — looked from here like a button that did nothing. -->
   <div id="update-banner" class="update-banner">
-    <span class="update-text">Update available: <code id="update-commits">—</code></span>
-    <button class="btn btn-sm btn-ghost" onclick="doApplyUpdate()">Pull & Restart</button>
+    <span class="update-text">Update available: <code id="update-commits">—</code>
+      <span id="update-banner-status" class="update-banner-status"></span>
+      <!-- Shown only when the news is bad enough to need acting on, so the fix —
+           usually a command to run — isn't hidden in a tooltip. -->
+      <span id="update-banner-detail" class="update-banner-detail"></span></span>
+    <button class="btn btn-sm btn-ghost" id="btn-banner-apply" onclick="doApplyUpdate()">Pull &amp; Restart</button>
   </div>
 
   <div class="stats-grid">
@@ -2818,37 +2842,67 @@ async function saveRuntimeSettings() {
 }
 
 // ── Updates ─────────────────────────────────────────────────────────────────
+// Both places that talk about updates say the same thing. The banner is on the
+// Dashboard and the detail block is on Settings, and the button that starts an
+// update is on both, so reporting into only one of them is how a real failure
+// (or an unnoticed success) reads as "the button is broken".
+
+// Identity of the process currently answering, from the last status call. What
+// makes a restart provable: see pollUntilBack.
+let _updateInstance = '';
+
+// `showDetail` spells the detail out under the banner as well as into its
+// tooltip — for the messages whose detail is the whole point, like the command a
+// user has to run to finish a restart the app wasn't allowed to do itself.
+function setUpdateStatus(msg, color, detail, showDetail) {
+  const text = document.getElementById('settings-update-text');
+  if (text) {
+    text.textContent = msg;
+    text.style.color = color || 'var(--text)';
+  }
+  const banner = document.getElementById('update-banner-status');
+  if (banner) {
+    banner.textContent = msg ? `— ${msg}` : '';
+    banner.style.color = color || 'var(--text-secondary)';
+    banner.title = detail || '';
+  }
+  const inline = document.getElementById('update-banner-detail');
+  if (inline) {
+    inline.textContent = showDetail ? (detail || '') : '';
+    inline.classList.toggle('show', Boolean(showDetail && detail));
+  }
+  const d = document.getElementById('settings-update-detail');
+  if (d && detail !== undefined) d.textContent = detail;
+}
+
 async function doCheckUpdates() {
   const spin = document.getElementById('spin-check-updates');
   if (spin) spin.style.display = 'inline-block';
   try {
-    const r = await fetch(`${API}/updates?fetch=true`);
+    const r = await fetch(`${API}/updates?fetch=true`, { cache: 'no-store' });
     const d = await r.json();
-    const text = document.getElementById('settings-update-text');
-    const detail = document.getElementById('settings-update-detail');
     const applyBtn = document.getElementById('btn-apply-update');
     const banner = document.getElementById('update-banner');
+    _updateInstance = d.instance || '';
 
     if (d.ok && d.update_available) {
-      text.textContent = `${d.behind} commit(s) behind origin/main`;
-      text.style.color = 'var(--warning)';
-      detail.textContent = `local ${d.local} → remote ${d.remote}`;
+      setUpdateStatus(`${d.behind} commit(s) behind origin/main`, 'var(--warning)',
+        `local ${d.local} → remote ${d.remote}`);
       applyBtn.style.display = '';
       banner.classList.add('show');
       document.getElementById('update-commits').textContent = `${d.behind} commits behind`;
+      // The banner's own status is for what the update is doing, not for what
+      // the banner already says in words next to it.
+      document.getElementById('update-banner-status').textContent = '';
     } else if (d.ok) {
-      text.textContent = 'Up to date';
-      text.style.color = 'var(--success)';
-      detail.textContent = d.local;
+      setUpdateStatus('Up to date', 'var(--success)', d.local);
       applyBtn.style.display = 'none';
       banner.classList.remove('show');
     } else {
-      text.textContent = 'Could not check';
-      text.style.color = 'var(--error)';
-      detail.textContent = d.detail || '';
+      setUpdateStatus('Could not check', 'var(--error)', d.detail || '');
     }
   } catch(e) {
-    document.getElementById('settings-update-text').textContent = 'Error checking updates';
+    setUpdateStatus('Error checking updates', 'var(--error)', String(e && e.message || e));
   } finally {
     if (spin) spin.style.display = 'none';
   }
@@ -2856,9 +2910,16 @@ async function doCheckUpdates() {
 
 async function doApplyUpdate() {
   if (!confirm('Pull latest from origin/main and restart?')) return;
-  const text = document.getElementById('settings-update-text');
-  const detail = document.getElementById('settings-update-detail');
-  text.textContent = 'Applying...';
+  const buttons = ['btn-apply-update', 'btn-banner-apply']
+    .map(id => document.getElementById(id)).filter(Boolean);
+  buttons.forEach(b => { b.disabled = true; });
+  setUpdateStatus('Applying…', 'var(--text-secondary)', '');
+
+  // Whose replacement we're waiting for. Read fresh rather than trusting the
+  // last check: a cached id from minutes ago may belong to a process that has
+  // already been replaced, and then the very first poll would look like our
+  // restart and reload onto the old build.
+  const before = await _currentInstance();
 
   let d = null;
   try {
@@ -2872,43 +2933,68 @@ async function doApplyUpdate() {
   // Only a reported failure is a failure. No response at all means the process
   // went away — i.e. it restarted.
   if (d && d.ok === false) {
-    text.textContent = 'Update failed';
-    text.style.color = 'var(--error)';
-    detail.textContent = d.hint ? `${d.detail}  →  ${d.hint}` : d.detail;
+    const why = d.hint ? `${d.detail}  →  ${d.hint}` : d.detail;
+    buttons.forEach(b => { b.disabled = false; });
     // The pull itself may still have succeeded (only the restart failed), so
-    // refresh the banner rather than leaving a stale "behind" count.
-    doCheckUpdates();
+    // refresh the banner rather than leaving a stale "behind" count — then
+    // re-assert the failure, because that refresh would otherwise report "up to
+    // date" and hide the fact that the *running* code is still the old build.
+    await doCheckUpdates();
+    setUpdateStatus('Update failed', 'var(--error)', why, true);
     return;
   }
 
-  text.textContent = 'Restarting...';
-  pollUntilBack();
+  setUpdateStatus('Restarting…', 'var(--text-secondary)', d && d.pulled ? `pulled ${d.pulled}` : '');
+  pollUntilBack(before);
 }
 
-async function pollUntilBack() {
-  // Wait for the server to actually go down before treating a 200 as "it came
-  // back". Reloading on the first successful response would otherwise reload
-  // against the *old* still-running process — which answers instantly — and
-  // land on the same "update available" banner, looking like the button did
-  // nothing. Once we've seen it drop, the next 200 is genuinely the new build.
+// The id of whoever is answering right now: '' for a build too old to report one
+// (which is a real answer, and the case when updating *onto* this feature), and
+// null when we couldn't ask — a distinction pollUntilBack depends on.
+async function _currentInstance() {
+  try {
+    const r = await fetch(`${API}/updates?fetch=false`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return (await r.json()).instance || '';
+  } catch(_) { return null; }
+}
+
+async function pollUntilBack(before) {
+  // Reload when a *different process* answers, which is what the instance id is
+  // for. The old test — see the app go down, then come back — could not tell a
+  // fast relaunch from no restart at all: launchd's KeepAlive routinely brings
+  // the app back inside one poll interval, every poll gets a 200, and a
+  // successful update ends up sitting under an "update available" banner. Note
+  // the commit sha is no substitute: `git rev-parse` reads the working tree, so
+  // the old process reports the new sha as soon as the pull lands.
+  //
+  // Going down is still honoured as a second signal, and is the only one when we
+  // don't know which process we started from (before === null) or when the app is
+  // a build too old to report an instance at all.
+  const knowBefore = before !== null;
   let wentDown = false;
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 1000));
-    let up = false;
+    let body = null;
     try {
       const r = await fetch(`${API}/updates?fetch=false`, { cache: 'no-store' });
-      up = r.ok;
-    } catch(_) { up = false; }
+      if (r.ok) body = await r.json();
+    } catch(_) { /* down, or still coming up */ }
 
-    if (!up) { wentDown = true; continue; }
-    if (wentDown) { location.reload(); return; }
+    if (!body) { wentDown = true; continue; }
+    if (knowBefore && body.instance && body.instance !== before) { location.reload(); return; }
+    if (wentDown && !(knowBefore && body.instance)) { location.reload(); return; }
   }
-  // Never observed a restart. Don't reload into a stale banner — report it.
-  const text = document.getElementById('settings-update-text');
-  if (text) {
-    text.textContent = 'Restart not detected — the app may still be on the old build';
-    text.style.color = 'var(--warning)';
-  }
+  // Never saw a new process. Don't reload into a stale banner — say so, and say
+  // what it means, since the pull itself has almost certainly landed.
+  setUpdateStatus(
+    'Restart not detected — new code is on disk but the running app may still be the old build',
+    'var(--warning)',
+    'Restart the daemon by hand to pick it up.',
+    true,
+  );
+  ['btn-apply-update', 'btn-banner-apply']
+    .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
 }
 
 // ── API Route ───────────────────────────────────────────────────────────────
