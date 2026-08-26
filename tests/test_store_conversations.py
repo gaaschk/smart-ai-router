@@ -147,6 +147,74 @@ def test_delete_cascades_tags():
     assert store.list_conversations("alice", tag="work") == []
 
 
+# ── Sharing with admin ─────────────────────────────────────────────────────────
+
+def test_conversations_are_shared_by_default():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(_conv())
+    assert conv.shared is True
+    assert store.get_conversation(conv.id).shared is True
+
+
+def test_private_thread_is_hidden_from_other_callers_but_not_its_owner():
+    store = SqliteStore(":memory:")
+    open_thread = store.create_conversation(_conv(title="shared"))
+    secret = store.create_conversation(Conversation(
+        id=generate_conversation_id(), user="alice", title="secret", shared=False
+    ))
+
+    # The owner sees both; anyone else (admin's cross-user view) sees only the shared.
+    assert {c.title for c in store.list_conversations(caller="alice")} == {"shared", "secret"}
+    assert {c.title for c in store.list_conversations(caller="admin")} == {"shared"}
+    # Scoping to alice as someone else still hides it.
+    assert [c.title for c in store.list_conversations("alice", caller="admin")] == ["shared"]
+    # caller=None is the fail-safe default: shared only.
+    assert [c.title for c in store.list_conversations("alice")] == ["shared"]
+    # get_conversation is unfiltered on purpose — the route layer decides who may see
+    # a given id, and the owner must always be able to reach their own thread.
+    assert store.get_conversation(secret.id).shared is False
+    assert store.get_conversation(open_thread.id).shared is True
+
+
+def test_update_toggles_sharing_without_touching_title_or_recency():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(_conv(title="keep me"))
+    before = store.get_conversation(conv.id).updated_at
+
+    assert store.update_conversation(conv.id, shared=False) is True
+    after = store.get_conversation(conv.id)
+    assert after.shared is False
+    # Changing who can see a thread isn't activity on it.
+    assert (after.title, after.updated_at) == ("keep me", before)
+
+    store.update_conversation(conv.id, shared=True)
+    assert store.get_conversation(conv.id).shared is True
+
+
+def test_private_threads_are_excluded_from_tag_filters_for_others():
+    store = SqliteStore(":memory:")
+    secret = store.create_conversation(Conversation(
+        id=generate_conversation_id(), user="alice", title="secret",
+        shared=False, tags=["work"],
+    ))
+    assert [c.title for c in store.list_conversations(tag="work", caller="alice")] == ["secret"]
+    assert store.list_conversations(tag="work", caller="admin") == []
+    assert store.get_conversation(secret.id).tags == ["work"]
+
+
+def test_owner_with_only_private_threads_is_not_a_listed_user():
+    store = SqliteStore(":memory:")
+    store.create_conversation(_conv(user="bob"))
+    store.create_conversation(Conversation(
+        id=generate_conversation_id(), user="ghost", title="hidden", shared=False
+    ))
+    # Appearing in the owner picker would itself report that "ghost" exists.
+    assert store.list_conversation_users(caller="admin") == ["bob"]
+    assert store.list_conversation_users() == ["bob"]
+    # ...but the owner still sees themselves.
+    assert store.list_conversation_users(caller="ghost") == ["bob", "ghost"]
+
+
 def test_delete_cascades_messages():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())

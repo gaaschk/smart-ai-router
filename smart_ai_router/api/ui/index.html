@@ -343,6 +343,10 @@
     font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
     background: var(--accent-soft); color: var(--accent-text); font-weight: 600;
   }
+  .chat-conv-private {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--warning); color: var(--warning);
+  }
 
   /* ── Sidebar filters (tag chips, and the admin's owner picker) ───────── */
   .chat-filters { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
@@ -1190,6 +1194,13 @@
 <div class="page" id="page-chat">
   <h1 class="page-title">Chat</h1>
   <p class="page-subtitle" data-admin>Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
+  <!-- Privacy is worth stating rather than leaving to be discovered on hover, so
+       this line is shown to anyone an admin could otherwise read (_chatCanShare).
+       No data-admin: a guest needs it more than an admin does. -->
+  <p class="page-subtitle" id="chat-privacy-hint" style="display:none">
+    Your chats are visible to the admin who runs this router. Use the 🔓 on a chat in
+    the list to make that one private — then only you can see it.
+  </p>
 
   <div class="chat-layout">
    <aside class="chat-sidebar">
@@ -3111,6 +3122,7 @@ let _chatConvId = null;        // id of the conversation being viewed (null = un
 let _chatConvs = [];           // sidebar list of {id, title, tags, user, updated_at}
 let _chatAbort = null;         // AbortController for the in-flight reply, if any
 let _chatIsAdmin = false;      // admin key → the owner filter is offered
+let _chatCanShare = false;     // someone an admin could read → the privacy toggle
 let _chatOwners = [];          // every owner with chat history (admin only)
 let _chatOwnerFilter = '';     // '' = all owners; server-side filter
 let _chatTagFilter = '';       // '' = all groups; filtered in the browser
@@ -3136,6 +3148,12 @@ async function initChat() {
   // filter. Cached, so this costs one request per page load at most.
   const me = await fetchWhoAmI();
   _chatIsAdmin = !!me && me.kind === 'admin';
+  // The privacy toggle is only meaningful for someone an admin could otherwise
+  // read: in open mode there is no separate admin, and admin hiding a thread from
+  // itself does nothing.
+  _chatCanShare = !!me && (me.kind === 'user' || me.kind === 'anon');
+  document.getElementById('chat-privacy-hint').style.display =
+    _chatCanShare ? '' : 'none';
   await loadConversations();
 }
 
@@ -3249,6 +3267,11 @@ function renderConvList() {
 
   el.innerHTML = visible.map(c => {
     const badges = (c.tags || []).map(t => `<span class="chat-conv-tag">#${escapeHtml(t)}</span>`);
+    // Private is the exception, so it earns a badge visible without hovering;
+    // shared is the default and says nothing worth a badge.
+    if (c.shared === false) {
+      badges.push('<span class="chat-conv-private">🔒 private</span>');
+    }
     // Owner is only worth a badge where the list can mix people: admin, unfiltered.
     if (_chatIsAdmin && !_chatOwnerFilter) {
       badges.push(`<span class="chat-conv-owner">${escapeHtml(ownerLabel(c.user))}</span>`);
@@ -3259,9 +3282,17 @@ function renderConvList() {
                 onclick="event.stopPropagation()" onkeydown="onRenameKey(event, '${c.id}')"
                 onblur="commitRename('${c.id}', this.value)">`
       : `<span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>`;
+    // The toggle shows the thread's current state, and its tooltip says what a
+    // click does. Absent entirely when there is no admin to share with.
+    const share = !_chatCanShare ? '' : (c.shared === false
+      ? `<span class="chat-conv-act" onclick="event.stopPropagation(); toggleShared('${c.id}')"
+               title="Private — click to share with the admin">🔒</span>`
+      : `<span class="chat-conv-act" onclick="event.stopPropagation(); toggleShared('${c.id}')"
+               title="Visible to the admin — click to make private">🔓</span>`);
     // The cluster overlays the row's right edge, so it steps aside while the
     // rename input owns that space.
     const acts = renaming ? '' : `<span class="chat-conv-acts">
+         ${share}
          <span class="chat-conv-act" onclick="event.stopPropagation(); startRename('${c.id}')" title="Rename">✎</span>
          <span class="chat-conv-act" onclick="event.stopPropagation(); openTagsModal('${c.id}')" title="Groups">🏷</span>
          <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
@@ -3310,6 +3341,12 @@ async function commitRename(id, value) {
   const title = (value || '').trim();
   if (!title || (conv && title === conv.title)) { renderConvList(); return; }
   await patchConversation(id, { title });
+}
+
+async function toggleShared(id) {
+  const conv = _chatConvs.find(c => c.id === id);
+  if (!conv) return;
+  await patchConversation(id, { shared: conv.shared === false });
 }
 
 async function patchConversation(id, body) {

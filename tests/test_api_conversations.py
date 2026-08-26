@@ -4,6 +4,10 @@ Covers create → list → get → rename → delete, message append + retrieval
 structured-content round-trip, tag (grouping) normalization and limits, the
 admin's `?user=` owner filter, and per-user scoping (a per-user key sees only
 its own conversations; admin sees all; someone else's id is a 404, not a 403).
+
+Also covers per-thread sharing: threads default to shared with admin, the owner
+alone may turn that off, and a private thread is invisible to admin everywhere —
+list, `?user=`, owner options, and by id.
 """
 import warnings
 
@@ -231,6 +235,108 @@ def test_admin_filter_on_unknown_user_is_empty(scoped):
     client, alice, _ = scoped
     client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice))
     assert client.get("/api/conversations?user=nobody", headers=_auth(_ADMIN)).json()["data"] == []
+
+
+# ── Sharing with admin ─────────────────────────────────────────────────────────
+
+def test_new_conversations_default_to_shared(scoped):
+    client, alice, _ = scoped
+    conv = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()
+    assert conv["shared"] is True
+    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"][0]["shared"] is True
+
+
+def test_private_thread_is_invisible_to_admin(scoped):
+    client, alice, bob = scoped
+    shared = client.post("/api/conversations", json={"title": "open"}, headers=_auth(alice)).json()
+    secret = client.post("/api/conversations", json={"title": "secret"}, headers=_auth(alice)).json()
+    assert client.patch(f"/api/conversations/{secret['id']}",
+                        json={"shared": False}, headers=_auth(alice)).json()["shared"] is False
+
+    # Alice still sees both of her own.
+    mine = client.get("/api/conversations", headers=_auth(alice)).json()["data"]
+    assert {c["title"] for c in mine} == {"open", "secret"}
+
+    # Admin sees only the shared one, and cannot reach the private one by id at all
+    # — a 404, so nothing says it exists.
+    admin_list = client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]
+    assert [c["title"] for c in admin_list] == ["open"]
+    assert client.get(f"/api/conversations/{secret['id']}", headers=_auth(_ADMIN)).status_code == 404
+    assert client.get(f"/api/conversations/{shared['id']}", headers=_auth(_ADMIN)).status_code == 200
+    # Nor by narrowing to her, nor through the group filter.
+    assert [c["title"] for c in client.get(
+        "/api/conversations?user=alice", headers=_auth(_ADMIN)).json()["data"]] == ["open"]
+
+
+def test_admin_may_not_read_or_manage_a_private_thread(scoped):
+    client, alice, _ = scoped
+    cid = client.post("/api/conversations", json={"title": "secret"}, headers=_auth(alice)).json()["id"]
+    client.post(f"/api/conversations/{cid}/messages",
+                json={"role": "user", "content": "my salary is"}, headers=_auth(alice))
+    client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
+
+    for method, kwargs in (
+        ("get", {}),
+        ("patch", {"json": {"title": "renamed by admin"}}),
+        ("delete", {}),
+        ("post", {"json": {"role": "user", "content": "x"}}),
+    ):
+        url = f"/api/conversations/{cid}" + ("/messages" if method == "post" else "")
+        r = getattr(client, method)(url, headers=_auth(_ADMIN), **kwargs)
+        assert r.status_code == 404, f"{method} leaked a private thread"
+
+    # The owner's own access is untouched, messages included.
+    detail = client.get(f"/api/conversations/{cid}", headers=_auth(alice)).json()
+    assert detail["messages"][0]["content"] == "my salary is"
+
+
+def test_owner_with_only_private_threads_is_not_offered_in_the_owner_picker(scoped):
+    client, alice, bob = scoped
+    client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
+    a = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
+    client.patch(f"/api/conversations/{a}", json={"shared": False}, headers=_auth(alice))
+
+    # Listing alice as an option would itself report that she has history.
+    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["users"] == ["bob"]
+
+
+def test_only_the_owner_can_change_sharing(scoped):
+    client, alice, _ = scoped
+    cid = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
+
+    # Admin can see and rename a shared thread, but not decide who it is shared with.
+    r = client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(_ADMIN))
+    assert r.status_code == 403
+    assert client.get(f"/api/conversations/{cid}", headers=_auth(alice)).json()["shared"] is True
+    assert client.patch(f"/api/conversations/{cid}", json={"title": "ok"},
+                        headers=_auth(_ADMIN)).status_code == 200
+
+
+def test_sharing_can_be_turned_back_on(scoped):
+    client, alice, _ = scoped
+    cid = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
+    client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
+    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"] == []
+
+    client.patch(f"/api/conversations/{cid}", json={"shared": True}, headers=_auth(alice))
+    assert [c["title"] for c in client.get(
+        "/api/conversations", headers=_auth(_ADMIN)).json()["data"]] == ["A"]
+
+
+def test_a_thread_can_be_created_private(scoped):
+    client, alice, _ = scoped
+    conv = client.post("/api/conversations", json={"title": "A", "shared": False},
+                       headers=_auth(alice)).json()
+    assert conv["shared"] is False
+    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"] == []
+
+
+def test_sharing_only_patch_leaves_title_and_tags_alone(scoped):
+    client, alice, _ = scoped
+    cid = client.post("/api/conversations", json={"title": "keep", "tags": ["work"]},
+                      headers=_auth(alice)).json()["id"]
+    r = client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
+    assert (r.json()["title"], r.json()["tags"], r.json()["shared"]) == ("keep", ["work"], False)
 
 
 def test_user_may_not_filter_by_another_user(scoped):

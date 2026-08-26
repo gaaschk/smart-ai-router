@@ -130,7 +130,8 @@ class SqliteStore(MatrixStore):
                     user       TEXT DEFAULT '',
                     title      TEXT DEFAULT 'New chat',
                     created_at TEXT DEFAULT '',
-                    updated_at TEXT DEFAULT ''
+                    updated_at TEXT DEFAULT '',
+                    shared     INTEGER DEFAULT 1
                 )
             """)
             self._conn.execute(
@@ -256,6 +257,18 @@ class SqliteStore(MatrixStore):
             try:
                 self._conn.execute(
                     "ALTER TABLE usage_log ADD COLUMN classifier TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
+            # Additive migration: whether the admin identity may see this thread.
+            # DEFAULT 1 backfills every existing chat as shared, which is both the
+            # product default and the only honest read of history written before the
+            # choice existed — nobody who created those threads asked for privacy, so
+            # silently hiding them would misreport what the admin used to be able to
+            # see rather than protect anything.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE conversations ADD COLUMN shared INTEGER DEFAULT 1"
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
@@ -745,9 +758,11 @@ class SqliteStore(MatrixStore):
             conv.updated_at = conv.created_at
         with self._lock:
             self._conn.execute(
-                """INSERT INTO conversations (id, user, title, created_at, updated_at)
-                   VALUES (?,?,?,?,?)""",
-                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at),
+                """INSERT INTO conversations
+                       (id, user, title, created_at, updated_at, shared)
+                   VALUES (?,?,?,?,?,?)""",
+                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at,
+                 int(conv.shared)),
             )
             if conv.tags:
                 self._write_tags_locked(conv.id, conv.tags)
@@ -766,13 +781,29 @@ class SqliteStore(MatrixStore):
         return conv
 
     def list_conversations(
-        self, user: str | None = None, *, tag: str | None = None
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
     ) -> list[Conversation]:
+        """Conversations for a scope, newest first.
+
+        `caller` is the identity doing the asking, and it governs privacy: a thread
+        with shared=0 is returned only to its own owner. Passing caller=None means
+        "shared threads only", which is the fail-safe direction — a caller that
+        forgets to identify itself loses rows rather than leaking them.
+        """
         with self._lock:
             where, params = [], []
             if user is not None:
                 where.append("user=?")
                 params.append(user)
+            if caller is None:
+                where.append("shared=1")
+            else:
+                where.append("(shared=1 OR user=?)")
+                params.append(caller)
             if tag:
                 where.append(
                     "id IN (SELECT conversation_id FROM conversation_tags WHERE tag=?)"
@@ -789,11 +820,20 @@ class SqliteStore(MatrixStore):
                 c.tags = tags.get(c.id, [])
         return convs
 
-    def list_conversation_users(self) -> list[str]:
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        """Owners with at least one conversation the caller may see.
+
+        Private threads don't count: an owner whose every thread is private must not
+        surface here, or the picker itself would report that they exist.
+        """
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT DISTINCT user FROM conversations ORDER BY user"
-            ).fetchall()
+            sql = "SELECT DISTINCT user FROM conversations WHERE "
+            if caller is None:
+                rows = self._conn.execute(sql + "shared=1 ORDER BY user").fetchall()
+            else:
+                rows = self._conn.execute(
+                    sql + "(shared=1 OR user=?) ORDER BY user", (caller,)
+                ).fetchall()
         return [r["user"] or "" for r in rows]
 
     def update_conversation(
@@ -802,6 +842,7 @@ class SqliteStore(MatrixStore):
         *,
         title: str | None = None,
         tags: list[str] | None = None,
+        shared: bool | None = None,
     ) -> bool:
         with self._lock:
             exists = self._conn.execute(
@@ -813,6 +854,13 @@ class SqliteStore(MatrixStore):
                 self._conn.execute(
                     "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
                     (title, _utcnow_iso(), conversation_id),
+                )
+            if shared is not None:
+                # Like retagging, changing who can see a thread is not activity on
+                # it, so `updated_at` stays put.
+                self._conn.execute(
+                    "UPDATE conversations SET shared=? WHERE id=?",
+                    (int(shared), conversation_id),
                 )
             if tags is not None:
                 # Filing a thread under a label isn't activity, so `updated_at`
@@ -909,6 +957,7 @@ class SqliteStore(MatrixStore):
             title=row["title"] or "New chat",
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"] or "",
+            shared=bool(row["shared"]),
         )
 
     @staticmethod
