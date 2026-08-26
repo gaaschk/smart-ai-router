@@ -10,6 +10,7 @@ each has a test that fails loudly if it regresses:
   * the cost ceiling binds, and tightens on its own once the day's cap is spent
   * one visitor cannot read another's conversations
 """
+import time
 import warnings
 
 import httpx
@@ -430,3 +431,231 @@ def test_usage_is_attributed_to_the_anonymous_session(client):
     rows = client.store.recent_usage(user, "")
     assert len(rows) == 1
     assert rows[0].user == user
+
+
+# ── Identity durability ─────────────────────────────────────────────────────────
+# A new anon: id per visit is not a fresh start, it's amnesia — the chat list
+# empties and the old conversations become unreachable by anyone. These tests are
+# about the identity *surviving*.
+
+def _cookie_headers(response) -> list[str]:
+    return response.headers.get_list("set-cookie")
+
+
+def _anon_cookie_header(response) -> str:
+    """The Set-Cookie line for the session cookie, or "" if it wasn't set."""
+    for line in _cookie_headers(response):
+        if line.startswith(f"{_public.COOKIE_NAME}="):
+            return line
+    return ""
+
+
+def _anon_cookie_value(response) -> str:
+    """The cookie value the response set. Read from the header rather than the jar:
+    a test that plants a cookie by hand leaves two entries under this name (its own
+    on no domain, the server's on testserver.local) and the jar refuses to choose."""
+    line = _anon_cookie_header(response)
+    return line.split("=", 1)[1].split(";", 1)[0] if line else ""
+
+
+def test_cookie_lifetime_slides_rather_than_expiring_from_the_first_visit(client):
+    """The bug this exists to prevent: the cookie used to be set only when minted,
+    so someone who visited every week still lost everything on the anniversary of
+    their first visit."""
+    cr = client.app.state.capability_router
+    now = 1_800_000_000
+
+    just_issued = _public.read_session_meta(_public.issue_session(cr, now_s=now), cr)
+    assert _public.refresh_due(just_issued, now_s=now) is False
+
+    old = _public.read_session_meta(
+        _public.issue_session(cr, now_s=now - _public.COOKIE_REFRESH_AFTER_S - 1), cr
+    )
+    assert _public.refresh_due(old, now_s=now) is True
+
+    # Re-stamping must keep the identity — re-minting here would orphan every
+    # conversation, which is the whole failure being prevented.
+    again = _public.read_session_meta(
+        _public.resign_session(old.session_id, cr, now_s=now), cr
+    )
+    assert again.session_id == old.session_id
+    assert _public.refresh_due(again, now_s=now) is False
+
+
+def test_a_cookie_from_before_the_stamp_existed_still_works_and_upgrades(client):
+    """A deploy must not log out everyone who was already here."""
+    cr = client.app.state.capability_router
+    session_id = "legacy-session-id"
+    legacy = f"{session_id}.{_public._sign(session_id, _public._secret(cr))}"
+
+    meta = _public.read_session_meta(legacy, cr)
+    assert meta is not None and meta.session_id == session_id
+    # Unknown stamp reads as overdue, so the next request rewrites it as stamped.
+    assert meta.issued_at == 0
+    assert _public.refresh_due(meta) is True
+
+    client.cookies.set(_public.COOKIE_NAME, legacy)
+    r = _chat(client)
+    assert r.headers["x-user"] == f"{_public.ANON_PREFIX}{session_id}"
+    assert _anon_cookie_header(r), "a legacy cookie should be re-set in the new format"
+
+
+def test_a_tampered_stamp_is_rejected(client):
+    """The stamp is inside the signature, so backdating it can't extend a session."""
+    cr = client.app.state.capability_router
+    session_id, stamp, sig = _public.issue_session(cr, now_s=1_800_000_000).split(".")
+    assert _public.read_session_meta(f"{session_id}.999.{sig}", cr) is None
+    # A legacy signature (over the id alone) must not validate a stamped cookie.
+    legacy_sig = _public._sign(session_id, _public._secret(cr))
+    assert _public.read_session_meta(f"{session_id}.{stamp}.{legacy_sig}", cr) is None
+    assert _public.read_session_meta(f"{session_id}.notanumber.{sig}", cr) is None
+
+
+def test_the_page_load_settles_the_identity_before_any_fetch_can_race(client):
+    """Two of the page's fetches firing at once on a cold visit would each mint a
+    session and each Set-Cookie; the browser keeps the last, so the identity that
+    logged the first request need not be the one the visitor keeps."""
+    doc = client.get("/")
+    assert doc.status_code == 200
+    assert _anon_cookie_header(doc), "GET / must establish the session cookie"
+
+    # Every later request rides that one cookie and mints nothing.
+    first = _chat(client)
+    second = client.get("/api/whoami", headers=_BROWSER)
+    assert first.headers["x-user"].startswith(_public.ANON_PREFIX)
+    assert _anon_cookie_header(first) == ""
+    assert _anon_cookie_header(second) == ""
+
+
+def test_a_settled_cookie_is_left_alone_on_later_requests(client):
+    first = _chat(client)
+    assert _anon_cookie_header(first)          # minted here
+    assert _anon_cookie_header(_chat(client)) == ""
+
+
+def test_the_cookie_is_lax_so_arriving_from_an_external_link_still_presents_it(client):
+    """SameSite=Strict withholds the cookie on a top-level cross-site navigation,
+    so a visitor clicking a link to the site would look brand new and have a
+    second identity minted over their first."""
+    line = _anon_cookie_header(_chat(client)).lower()
+    assert "samesite=lax" in line
+    assert "httponly" in line
+    assert "path=/" in line
+    assert f"max-age={_public.COOKIE_MAX_AGE_S}" in line
+
+
+def test_a_refresh_keeps_the_same_visitor(client):
+    cr = client.app.state.capability_router
+    stale = _public.issue_session(
+        cr, now_s=int(time.time()) - _public.COOKIE_REFRESH_AFTER_S - 1
+    )
+    session_id = _public.read_session(stale, cr)
+    client.cookies.set(_public.COOKIE_NAME, stale)
+
+    r = _chat(client)
+    assert r.headers["x-user"] == f"{_public.ANON_PREFIX}{session_id}"
+    reissued = _anon_cookie_value(r)
+    assert reissued, "a stale cookie should be re-stamped"
+    # And the re-stamped cookie names the same visitor, not a new one.
+    assert reissued != stale
+    assert _public.read_session(reissued, cr) == session_id
+
+
+def test_is_https_honors_the_terminating_proxy():
+    """The tunnel forwards plain HTTP, so scheme alone marks a Secure cookie
+    un-settable — which would be a new identity on every request."""
+    class _Req:
+        def __init__(self, headers, scheme):
+            self.headers = headers
+            self.url = type("U", (), {"scheme": scheme})()
+
+    assert _public.is_https(_Req({"x-forwarded-proto": "https"}, "http")) is True
+    assert _public.is_https(_Req({"x-forwarded-proto": "https,http"}, "http")) is True
+    assert _public.is_https(_Req({"x-forwarded-proto": "http"}, "https")) is False
+    assert _public.is_https(_Req({}, "https")) is True
+    assert _public.is_https(_Req({}, "http")) is False
+
+
+# ── Recovery: the localStorage mirror and the recovery link ─────────────────────
+
+def test_a_visitor_can_read_the_token_behind_their_own_cookie(client):
+    user = _chat(client).headers["x-user"]
+    r = client.get("/api/anon/session", headers=_BROWSER)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["session_id"] == user[len(_public.ANON_PREFIX):]
+    cr = client.app.state.capability_router
+    assert _public.read_session(body["token"], cr) == body["session_id"]
+
+
+def test_claiming_a_token_restores_the_history_a_lost_cookie_stranded(client):
+    """The point of the whole mechanism: a cleared cookie used to be terminal."""
+    conv = client.post("/api/conversations", json={"title": "my thread"},
+                       headers=_BROWSER)
+    assert conv.status_code == 200
+    token = client.get("/api/anon/session", headers=_BROWSER).json()["token"]
+
+    # The browser evicts the cookie: a different identity, and an empty list.
+    client.cookies.clear()
+    assert client.get("/api/conversations", headers=_BROWSER).json()["data"] == []
+
+    claimed = client.post("/api/anon/claim", json={"token": token}, headers=_BROWSER)
+    assert claimed.status_code == 200
+    titles = [c["title"] for c in
+              client.get("/api/conversations", headers=_BROWSER).json()["data"]]
+    assert titles == ["my thread"]
+
+
+def test_a_claim_leaves_exactly_one_cookie_deciding_who_the_visitor_is(client):
+    """The middleware also computes a cookie for the identity the request arrived
+    as; both being set would leave two Set-Cookie headers racing."""
+    token = client.get("/api/anon/session", headers=_BROWSER).json()["token"]
+    client.cookies.clear()
+    r = client.post("/api/anon/claim", json={"token": token}, headers=_BROWSER)
+    session_cookies = [ln for ln in _cookie_headers(r)
+                       if ln.startswith(f"{_public.COOKIE_NAME}=")]
+    assert len(session_cookies) == 1
+    cr = client.app.state.capability_router
+    assert _public.read_session(_anon_cookie_value(r), cr) == r.json()["session_id"]
+
+
+def test_a_claimed_token_is_restamped_so_a_year_old_bookmark_still_works(client):
+    cr = client.app.state.capability_router
+    stale = _public.issue_session(cr, now_s=1_600_000_000)
+    session_id = _public.read_session(stale, cr)
+
+    r = client.post("/api/anon/claim", json={"token": stale}, headers=_BROWSER)
+    assert r.status_code == 200
+    assert r.json()["session_id"] == session_id
+    assert r.json()["token"] != stale          # re-stamped, same identity
+    fresh = _public.read_session_meta(r.json()["token"], cr)
+    assert fresh.session_id == session_id
+    assert _public.refresh_due(fresh) is False
+
+
+def test_a_forged_recovery_token_is_refused_rather_than_silently_ignored(client):
+    """Answering 200 would show an empty chat list and read as 'your chats are gone'."""
+    for bad in ("victim-session.1800000000.deadbeef", "nonsense", "", "a.b.c.d"):
+        r = client.post("/api/anon/claim", json={"token": bad}, headers=_BROWSER)
+        assert r.status_code == 400, bad
+
+
+def test_recovery_endpoints_do_not_exist_when_anonymous_access_is_off(monkeypatch, client):
+    monkeypatch.setenv("SMART_ROUTER_PUBLIC_CHAT", "false")
+    admin = {"Authorization": f"Bearer {_ADMIN}", **_BROWSER}
+    assert client.get("/api/anon/session", headers=admin).status_code == 404
+    assert client.post("/api/anon/claim", json={"token": "x"},
+                       headers=admin).status_code == 404
+
+
+def test_an_authenticated_key_is_not_handed_an_anonymous_token(client):
+    """A key is a better identity than a cookie; there is nothing to mirror."""
+    r = client.get("/api/anon/session",
+                   headers={"Authorization": f"Bearer {_ADMIN}", **_BROWSER})
+    assert r.status_code == 404
+
+
+def test_a_bare_client_cannot_ask_for_a_token(client):
+    """Same rule as the rest of the anonymous surface: browsers only."""
+    assert client.get("/api/anon/session").status_code == 401
+    assert client.post("/api/anon/claim", json={"token": "x"}).status_code == 401

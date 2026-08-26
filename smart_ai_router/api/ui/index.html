@@ -176,6 +176,27 @@
   }
   body.guest .guest-banner { display: block; }
   .guest-banner b { color: var(--text); font-weight: 600; }
+  /* The recovery link is a bearer credential for every chat in this session, so
+     it stays behind a click rather than sitting on screen where a screenshot or a
+     glance over the shoulder hands someone else the history. */
+  .guest-recovery { margin-top: 0.5rem; }
+  .guest-recovery-toggle {
+    color: var(--accent); cursor: pointer; font-weight: 600;
+    background: none; border: 0; padding: 0; font-size: inherit; font-family: inherit;
+  }
+  .guest-recovery-toggle:hover { text-decoration: underline; }
+  .guest-recovery-box {
+    margin-top: 0.5rem; padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  }
+  .guest-recovery-box p { margin: 0 0 0.4rem; }
+  .guest-recovery-row { display: flex; gap: 0.4rem; align-items: center; }
+  .guest-recovery-row input {
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem;
+    padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface); color: var(--text-secondary);
+  }
+  .guest-recovery-copied { color: var(--success); font-size: 0.72rem; }
 
   /* ── Page sections ───────────────────────────────────────────────── */
   .page { display: none; padding: 2rem; max-width: 1200px; margin: 0 auto; }
@@ -1231,10 +1252,47 @@
     <div class="guest-banner" id="guest-banner">
       <b>You're chatting as a guest.</b> No account needed — the router picks a
       model for each message and streams the reply. Your conversations are private
-      to this browser and disappear if you clear its cookies. File uploads and
-      agent mode need an API key.
+      to this browser. File uploads and agent mode need an API key.
       <span id="guest-degraded" style="display:none"><br>Today's free usage is
       running high, so replies are coming from free and local models right now.</span>
+      <div class="guest-recovery" id="guest-recovery" style="display:none">
+        <button class="guest-recovery-toggle" onclick="showRecoveryLink()">
+          Keep these chats if this browser forgets you →
+        </button>
+        <div class="guest-recovery-box" id="guest-recovery-box" style="display:none">
+          <p>Save this link. Opening it restores these chats — in another browser,
+          or here after clearing your cookies. <b>Anyone who has the link can read
+          them</b>, so keep it to yourself.</p>
+          <div class="guest-recovery-row">
+            <input type="text" id="guest-recovery-url" readonly onclick="this.select()">
+            <button class="btn btn-sm" onclick="copyRecoveryLink()">Copy</button>
+            <span class="guest-recovery-copied" id="guest-recovery-copied"
+                  style="display:none">Copied</span>
+          </div>
+        </div>
+      </div>
+      <!-- Shown only when the operator has turned self-serve accounts on. Sits
+           below the recovery link because it is the stronger version of the same
+           offer: a link keeps these chats reachable, a key makes them portable. -->
+      <div class="guest-recovery" id="guest-signup" style="display:none">
+        <button class="guest-recovery-toggle" id="guest-signup-btn"
+                onclick="startSignup(this)">
+          Get a free API key so these chats work on your other devices →
+        </button>
+      </div>
+    </div>
+
+    <!-- Shown to a self-issued key, and it says the two things its holder cannot
+         find out any other way: the key *is* the account, so nobody can recover
+         it for them, and the account is capped. -->
+    <div class="guest-banner" id="selfserve-banner" style="display:none">
+      <b>You're using a self-serve account.</b> <span id="selfserve-user"></span>
+      Keep your API key somewhere safe — it <b>is</b> the account. Nobody can
+      recover it for you, including whoever runs this site, because nothing about
+      you was collected. Agent mode needs a key issued by the operator.
+      <span id="selfserve-degraded" style="display:none"><br>This account has used
+      today's allowance, so replies are coming from free and local models until
+      tomorrow.</span>
     </div>
 
     <div class="chat-transcript" id="chat-transcript">
@@ -1738,15 +1796,255 @@ async function detectGuestMode() {
   if (getApiKey()) return false;          // a stored key: normal (possibly admin) UI
   try {
     const r = await _rawFetch(`${API}/whoami`);
-    if (!r.ok) return false;              // 401 → auth required, use the key prompt
+    if (!r.ok) {
+      // Auth is required and we hold nothing. If this deployment mints keys on
+      // request, offering that is the only useful thing to show; otherwise fall
+      // through to the key prompt, which is right for an operator who has a key.
+      if (await signupAvailable()) showSignupGate();
+      return false;
+    }
     const me = await r.json();
     if (!me.anon) return false;
     _guestMode = true;
     document.body.classList.add('guest');
     const deg = document.getElementById('guest-degraded');
     if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
+    // Only a guest has an identity fragile enough to need saving.
+    const rec = document.getElementById('guest-recovery');
+    if (rec) rec.style.display = '';
+    // Offered to a guest as the durable version of the recovery link: a link keeps
+    // these chats reachable, a key makes them portable. Checked rather than always
+    // shown, so a deployment with signup off never advertises it.
+    if (await signupAvailable()) {
+      const su = document.getElementById('guest-signup');
+      if (su) su.style.display = '';
+    }
     return true;
   } catch(_) { return false; }
+}
+
+// ── Anonymous identity durability ─────────────────────────────────────────────
+// A guest's entire history hangs off one HttpOnly cookie, and cookies are the
+// first thing a browser throws away — ITP evicts them, storage pressure evicts
+// them, "clear recent history" takes them on purpose. When it goes, those
+// conversations are unreachable by anyone, including the operator. Two backstops,
+// both built on the same signed token from /api/anon/session:
+//
+//   * a localStorage mirror, restored automatically. Cookies and localStorage are
+//     cleared by different browser actions, so losing both takes intent rather
+//     than a routine cache purge.
+//   * a recovery link the visitor can save, which is the only thing here that can
+//     cross to a different browser or device.
+//
+// The token is a bearer credential for that history — there is no password to
+// pair it with, because the whole point is that we know nothing about the person.
+const ANON_TOKEN_KEY = 'sair_anon_token';
+
+function readStoredAnonToken() {
+  try { return localStorage.getItem(ANON_TOKEN_KEY) || ''; } catch(_) { return ''; }
+}
+function storeAnonToken(token) {
+  try {
+    if (token) localStorage.setItem(ANON_TOKEN_KEY, token);
+    else localStorage.removeItem(ANON_TOKEN_KEY);
+  } catch(_) {}    // private browsing / storage disabled: the cookie still works
+}
+// The session id is the token's first dot-separated field. Compared rather than
+// comparing whole tokens because a re-stamped token is a different string for the
+// same visitor, and treating that as a different person would restore in a loop.
+function anonSessionOf(token) { return String(token || '').split('.')[0]; }
+
+async function fetchAnonSession() {
+  try {
+    const r = await _rawFetch(`${API}/anon/session`);
+    return r.ok ? await r.json() : null;
+  } catch(_) { return null; }
+}
+
+async function claimAnonToken(token) {
+  try {
+    const r = await _rawFetch(`${API}/anon/claim`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    storeAnonToken(body.token || token);   // the server re-stamps it; keep the fresh one
+    return body;
+  } catch(_) { return null; }
+}
+
+// A recovery link arrives as #claim=<token>. Must run before anything asks who we
+// are, so the whole page loads as the reclaimed visitor rather than reloading.
+async function claimFromFragment() {
+  const m = (location.hash || '').match(/^#claim=([A-Za-z0-9_.-]+)$/);
+  if (!m) return false;
+  // Out of the address bar before anything else. A fragment never reaches the
+  // server — which is why the link uses one instead of a query string, keeping the
+  // token out of access logs and Referer headers — but the browser still shows it.
+  history.replaceState(null, '', location.pathname + location.search);
+  const claimed = await claimAnonToken(m[1]);
+  if (!claimed) alert('That recovery link is no longer valid.');
+  return !!claimed;
+}
+
+// Pasting a recovery link into the tab that is already open changes only the
+// fragment, which is a same-document navigation: no page load, so initDashboard
+// never runs and the link would appear to do nothing. Reloading after the claim is
+// the point — the cached identity and the loaded chat list both belong to whoever
+// the visitor was a moment ago. (replaceState above does not fire this, so
+// stripping the token can't loop.)
+window.addEventListener('hashchange', async () => {
+  if (await claimFromFragment()) location.reload();
+});
+
+// Reconcile the live cookie against the mirror, and return true if the caller
+// should reload as a different visitor.
+//
+// Restores only when the live identity has nothing to lose. A cookie that already
+// has chats under it is the newer truth: replacing it would strand those chats
+// with no link to get back to them, which is the very failure being prevented.
+async function syncAnonIdentity(liveConvCount) {
+  const live = await fetchAnonSession();
+  if (!live) return false;
+  const stored = readStoredAnonToken();
+  if (stored && anonSessionOf(stored) !== live.session_id && liveConvCount === 0) {
+    if (await claimAnonToken(stored)) return true;
+  }
+  // Also self-healing: a mirror the server no longer honors (secret rotated) gets
+  // overwritten with one that works instead of being retried forever.
+  storeAnonToken(live.token);
+  return false;
+}
+
+async function showRecoveryLink() {
+  const live = await fetchAnonSession();
+  if (!live) return;
+  const field = document.getElementById('guest-recovery-url');
+  field.value = `${location.origin}/#claim=${live.token}`;
+  document.getElementById('guest-recovery-box').style.display = '';
+  document.getElementById('guest-recovery-copied').style.display = 'none';
+  field.select();
+}
+
+async function copyRecoveryLink() {
+  const field = document.getElementById('guest-recovery-url');
+  const note = document.getElementById('guest-recovery-copied');
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch(_) {
+    field.select();                    // no clipboard permission: they can copy it
+    document.execCommand && document.execCommand('copy');
+  }
+  note.style.display = '';
+  setTimeout(() => { note.style.display = 'none'; }, 2000);
+}
+
+// ── Self-serve accounts ───────────────────────────────────────────────────────
+// A key anyone can mint for themselves, with nothing collected in exchange. Two
+// entry points, because there are two ways to arrive here with no credential:
+//   * as a guest — anonymous chat is on, so there is a banner to put the offer in,
+//     and signing up carries the visitor's existing chats onto the new account.
+//   * at a locked door — anonymous chat is off, every fetch 401s, and the offer
+//     *is* the page. Without this, a first-time visitor gets a browser prompt
+//     asking for a secret that by definition does not exist yet.
+// Both land in the same one-time reveal.
+const SIGNUP_CTA = 'Get a free API key so these chats work on your other devices →';
+let _signupAvailable = null;      // null = not asked yet
+let _signupGateOpen = false;
+
+async function signupAvailable() {
+  if (_signupAvailable !== null) return _signupAvailable;
+  try {
+    // _rawFetch: this is the one question worth asking *without* the key wrapper,
+    // since the whole point is that we have no key and must not trigger a prompt.
+    const r = await _rawFetch(`${API}/signup`);
+    const body = r.ok ? await r.json() : null;
+    _signupAvailable = !!(body && body.available);
+  } catch(_) { _signupAvailable = false; }
+  return _signupAvailable;
+}
+
+async function startSignup(trigger) {
+  const label = trigger ? trigger.textContent : '';
+  if (trigger) { trigger.disabled = true; trigger.textContent = 'Creating your account…'; }
+  let acct = null, detail = '';
+  try {
+    const r = await _rawFetch(`${API}/signup`, { method: 'POST' });
+    if (r.ok) acct = await r.json();
+    else { try { detail = (await r.json()).detail || ''; } catch(_) {} }
+  } catch(_) {}
+  if (trigger) { trigger.disabled = false; trigger.textContent = label; }
+  if (!acct || !acct.key) {
+    alert(detail || 'Could not create an account right now. Please try again later.');
+    return;
+  }
+  closeSignupGate();
+  showSignupKey(acct);
+}
+
+function showSignupKey(acct) {
+  // Stored immediately rather than when they click through: if the tab closed
+  // between the reveal and the confirm, the key — and the account behind it —
+  // would be gone for good. Writing it down is a backup for their *other*
+  // devices, not for this one.
+  setApiKey(acct.key);
+  document.getElementById('signup-key-value').textContent = acct.key;
+  document.getElementById('signup-handle').textContent = acct.user || '';
+  const carried = document.getElementById('signup-carried');
+  const n = acct.carried_over || 0;
+  carried.style.display = n ? '' : 'none';
+  carried.textContent = n === 1
+    ? 'Your existing chat has moved onto this account.'
+    : `Your ${n} existing chats have moved onto this account.`;
+  document.getElementById('signup-modal').classList.add('open');
+}
+
+async function copySignupKey() {
+  const btn = document.getElementById('btn-signup-copy');
+  try {
+    await navigator.clipboard.writeText(
+      document.getElementById('signup-key-value').textContent
+    );
+    const orig = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch(_) { alert('Copy failed — select the key and copy manually.'); }
+}
+
+function finishSignup() {
+  document.getElementById('signup-modal').classList.remove('open');
+  // Reload rather than patch the page: the identity changed, so the chat list, the
+  // badge and every cached answer belong to someone else now.
+  location.reload();
+}
+
+function showSignupGate() {
+  _signupGateOpen = true;
+  document.getElementById('signup-gate').classList.add('open');
+}
+
+function closeSignupGate() {
+  _signupGateOpen = false;
+  document.getElementById('signup-gate').classList.remove('open');
+}
+
+function gateEnterKey() {
+  if (promptApiKey()) location.reload();
+}
+
+// The banner for someone already holding a self-issued key. Driven from whoami
+// rather than from signup, because it has to appear on every later visit too.
+function renderSelfServeBanner(me) {
+  const box = document.getElementById('selfserve-banner');
+  if (!box) return;
+  if (!me || !me.self_serve) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const who = document.getElementById('selfserve-user');
+  if (who) who.textContent = me.user ? `(${me.user})` : '';
+  const deg = document.getElementById('selfserve-degraded');
+  if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
 }
 
 // Let a guest become the operator: the badge is the only way back in once the
@@ -1796,6 +2094,7 @@ async function loadWhoAmI() {
       el.title = 'No API key required by this router';
     }
     el.style.display = 'inline-flex';
+    renderSelfServeBanner(me);
   } catch(_) {
     el.style.display = 'none';   // e.g. still unauthenticated; the prompt handles it
   }
@@ -1884,9 +2183,24 @@ function showPage(name) {
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
+  // A recovery link has to be redeemed before anything asks who we are, so every
+  // fetch below (and the cached /api/whoami answer) belongs to the reclaimed
+  // visitor rather than the one this browser's cookie happens to name.
+  await claimFromFragment();
   // Identity first. A guest gets the chat page and nothing else, so none of the
   // admin fetches below are worth making — they would only 401.
   if (await detectGuestMode()) {
+    loadWhoAmI();
+    showChatOnly();
+    return;
+  }
+  // Auth is required, we have no key, and the gate is offering to mint one. Firing
+  // the dashboard fetches now would stack a browser key prompt on top of it.
+  if (_signupGateOpen) return;
+  // A self-issued key gets the chat page and nothing else, same as a guest: every
+  // other tab is admin-gated and would only 403 at its holder.
+  const me = await fetchWhoAmI();
+  if (me && me.self_serve) {
     loadWhoAmI();
     showChatOnly();
     return;
@@ -3155,6 +3469,13 @@ async function initChat() {
   document.getElementById('chat-privacy-hint').style.display =
     _chatCanShare ? '' : 'none';
   await loadConversations();
+  // Now that the list is loaded, its emptiness is the signal syncAnonIdentity
+  // needs: a live identity with no chats has nothing to lose, so the localStorage
+  // mirror may safely replace it. Done here rather than at startup for exactly
+  // that reason — the answer isn't knowable until the threads are counted.
+  if (me && me.kind === 'anon' && await syncAnonIdentity(_chatConvs.length)) {
+    location.reload();
+  }
 }
 
 // ── Conversation persistence ────────────────────────────────────────────────
@@ -4046,6 +4367,50 @@ initDashboard();
     <div class="modal-actions">
       <button class="btn btn-sm" id="btn-modal-copy" onclick="copyModalKey()">Copy key</button>
       <button class="btn btn-sm btn-primary" onclick="closeKeyModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Self-serve account: the key, shown once ────────────────────────── -->
+<!-- No backdrop-click close. Every other modal here is dismissible, but this one
+     holds the only copy of something unrecoverable, and a stray click outside it
+     would take an account with it. -->
+<div class="modal-backdrop" id="signup-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-modal-title">
+    <div class="modal-title" id="signup-modal-title">Your account is ready</div>
+    <div class="modal-body">
+      This key <strong>is</strong> your account — there is no email or password,
+      because nothing about you was collected.
+      <span class="modal-warn">It will not be shown again, and nobody can recover
+      it for you.</span>
+      Save it in a password manager now.
+      <code class="modal-key" id="signup-key-value"></code>
+      <div>Signed in on this browser already. To use it elsewhere, paste the key
+      when the site asks. Account <code id="signup-handle"></code>.</div>
+      <div id="signup-carried" style="display:none;margin-top:0.4rem"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="btn-signup-copy" onclick="copySignupKey()">Copy key</button>
+      <button class="btn btn-sm btn-primary" onclick="finishSignup()">I've saved it</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── No key, but this deployment hands them out ──────────────────────── -->
+<!-- The alternative to this screen is a browser prompt asking a first-time
+     visitor for a secret that does not exist yet. -->
+<div class="modal-backdrop" id="signup-gate">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-gate-title">
+    <div class="modal-title" id="signup-gate-title">This router needs a key</div>
+    <div class="modal-body">
+      You can make one right now — no email, no name, nothing to confirm. It comes
+      with a daily spending limit, and it can't run commands on the operator's
+      machine.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="gateEnterKey()">I already have a key</button>
+      <button class="btn btn-sm btn-primary" id="signup-gate-btn"
+              onclick="startSignup(this)">Create a free key</button>
     </div>
   </div>
 </div>

@@ -108,6 +108,17 @@ class MatrixStore(ABC):
         """
 
     @abstractmethod
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        """Total $ charged to exactly one user, counting overhead rows.
+
+        The exact-match sibling of `spend_since`, and a separate method rather
+        than a flag because a per-account cap cannot use LIKE at all: one account
+        label can be a prefix of another, so a prefix match would bill one account
+        for a stranger's spend. Overhead is included for the same reason as
+        `spend_since` — it is money this user's prompts caused.
+        """
+
+    @abstractmethod
     def usage_summary(
         self, *, user: str | None = None, since_ts: str = ""
     ) -> dict:
@@ -189,6 +200,15 @@ class MatrixStore(ABC):
     ) -> bool:
         """Rename, replace the tag set, and/or set admin visibility. Fields left
         None are untouched; `tags=[]` clears them. False if nothing matched."""
+
+    @abstractmethod
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        """Move every conversation owned by `from_user` to `to_user`; count moved.
+
+        What makes signing up non-destructive. A visitor who has been chatting
+        anonymously and then creates an account is the same person one second
+        later, but they are a different `user` string — so without this, the moment
+        they commit to the service is the moment their whole history disappears."""
 
     @abstractmethod
     def delete_conversation(self, conversation_id: str) -> bool:

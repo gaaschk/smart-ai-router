@@ -31,6 +31,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from smart_ai_router import helper_models as _helpers
 from smart_ai_router import overhead as _overhead
 from smart_ai_router import public_access as _public
+from smart_ai_router import self_signup as _signup
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
@@ -439,6 +440,10 @@ def _request_scope(request: Request) -> ModelScope | None:
     Anonymous visitors are the exception: their ceiling comes from the public
     access settings and the day's spend, not from a stored key, and it is never
     None — an anonymous request is always scoped.
+
+    Self-issued keys are the same exception wearing a key. Their ceiling also has
+    to move with the day's spend, so it can't live in the row; it is read live and
+    *tightened onto* whatever the row already said, never loosening it.
     """
     if getattr(request.state, "is_anon", False):
         return _public.anon_scope(request.app.state.capability_router)
@@ -446,6 +451,10 @@ def _request_scope(request: Request) -> ModelScope | None:
     if record is None:
         return None
     scope = parse_scope(record.scope_models, record.max_tier)
+    if _signup.is_signup_user(record.user):
+        scope = scope.capped_at(
+            _signup.tier_ceiling(request.app.state.capability_router, record.user)
+        )
     return scope if scope.is_restricted else None
 
 
@@ -625,16 +634,27 @@ async def chat_completions(request: Request):
     # flat refusal (not a silent downgrade) so an explicit `agent: true` from a
     # stranger is never quietly answered as if it had worked.
     is_anon = getattr(request.state, "is_anon", False)
-    if is_anon and agent_flag is True:
+    # A self-issued key is a stranger who clicked a button, not someone the
+    # operator decided to trust, so the same refusal applies — and here it is the
+    # load-bearing one. Handing a public shell to anyone who can complete a POST
+    # would be worse than anonymous chat, not better, because the key also works
+    # from outside the browser.
+    is_self_serve = _signup.is_signup_user(getattr(request.state, "user", "") or "")
+    if (is_anon or is_self_serve) and agent_flag is True:
         raise HTTPException(
             status_code=403,
-            detail="Agent (filesystem) mode is not available for anonymous use. "
-                   "Sign in with an API key to use it.",
+            detail=(
+                "Agent (filesystem) mode is not available for anonymous use. "
+                "Sign in with an API key to use it."
+                if is_anon else
+                "Agent (filesystem) mode is not available on a self-serve account. "
+                "It needs an API key issued by this deployment's operator."
+            ),
         )
 
     tools_available = cr.capabilities(scope=scope).tools
     agent_auto = isinstance(agent_flag, str) and agent_flag.lower() == "auto"
-    if is_anon:
+    if is_anon or is_self_serve:
         agent_mode = False          # settled above; auto must not re-enable it
     elif agent_flag is True:
         if not tools_available:
@@ -749,16 +769,20 @@ async def chat_completions(request: Request):
     # reasoning models have budget for thinking + answer instead of truncating.
     if not forward_body.get("max_tokens"):
         forward_body["max_tokens"] = _default_max_tokens()
-    # Anonymous callers get a hard output ceiling, applied after the default and
-    # over anything they asked for. This is what bounds the damage while the
-    # spend cap is blind: a call's cost isn't known until it returns, so the
-    # protection has to be a limit on how expensive one call can possibly be.
+    # Callers the operator never vetted — anonymous visitors and self-issued keys
+    # — get a hard output ceiling, applied after the default and over anything they
+    # asked for. This is what bounds the damage while the spend cap is blind: a
+    # call's cost isn't known until it returns, so the protection has to be a limit
+    # on how expensive one call can possibly be.
+    output_cap = 0
     if is_anon:
-        anon_cap = _public.max_output_tokens()
-        if anon_cap:
-            forward_body["max_tokens"] = min(
-                int(forward_body["max_tokens"] or anon_cap), anon_cap
-            )
+        output_cap = _public.max_output_tokens()
+    elif is_self_serve:
+        output_cap = _signup.max_output_tokens()
+    if output_cap:
+        forward_body["max_tokens"] = min(
+            int(forward_body["max_tokens"] or output_cap), output_cap
+        )
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
