@@ -17,6 +17,7 @@ from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
+from smart_ai_router.api.anon_routes import anon_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -33,6 +34,11 @@ _ANON_PATHS = frozenset({
     "/api/whoami",
     "/api/conversations",
     "/api/conversations/",
+    # Recovering an anonymous identity is something only an anonymous visitor
+    # needs, so these have to be reachable without a key or the feature is
+    # unusable by exactly the people it exists for.
+    "/api/anon/session",
+    "/api/anon/claim",
 })
 
 
@@ -61,6 +67,28 @@ def _get_env_api_keys() -> set[str]:
     if not raw:
         return set()
     return {k.strip() for k in raw.split(",") if k.strip()}
+
+
+def _anon_session(request: Request, cr) -> tuple[str, str]:
+    """Resolve this request's anonymous session: (session_id, cookie_to_set).
+
+    The second element is "" when the visitor's existing cookie is fine as-is,
+    which is the common case — a Set-Cookie on every request would be noise.
+
+    Three cases, and the middle one is the whole point: no cookie mints a new
+    identity, a cookie far enough into its life is *re-stamped under the same
+    session id* so the lifetime slides, and a recent cookie is left alone.
+    Without the middle case the cookie expires a fixed interval after a visitor's
+    first-ever request no matter how often they come back.
+    """
+    cookie = request.cookies.get(_public.COOKIE_NAME, "")
+    session = _public.read_session_meta(cookie, cr)
+    if session is None:
+        minted = _public.issue_session(cr)
+        return (_public.read_session(minted, cr) or ""), minted
+    if _public.refresh_due(session):
+        return session.session_id, _public.resign_session(session.session_id, cr)
+    return session.session_id, ""
 
 
 def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
@@ -93,6 +121,11 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         request.state.key_prefix = ""
         request.state.api_key = None
         request.state.is_anon = False
+        # The signed cookie value behind an anonymous identity, for the one route
+        # allowed to hand it back to the page (/api/anon/session), and a flag a
+        # route can set to claim the Set-Cookie for itself.
+        request.state.anon_cookie = ""
+        request.state.anon_cookie_set = False
 
         # Auth is only enforced once at least one key exists (env or DB); with
         # none configured the router stays open, preserving first-run behavior.
@@ -100,6 +133,21 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
             return await call_next(request)
 
         path = request.url.path
+
+        # Establish the anonymous identity on the document request, before any of
+        # the page's fetches can race to mint one. Two of them firing concurrently
+        # on a cold visit would each see no cookie, each mint a session, and each
+        # send a Set-Cookie — the browser keeps whichever landed last, so the
+        # identity that logged the first request need not be the one the visitor
+        # walks away with. Serving "/" needs no identity; this is just the earliest
+        # single-request moment to settle on one.
+        if path == "/" and _public.enabled():
+            _sid, to_set = _anon_session(request, cr)
+            response = await call_next(request)
+            if to_set:
+                response.set_cookie(value=to_set, **_public.cookie_kwargs(request))
+            return response
+
         if path in _OPEN_PATHS or path.startswith("/static"):
             return await call_next(request)
 
@@ -150,28 +198,24 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                     headers={"Retry-After": "5"},
                 )
             try:
-                cookie = request.cookies.get(_public.COOKIE_NAME, "")
-                session_id = _public.read_session(cookie, cr)
-                fresh = session_id is None
-                if fresh:
-                    cookie = _public.issue_session(cr)
-                    session_id = _public.read_session(cookie, cr) or ""
+                session_id, to_set = _anon_session(request, cr)
 
                 record = _public.policy_key(cr, session_id=session_id)
                 request.state.user = record.user
                 request.state.api_key = record
                 request.state.is_anon = True
+                # What /api/anon/session hands to the page for mirroring: the value
+                # about to be set if there is one, else the cookie already held.
+                request.state.anon_cookie = (
+                    to_set or request.cookies.get(_public.COOKIE_NAME, "")
+                )
 
                 response = await call_next(request)
-                if fresh:
-                    # Same-site strict: this cookie is only ever presented by our
-                    # own page, and it is the visitor's private-conversation key.
-                    response.set_cookie(
-                        _public.COOKIE_NAME, cookie,
-                        max_age=_public.COOKIE_MAX_AGE_S,
-                        httponly=True, samesite="strict",
-                        secure=request.url.scheme == "https",
-                    )
+                # A claim route sets its own cookie for a *different* identity than
+                # this request arrived as; setting ours too would leave two
+                # Set-Cookie headers racing to decide who the visitor is.
+                if to_set and not getattr(request.state, "anon_cookie_set", False):
+                    response.set_cookie(value=to_set, **_public.cookie_kwargs(request))
                 return response
             finally:
                 _public.inflight.release()
@@ -189,6 +233,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
 
     app.include_router(api_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")
+    app.include_router(anon_router, prefix="/api")
     app.include_router(proxy_router)
     app.include_router(files_router)
 

@@ -176,6 +176,27 @@
   }
   body.guest .guest-banner { display: block; }
   .guest-banner b { color: var(--text); font-weight: 600; }
+  /* The recovery link is a bearer credential for every chat in this session, so
+     it stays behind a click rather than sitting on screen where a screenshot or a
+     glance over the shoulder hands someone else the history. */
+  .guest-recovery { margin-top: 0.5rem; }
+  .guest-recovery-toggle {
+    color: var(--accent); cursor: pointer; font-weight: 600;
+    background: none; border: 0; padding: 0; font-size: inherit; font-family: inherit;
+  }
+  .guest-recovery-toggle:hover { text-decoration: underline; }
+  .guest-recovery-box {
+    margin-top: 0.5rem; padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  }
+  .guest-recovery-box p { margin: 0 0 0.4rem; }
+  .guest-recovery-row { display: flex; gap: 0.4rem; align-items: center; }
+  .guest-recovery-row input {
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem;
+    padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface); color: var(--text-secondary);
+  }
+  .guest-recovery-copied { color: var(--success); font-size: 0.72rem; }
 
   /* ── Page sections ───────────────────────────────────────────────── */
   .page { display: none; padding: 2rem; max-width: 1200px; margin: 0 auto; }
@@ -1231,10 +1252,25 @@
     <div class="guest-banner" id="guest-banner">
       <b>You're chatting as a guest.</b> No account needed — the router picks a
       model for each message and streams the reply. Your conversations are private
-      to this browser and disappear if you clear its cookies. File uploads and
-      agent mode need an API key.
+      to this browser. File uploads and agent mode need an API key.
       <span id="guest-degraded" style="display:none"><br>Today's free usage is
       running high, so replies are coming from free and local models right now.</span>
+      <div class="guest-recovery" id="guest-recovery" style="display:none">
+        <button class="guest-recovery-toggle" onclick="showRecoveryLink()">
+          Keep these chats if this browser forgets you →
+        </button>
+        <div class="guest-recovery-box" id="guest-recovery-box" style="display:none">
+          <p>Save this link. Opening it restores these chats — in another browser,
+          or here after clearing your cookies. <b>Anyone who has the link can read
+          them</b>, so keep it to yourself.</p>
+          <div class="guest-recovery-row">
+            <input type="text" id="guest-recovery-url" readonly onclick="this.select()">
+            <button class="btn btn-sm" onclick="copyRecoveryLink()">Copy</button>
+            <span class="guest-recovery-copied" id="guest-recovery-copied"
+                  style="display:none">Copied</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="chat-transcript" id="chat-transcript">
@@ -1745,8 +1781,129 @@ async function detectGuestMode() {
     document.body.classList.add('guest');
     const deg = document.getElementById('guest-degraded');
     if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
+    // Only a guest has an identity fragile enough to need saving.
+    const rec = document.getElementById('guest-recovery');
+    if (rec) rec.style.display = '';
     return true;
   } catch(_) { return false; }
+}
+
+// ── Anonymous identity durability ─────────────────────────────────────────────
+// A guest's entire history hangs off one HttpOnly cookie, and cookies are the
+// first thing a browser throws away — ITP evicts them, storage pressure evicts
+// them, "clear recent history" takes them on purpose. When it goes, those
+// conversations are unreachable by anyone, including the operator. Two backstops,
+// both built on the same signed token from /api/anon/session:
+//
+//   * a localStorage mirror, restored automatically. Cookies and localStorage are
+//     cleared by different browser actions, so losing both takes intent rather
+//     than a routine cache purge.
+//   * a recovery link the visitor can save, which is the only thing here that can
+//     cross to a different browser or device.
+//
+// The token is a bearer credential for that history — there is no password to
+// pair it with, because the whole point is that we know nothing about the person.
+const ANON_TOKEN_KEY = 'sair_anon_token';
+
+function readStoredAnonToken() {
+  try { return localStorage.getItem(ANON_TOKEN_KEY) || ''; } catch(_) { return ''; }
+}
+function storeAnonToken(token) {
+  try {
+    if (token) localStorage.setItem(ANON_TOKEN_KEY, token);
+    else localStorage.removeItem(ANON_TOKEN_KEY);
+  } catch(_) {}    // private browsing / storage disabled: the cookie still works
+}
+// The session id is the token's first dot-separated field. Compared rather than
+// comparing whole tokens because a re-stamped token is a different string for the
+// same visitor, and treating that as a different person would restore in a loop.
+function anonSessionOf(token) { return String(token || '').split('.')[0]; }
+
+async function fetchAnonSession() {
+  try {
+    const r = await _rawFetch(`${API}/anon/session`);
+    return r.ok ? await r.json() : null;
+  } catch(_) { return null; }
+}
+
+async function claimAnonToken(token) {
+  try {
+    const r = await _rawFetch(`${API}/anon/claim`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    storeAnonToken(body.token || token);   // the server re-stamps it; keep the fresh one
+    return body;
+  } catch(_) { return null; }
+}
+
+// A recovery link arrives as #claim=<token>. Must run before anything asks who we
+// are, so the whole page loads as the reclaimed visitor rather than reloading.
+async function claimFromFragment() {
+  const m = (location.hash || '').match(/^#claim=([A-Za-z0-9_.-]+)$/);
+  if (!m) return false;
+  // Out of the address bar before anything else. A fragment never reaches the
+  // server — which is why the link uses one instead of a query string, keeping the
+  // token out of access logs and Referer headers — but the browser still shows it.
+  history.replaceState(null, '', location.pathname + location.search);
+  const claimed = await claimAnonToken(m[1]);
+  if (!claimed) alert('That recovery link is no longer valid.');
+  return !!claimed;
+}
+
+// Pasting a recovery link into the tab that is already open changes only the
+// fragment, which is a same-document navigation: no page load, so initDashboard
+// never runs and the link would appear to do nothing. Reloading after the claim is
+// the point — the cached identity and the loaded chat list both belong to whoever
+// the visitor was a moment ago. (replaceState above does not fire this, so
+// stripping the token can't loop.)
+window.addEventListener('hashchange', async () => {
+  if (await claimFromFragment()) location.reload();
+});
+
+// Reconcile the live cookie against the mirror, and return true if the caller
+// should reload as a different visitor.
+//
+// Restores only when the live identity has nothing to lose. A cookie that already
+// has chats under it is the newer truth: replacing it would strand those chats
+// with no link to get back to them, which is the very failure being prevented.
+async function syncAnonIdentity(liveConvCount) {
+  const live = await fetchAnonSession();
+  if (!live) return false;
+  const stored = readStoredAnonToken();
+  if (stored && anonSessionOf(stored) !== live.session_id && liveConvCount === 0) {
+    if (await claimAnonToken(stored)) return true;
+  }
+  // Also self-healing: a mirror the server no longer honors (secret rotated) gets
+  // overwritten with one that works instead of being retried forever.
+  storeAnonToken(live.token);
+  return false;
+}
+
+async function showRecoveryLink() {
+  const live = await fetchAnonSession();
+  if (!live) return;
+  const field = document.getElementById('guest-recovery-url');
+  field.value = `${location.origin}/#claim=${live.token}`;
+  document.getElementById('guest-recovery-box').style.display = '';
+  document.getElementById('guest-recovery-copied').style.display = 'none';
+  field.select();
+}
+
+async function copyRecoveryLink() {
+  const field = document.getElementById('guest-recovery-url');
+  const note = document.getElementById('guest-recovery-copied');
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch(_) {
+    field.select();                    // no clipboard permission: they can copy it
+    document.execCommand && document.execCommand('copy');
+  }
+  note.style.display = '';
+  setTimeout(() => { note.style.display = 'none'; }, 2000);
 }
 
 // Let a guest become the operator: the badge is the only way back in once the
@@ -1884,6 +2041,10 @@ function showPage(name) {
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
+  // A recovery link has to be redeemed before anything asks who we are, so every
+  // fetch below (and the cached /api/whoami answer) belongs to the reclaimed
+  // visitor rather than the one this browser's cookie happens to name.
+  await claimFromFragment();
   // Identity first. A guest gets the chat page and nothing else, so none of the
   // admin fetches below are worth making — they would only 401.
   if (await detectGuestMode()) {
@@ -3155,6 +3316,13 @@ async function initChat() {
   document.getElementById('chat-privacy-hint').style.display =
     _chatCanShare ? '' : 'none';
   await loadConversations();
+  // Now that the list is loaded, its emptiness is the signal syncAnonIdentity
+  // needs: a live identity with no chats has nothing to lose, so the localStorage
+  // mirror may safely replace it. Done here rather than at startup for exactly
+  // that reason — the answer isn't knowable until the threads are counted.
+  if (me && me.kind === 'anon' && await syncAnonIdentity(_chatConvs.length)) {
+    location.reload();
+  }
 }
 
 // ── Conversation persistence ────────────────────────────────────────────────

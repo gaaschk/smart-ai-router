@@ -330,6 +330,34 @@ class WhoAmIResponse(BaseModel):
     agent_available: bool = True  # False for anon: filesystem tools are off
 
 
+# ── Anonymous identity recovery ────────────────────────────────────────────────
+
+class AnonSessionResponse(BaseModel):
+    """The signed token behind an anonymous visitor's own session cookie.
+
+    A bearer credential for that visitor's chat history — see anon_routes.py for
+    why handing it to the page is nonetheless the right call.
+    """
+    token: str = Field(..., description="Signed cookie value; treat as a secret")
+    session_id: str = Field(..., description="Identity behind it, without the anon: prefix")
+
+
+class AnonClaimRequest(BaseModel):
+    token: str = Field(..., description="A token from GET /api/anon/session")
+
+
+class AnonClaimResponse(BaseModel):
+    """Confirmation of whose history the caller now holds.
+
+    `token` is the re-stamped cookie value, so a client mirroring it can store the
+    fresh one rather than the expiring copy it presented.
+    """
+    ok: bool = True
+    user: str = ""
+    session_id: str = ""
+    token: str = ""
+
+
 # ── Files (uploads) ────────────────────────────────────────────────────────────
 
 class FileResponse(BaseModel):

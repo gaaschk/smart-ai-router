@@ -36,6 +36,16 @@ anonymous requests may be in flight at once. Worst case is roughly
 ``max_concurrent × (cost of one capped response)`` past the soft threshold, which
 the default settings keep well under the cap itself.
 
+**That identity is worth defending, because it is the visitor's history.** A new
+``anon:`` id every visit is not a fresh start, it is amnesia: the chat list empties
+and the previous conversations are unreachable by anyone, forever. So the cookie
+carries an issue stamp and is re-set once it is a quarter through its life
+(sliding, not fixed-from-first-visit), it is ``SameSite=Lax`` so arriving from an
+external link still presents it, and the signed token can be mirrored to
+localStorage or carried in a recovery link — see ``api/anon_routes.py`` — because
+cookies are the first thing a browser evicts. None of this can survive a new
+device, which is what self-issued API keys are for.
+
 Rate limiting and concurrency are deliberately **in-process**: they reset on
 restart, which is the right trade for abuse control (cheap, no write per request)
 where the budget — the thing that costs real money — is DB-backed and survives.
@@ -59,7 +69,17 @@ from smart_ai_router.scope import ModelScope
 ANON_PREFIX = "anon:"
 
 COOKIE_NAME = "sair_anon"
-COOKIE_MAX_AGE_S = 30 * 24 * 3600  # 30 days — a returning visitor keeps their chats
+
+# 400 days is the longest lifetime Chrome will honor (it silently clamps anything
+# longer), so it is the practical ceiling rather than an arbitrary pick.
+COOKIE_MAX_AGE_S = 400 * 24 * 3600
+# Re-issue the cookie once it is this far into its life. This is what makes the
+# lifetime *sliding*: a cookie is only ever set on the request that mints it, so
+# without a refresh a visitor who comes back every week still loses their identity
+# and their whole history on the anniversary of their first visit. Refreshing at a
+# quarter of the lifetime costs at most a handful of Set-Cookie headers per year
+# per visitor, and means anyone who returns within 300 days never expires at all.
+COOKIE_REFRESH_AFTER_S = COOKIE_MAX_AGE_S // 4
 
 # The store key holding the cookie-signing secret. Not a SettingSpec: it is a
 # generated secret, not a tunable, and must never be rendered on the Settings
@@ -98,32 +118,89 @@ def _secret(cr) -> bytes:
     return fresh.encode()
 
 
-def _sign(session_id: str, secret: bytes) -> str:
-    return hmac.new(secret, session_id.encode(), hashlib.sha256).hexdigest()[:32]
+def _sign(payload: str, secret: bytes) -> str:
+    return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def issue_session(cr) -> str:
+def _now(now_s: int | None = None) -> int:
+    return int(time.time()) if now_s is None else int(now_s)
+
+
+@dataclass(frozen=True)
+class Session:
+    """A verified anonymous identity, and when its cookie was last stamped.
+
+    ``issued_at`` is 0 for a cookie minted before the stamp existed — unknown, not
+    "1970" — which ``refresh_due`` reads as "overdue", so those cookies upgrade
+    themselves to the stamped format on the visitor's next request.
+    """
+
+    session_id: str
+    issued_at: int
+
+
+def _pack(session_id: str, issued_at: int, secret: bytes) -> str:
+    payload = f"{session_id}.{issued_at}"
+    return f"{payload}.{_sign(payload, secret)}"
+
+
+def issue_session(cr, *, now_s: int | None = None) -> str:
     """Mint a fresh signed cookie value for a new visitor."""
-    session_id = secrets.token_urlsafe(16)
-    return f"{session_id}.{_sign(session_id, _secret(cr))}"
+    return _pack(secrets.token_urlsafe(16), _now(now_s), _secret(cr))
 
 
-def read_session(cookie_value: str, cr) -> str | None:
-    """The session id inside a cookie value, or None if absent/forged.
+def resign_session(session_id: str, cr, *, now_s: int | None = None) -> str:
+    """Re-stamp an existing session so its cookie can be set with a full lifetime.
+
+    The session id is deliberately preserved — re-*minting* here instead would
+    hand the visitor a new identity and orphan every conversation they have, which
+    is the exact failure this whole mechanism exists to prevent.
+    """
+    return _pack(session_id, _now(now_s), _secret(cr))
+
+
+def read_session_meta(cookie_value: str, cr) -> Session | None:
+    """The verified session inside a cookie value, or None if absent/forged.
 
     A bad signature is treated as no cookie at all (the caller mints a new
     session) rather than an error: a visitor whose cookie predates a secret
     change should get a working site, not a wall.
+
+    Two formats are accepted. ``id.stamp.sig`` is current; the older ``id.sig``
+    still verifies, because a deploy must not log out everyone who was already
+    here. A session id comes from ``token_urlsafe``, which never contains a dot,
+    so counting the parts tells the two apart unambiguously.
     """
-    if not cookie_value or "." not in cookie_value:
+    if not cookie_value:
         return None
-    session_id, _, signature = cookie_value.rpartition(".")
-    if not session_id:
-        return None
-    expected = _sign(session_id, _secret(cr))
-    if not hmac.compare_digest(signature, expected):
-        return None
-    return session_id
+    parts = cookie_value.split(".")
+    secret = _secret(cr)
+    if len(parts) == 3:
+        session_id, stamp, signature = parts
+        if not session_id or not stamp.isdigit():
+            return None
+        if not hmac.compare_digest(signature, _sign(f"{session_id}.{stamp}", secret)):
+            return None
+        return Session(session_id=session_id, issued_at=int(stamp))
+    if len(parts) == 2:
+        session_id, signature = parts
+        if not session_id:
+            return None
+        if not hmac.compare_digest(signature, _sign(session_id, secret)):
+            return None
+        return Session(session_id=session_id, issued_at=0)
+    return None
+
+
+def read_session(cookie_value: str, cr) -> str | None:
+    """The session id inside a cookie value, or None if absent/forged."""
+    meta = read_session_meta(cookie_value, cr)
+    return meta.session_id if meta is not None else None
+
+
+def refresh_due(session: Session, *, now_s: int | None = None) -> bool:
+    """Whether this cookie is far enough into its life to be worth re-setting."""
+    return _now(now_s) - session.issued_at >= COOKIE_REFRESH_AFTER_S
 
 
 # ── Same-origin check ───────────────────────────────────────────────────────────
@@ -157,6 +234,45 @@ def is_same_origin_browser_request(request) -> bool:
         return False
     origin_host = origin.split("://", 1)[-1].rstrip("/").lower()
     return origin_host == host
+
+
+def is_https(request) -> bool:
+    """Whether the visitor's connection is TLS, honoring the terminating proxy.
+
+    The Cloudflare tunnel forwards plain HTTP to the origin, so ``request.url.scheme``
+    on its own reads "http" for a visitor who is very much on https. Erring toward
+    "not secure" is the cheap direction: marking the cookie ``Secure`` on a
+    connection the browser considers insecure makes the browser *drop* it, which
+    means a brand-new identity on every single request.
+    """
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    if proto:
+        return proto == "https"
+    return request.url.scheme == "https"
+
+
+def cookie_kwargs(request) -> dict:
+    """``set_cookie`` options for the anonymous session cookie.
+
+    ``samesite="lax"`` rather than ``strict``, for a reason that is easy to get
+    backwards: strict withholds the cookie on a *top-level cross-site navigation*,
+    so a visitor arriving from a link in a chat app or a search result presents no
+    cookie, is taken for new, and has a second identity minted over their first.
+    Lax still withholds it from cross-site subresource requests, which is where the
+    CSRF risk actually lives, and is what makes a durable identity possible at all.
+
+    ``httponly`` stays on: ``document.cookie`` is not how the page gets this value.
+    The mirror and the recovery link go through ``/api/anon/session`` instead, so
+    reading the token is an explicit, auditable request rather than ambient.
+    """
+    return {
+        "key": COOKIE_NAME,
+        "max_age": COOKIE_MAX_AGE_S,
+        "httponly": True,
+        "samesite": "lax",
+        "secure": is_https(request),
+        "path": "/",
+    }
 
 
 def client_ip(request) -> str:
