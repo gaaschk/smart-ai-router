@@ -26,7 +26,7 @@ never a model outside it.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from smart_ai_router.models import ModelSpec
 
@@ -40,6 +40,24 @@ class ModelScope:
     @property
     def is_restricted(self) -> bool:
         return bool(self.allow or self.deny) or self.max_tier is not None
+
+    def capped_at(self, max_tier: int | None) -> "ModelScope":
+        """This scope with its tier ceiling tightened to the stricter of the two.
+
+        Only the tier axis, deliberately. allow/deny are substrings, and there is
+        no honest way to intersect two substring lists — the intersection of
+        ["claude"] and ["opus"] as *sets of models* is not expressible as
+        substrings at all, so any answer would either invent a restriction or drop
+        one. A tier is a number, so "stricter of the two" is unambiguous, and it
+        is the axis that costs money.
+
+        None means "no ceiling from that side", so the other one wins outright.
+        Never loosens: the result admits no model that either input excluded.
+        """
+        if max_tier is None:
+            return self
+        ceiling = max_tier if self.max_tier is None else min(self.max_tier, max_tier)
+        return replace(self, max_tier=ceiling)
 
     def permits(self, spec: ModelSpec) -> bool:
         """True if `spec` is within this scope."""

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from smart_ai_router import public_access as _public
+from smart_ai_router import self_signup as _signup
 from smart_ai_router import settings as _settings
 from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
@@ -18,10 +19,13 @@ from smart_ai_router.api.proxy import proxy_router
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
 from smart_ai_router.api.anon_routes import anon_router
+from smart_ai_router.api.signup_routes import signup_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
 _OPEN_PATHS = frozenset({"/", "/favicon.ico"})
+
+_SIGNUP_PATH = "/api/signup"
 
 # Paths an anonymous visitor may reach when public chat is enabled: enough to
 # hold a conversation, and nothing more. Everything absent from this set still
@@ -39,6 +43,10 @@ _ANON_PATHS = frozenset({
     # unusable by exactly the people it exists for.
     "/api/anon/session",
     "/api/anon/claim",
+    # Creating an account is the one thing someone with no credential most needs
+    # to be able to do. Listed here so an anonymous visitor reaches it carrying
+    # their session identity, which is what lets their existing chats come along.
+    _SIGNUP_PATH,
 })
 
 
@@ -46,6 +54,14 @@ def _anon_path_allowed(path: str) -> bool:
     if path in _ANON_PATHS:
         return True
     return any(p.endswith("/") and path.startswith(p) for p in _ANON_PATHS)
+
+
+def _rate_limited(detail: str, retry_after: int) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"error": detail},
+        headers={"Retry-After": str(max(1, retry_after))},
+    )
 
 
 def _unauthorized() -> JSONResponse:
@@ -169,6 +185,28 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                 cr.touch_api_key(record.key_hash)
                 return await call_next(request)
 
+        # Self-serve signup, when anonymous chat is *off*. With it on, this path
+        # is in _ANON_PATHS and falls through to the branch below instead, which is
+        # strictly better — the request arrives carrying the visitor's anonymous
+        # identity, so their existing chats can move onto the new account. This
+        # branch exists because "accounts instead of open access" is a perfectly
+        # sensible configuration, and in it there would otherwise be no way to get
+        # the first key.
+        if path == _SIGNUP_PATH and _signup.enabled() and not _public.enabled():
+            if not _public.is_same_origin_browser_request(request):
+                return _unauthorized()
+            # The per-IP limiter is the anonymous one on purpose: it is this
+            # deployment's cap on unauthenticated requests, and minting a key is
+            # one. Sharing the counter also means someone cannot dodge the chat
+            # limit by cycling through fresh accounts.
+            ok, retry_after = _public.check_ip_rate(_public.client_ip(request))
+            if not ok:
+                return _rate_limited(
+                    "Too many sign-up attempts from this address. Try again shortly.",
+                    retry_after,
+                )
+            return await call_next(request)
+
         # Anonymous (no-key) access to the chat page, when the operator has
         # turned it on. Deliberately the last thing tried: a real key always
         # wins, so enabling this can never downgrade an authenticated caller to
@@ -234,6 +272,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     app.include_router(api_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")
     app.include_router(anon_router, prefix="/api")
+    app.include_router(signup_router, prefix="/api")
     app.include_router(proxy_router)
     app.include_router(files_router)
 

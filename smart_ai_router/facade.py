@@ -315,6 +315,9 @@ class CapabilityRouter:
     def spend_since(self, *, user_prefix: str, since_ts: str) -> float:
         return self._store.spend_since(user_prefix=user_prefix, since_ts=since_ts)
 
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        return self._store.spend_for_user(user=user, since_ts=since_ts)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:
@@ -422,6 +425,9 @@ class CapabilityRouter:
         return self._store.update_conversation(
             conversation_id, title=title, tags=tags, shared=shared
         )
+
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        return self._store.reassign_conversations(from_user=from_user, to_user=to_user)
 
     def delete_conversation(self, conversation_id: str) -> bool:
         return self._store.delete_conversation(conversation_id)

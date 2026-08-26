@@ -328,6 +328,10 @@ class WhoAmIResponse(BaseModel):
     anon: bool = False
     degraded: bool = False
     agent_available: bool = True  # False for anon: filesystem tools are off
+    # A key the holder minted for themselves rather than one the operator issued.
+    # Reported so the UI can say the account is capped and, more importantly, that
+    # nobody can recover it — there is no email on file to recover it *to*.
+    self_serve: bool = False
 
 
 # ── Anonymous identity recovery ────────────────────────────────────────────────
@@ -356,6 +360,37 @@ class AnonClaimResponse(BaseModel):
     user: str = ""
     session_id: str = ""
     token: str = ""
+
+
+# ── Self-serve accounts ────────────────────────────────────────────────────────
+
+class SignupResponse(BaseModel):
+    """A freshly minted self-issued key. Returned once and never recoverable.
+
+    There is no request body to go with this: the whole point is that nothing is
+    collected. `user` is a random handle, not a name the caller chose — see
+    self_signup.py.
+    """
+    key: str = Field(..., description="Plaintext key — shown once; store it now")
+    user: str = Field(..., description="Generated account handle, e.g. u:9f3a2b17")
+    key_prefix: str = Field("", description="Short non-secret prefix for display")
+    carried_over: int = Field(
+        0,
+        description=(
+            "conversations moved from the caller's anonymous session onto the new "
+            "account, so signing up doesn't discard the chats that led to it"
+        ),
+    )
+
+
+class SignupStatusResponse(BaseModel):
+    """Whether the UI should offer a 'create an account' button, and why not.
+
+    `reason` is safe to show: it says the deployment is full or misconfigured, not
+    anything about its budget or its other users.
+    """
+    available: bool = False
+    reason: str = ""
 
 
 # ── Files (uploads) ────────────────────────────────────────────────────────────

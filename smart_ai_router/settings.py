@@ -342,6 +342,119 @@ SPECS: tuple[SettingSpec, ...] = (
         "monopolized, and bounds budget overshoot.",
         validate=_reject_negative,
     ),
+    # ── Self-serve accounts ─────────────────────────────────────────────────────
+    # Keys anyone can mint for themselves, with no personal information collected.
+    # Read the "pool" cap as the actual bill ceiling: signing up is free, so a
+    # per-account cap alone buys an abuser N accounts × N caps. See
+    # self_signup.py. Ships off.
+    SettingSpec(
+        key="self_signup_enabled",
+        env="SMART_ROUTER_SELF_SIGNUP",
+        type="bool",
+        default=False,
+        label="Let visitors create their own API keys",
+        group="Self-serve accounts",
+        help="Adds a button that mints an API key on the spot — no email, no "
+        "name, nothing to verify. A self-issued key can never use agent mode or "
+        "manage anything; it is capped by the two budgets below. Requires an "
+        "admin key (SMART_ROUTER_API_KEYS) to be configured. "
+        "Security-sensitive: this lets strangers spend your money.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="self_signup_pool_daily_budget_usd",
+        env="SMART_ROUTER_SIGNUP_POOL_DAILY_BUDGET",
+        type="float",
+        default=2.00,
+        label="All self-serve accounts: daily spend cap (USD)",
+        group="Self-serve accounts",
+        help="THE bill ceiling — what every self-issued key together may cost per "
+        "UTC day. Past it they are limited to free and local models rather than "
+        "cut off. This is the number that matters: the per-account cap below does "
+        "not bound your bill, because anyone can create more accounts.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_daily_budget_usd",
+        env="SMART_ROUTER_SIGNUP_DAILY_BUDGET",
+        type="float",
+        default=0.25,
+        label="Per self-serve account: daily spend cap (USD)",
+        group="Self-serve accounts",
+        help="What one self-issued key may cost per UTC day, so a single heavy "
+        "user can't drain the pool above and leave nothing for anyone else. "
+        "Fairness between accounts, not protection from them.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_tier",
+        env="SMART_ROUTER_SIGNUP_MAX_TIER",
+        type="int",
+        default=3,
+        label="Self-serve max cost tier",
+        group="Self-serve accounts",
+        help="Most expensive cost tier a self-issued key may reach while budget "
+        "remains (0 = local only, 1 = adds free models, 3 ≈ Haiku, 5 ≈ Sonnet, "
+        "8 ≈ Opus). Read live, so lowering it applies to keys that already exist.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_degraded_max_tier",
+        env="SMART_ROUTER_SIGNUP_DEGRADED_MAX_TIER",
+        type="int",
+        default=1,
+        label="Self-serve max tier once budget is spent",
+        group="Self-serve accounts",
+        help="Tier ceiling applied once either daily cap above is reached. 1 keeps "
+        "these accounts working on free and local models; 0 restricts them to local.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_output_tokens",
+        env="SMART_ROUTER_SIGNUP_MAX_OUTPUT_TOKENS",
+        type="int",
+        default=2048,
+        label="Self-serve max output tokens",
+        group="Self-serve accounts",
+        help="Hard ceiling on max_tokens for a self-issued key's request. This is "
+        "what bounds how far concurrent requests can overshoot the daily caps, "
+        "since a call's real cost is only known after it returns.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_rl_max_req",
+        env="SMART_ROUTER_SIGNUP_RL_MAX_REQ",
+        type="int",
+        default=60,
+        label="Self-serve requests per window",
+        group="Self-serve accounts",
+        help="Request cap per key inside the window below (0 = no cap). Baked into "
+        "each key when it is created, so changing it affects new keys only.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_rl_window_s",
+        env="SMART_ROUTER_SIGNUP_RL_WINDOW_S",
+        type="int",
+        default=3600,
+        label="Self-serve rate-limit window (s)",
+        group="Self-serve accounts",
+        help="Length of the rolling window for a self-issued key's rate limit. "
+        "0 disables its rate limit entirely.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_accounts",
+        env="SMART_ROUTER_SIGNUP_MAX_ACCOUNTS",
+        type="int",
+        default=100,
+        label="Maximum self-serve accounts",
+        group="Self-serve accounts",
+        help="How many self-issued keys may exist at once (0 = unlimited). "
+        "Creating one is free and scriptable, so this is how you say 'I'll take "
+        "fifty users, not five thousand'.",
+        validate=_reject_negative,
+    ),
 )
 
 _BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SPECS}

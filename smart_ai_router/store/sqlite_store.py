@@ -558,6 +558,22 @@ class SqliteStore(MatrixStore):
             ).fetchone()
         return float(row["spend"] or 0.0)
 
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        """Sum cost_usd for one exact user, counting overhead rows.
+
+        Equality rather than LIKE: see MatrixStore.spend_for_user for why a
+        per-account cap can't be a prefix match.
+        """
+        if not user:
+            return 0.0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS spend FROM usage_log "
+                "WHERE user=? AND ts>=?",
+                (user, since_ts),
+            ).fetchone()
+        return float(row["spend"] or 0.0)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:
@@ -872,6 +888,18 @@ class SqliteStore(MatrixStore):
                 self._write_tags_locked(conversation_id, tags)
             self._conn.commit()
         return True
+
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        """Hand one owner's threads to another. Messages and tags follow for free —
+        both hang off the conversation id, which does not change."""
+        if not from_user or not to_user or from_user == to_user:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE conversations SET user=? WHERE user=?", (to_user, from_user)
+            )
+            self._conn.commit()
+        return cur.rowcount or 0
 
     def delete_conversation(self, conversation_id: str) -> bool:
         with self._lock:

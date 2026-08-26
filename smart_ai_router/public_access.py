@@ -299,7 +299,13 @@ def client_ip(request) -> str:
 
 # ── Spend cap ───────────────────────────────────────────────────────────────────
 
-def _utc_day_start() -> str:
+def utc_day_start() -> str:
+    """Midnight UTC today, as the ISO string the usage log stores.
+
+    Public because every daily cap in the app has to agree on where the day
+    breaks — self_signup.py shares it. Two modules each rolling their own boundary
+    would put the operator's bill on two different clocks.
+    """
     now = datetime.now(timezone.utc)
     return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
@@ -323,7 +329,7 @@ def budget_status(cr) -> BudgetStatus:
     """
     cap = float(_settings.get("public_daily_budget_usd") or 0.0)
     try:
-        spent = cr.spend_since(user_prefix=ANON_PREFIX, since_ts=_utc_day_start())
+        spent = cr.spend_since(user_prefix=ANON_PREFIX, since_ts=utc_day_start())
     except Exception:  # noqa: BLE001
         # An accounting failure must not silently uncap the bill: assume the cap
         # is blown and serve free models until the store answers again.
