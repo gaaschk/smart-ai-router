@@ -399,11 +399,22 @@ class CapabilityRouter:
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         return self._store.get_conversation(conversation_id)
 
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
-        return self._store.list_conversations(user)
+    def list_conversations(
+        self, user: str | None = None, *, tag: str | None = None
+    ) -> list[Conversation]:
+        return self._store.list_conversations(user, tag=tag)
 
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
-        return self._store.update_conversation(conversation_id, title=title)
+    def list_conversation_users(self) -> list[str]:
+        return self._store.list_conversation_users()
+
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        return self._store.update_conversation(conversation_id, title=title, tags=tags)
 
     def delete_conversation(self, conversation_id: str) -> bool:
         return self._store.delete_conversation(conversation_id)

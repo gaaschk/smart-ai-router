@@ -366,19 +366,32 @@ class ConversationResponse(BaseModel):
     title: str = "New chat"
     created_at: str = ""
     updated_at: str = ""
+    tags: list[str] = Field(default_factory=list, description="Grouping labels")
+    # The owner, so the admin's list can say whose thread each one is. A per-user
+    # key only ever sees its own conversations, so this tells it nothing new.
+    user: str = ""
 
 
 class ConversationListResponse(BaseModel):
     object: str = "list"
     data: list[ConversationResponse] = Field(default_factory=list)
+    # Every owner with chat history, for the admin's owner filter. Empty for a
+    # per-user key — it has nobody else to filter by.
+    users: list[str] = Field(default_factory=list)
 
 
 class ConversationCreateRequest(BaseModel):
     title: str = "New chat"
+    tags: list[str] = Field(default_factory=list)
 
 
 class ConversationUpdateRequest(BaseModel):
-    title: str = Field(..., description="New title for the conversation")
+    """Rename and/or regroup. Both fields are optional, but at least one must be
+    present; `tags: []` clears a thread's labels."""
+    title: str | None = Field(None, description="New title for the conversation")
+    tags: list[str] | None = Field(
+        None, description="Replacement tag set (order and case are normalized)"
+    )
 
 
 class ChatMessageResponse(BaseModel):

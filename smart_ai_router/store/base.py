@@ -157,16 +157,32 @@ class MatrixStore(ABC):
     def get_conversation(self, conversation_id: str) -> Conversation | None: ...
 
     @abstractmethod
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
-        """Conversations, optionally filtered to one owner, newest-updated first."""
+    def list_conversations(
+        self, user: str | None = None, *, tag: str | None = None
+    ) -> list[Conversation]:
+        """Conversations, newest-updated first, optionally filtered to one owner
+        (`user`) and/or one grouping label (`tag`). Each record carries its tags."""
 
     @abstractmethod
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
-        """Rename a conversation. Returns False if nothing matched."""
+    def list_conversation_users(self) -> list[str]:
+        """Every distinct owner that has at least one conversation, sorted. Backs
+        the admin's owner filter, so it lists who actually has chat history."""
+
+    @abstractmethod
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        """Rename and/or replace the tag set of a conversation. Fields left None
+        are untouched; `tags=[]` clears them. False if nothing matched."""
 
     @abstractmethod
     def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation and all its messages. False if nothing matched."""
+        """Delete a conversation, its messages, and its tags. False if nothing
+        matched."""
 
     @abstractmethod
     def add_chat_message(self, msg: ChatMessage) -> ChatMessage:

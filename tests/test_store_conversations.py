@@ -80,6 +80,73 @@ def test_update_unknown_returns_false():
     assert store.update_conversation("conv-nope", title="x") is False
 
 
+# ── Tags (grouping) ────────────────────────────────────────────────────────────
+
+def test_tags_round_trip_on_create_and_list():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(Conversation(
+        id=generate_conversation_id(), user="alice", title="A", tags=["work", "cost"]
+    ))
+    assert sorted(store.get_conversation(conv.id).tags) == ["cost", "work"]
+    assert sorted(store.list_conversations("alice")[0].tags) == ["cost", "work"]
+
+
+def test_update_replaces_tag_set_and_can_clear_it():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(_conv())
+    store.update_conversation(conv.id, tags=["work", "cost"])
+    store.update_conversation(conv.id, tags=["spike"])
+    assert store.get_conversation(conv.id).tags == ["spike"]
+
+    store.update_conversation(conv.id, tags=[])
+    assert store.get_conversation(conv.id).tags == []
+
+
+def test_retagging_leaves_title_and_recency_alone():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(_conv(title="keep me"))
+    before = store.get_conversation(conv.id).updated_at
+
+    store.update_conversation(conv.id, tags=["work"])
+    after = store.get_conversation(conv.id)
+    # Filing a thread isn't activity — the sidebar's order must not shuffle.
+    assert (after.title, after.updated_at) == ("keep me", before)
+
+
+def test_list_filters_by_tag_within_a_user():
+    store = SqliteStore(":memory:")
+    a = store.create_conversation(_conv(title="A"))
+    store.create_conversation(_conv(title="B"))
+    bob = store.create_conversation(_conv(user="bob", title="C"))
+    store.update_conversation(a.id, tags=["work"])
+    store.update_conversation(bob.id, tags=["work"])
+
+    assert [c.title for c in store.list_conversations("alice", tag="work")] == ["A"]
+    # Admin view (user=None) crosses owners.
+    assert {c.title for c in store.list_conversations(None, tag="work")} == {"A", "C"}
+    assert store.list_conversations("alice", tag="nope") == []
+
+
+def test_list_conversation_users_is_distinct_and_sorted():
+    store = SqliteStore(":memory:")
+    store.create_conversation(_conv(user="bob"))
+    store.create_conversation(_conv(user="alice"))
+    store.create_conversation(_conv(user="alice"))
+    assert store.list_conversation_users() == ["alice", "bob"]
+
+
+def test_delete_cascades_tags():
+    store = SqliteStore(":memory:")
+    conv = store.create_conversation(_conv())
+    store.update_conversation(conv.id, tags=["work"])
+    store.delete_conversation(conv.id)
+
+    # No orphan rows: a new conversation reusing that tag sees only its own.
+    fresh = store.create_conversation(_conv(title="fresh"))
+    assert store.get_conversation(fresh.id).tags == []
+    assert store.list_conversations("alice", tag="work") == []
+
+
 def test_delete_cascades_messages():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())
