@@ -470,12 +470,18 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: object = ""
     ts: str = ""
+    truncated: bool = Field(False, description=(
+        "this reply was stopped at the output-token ceiling, so the text is "
+        "incomplete — reopening a thread would otherwise show it as merely short"))
 
 
 class ChatMessageCreateRequest(BaseModel):
     role: str = Field(..., description="user | assistant | system")
     # A plain string, or an OpenAI content-parts array (text + file/image refs).
     content: object = ""
+    truncated: bool = Field(False, description=(
+        "set when the reply hit finish_reason=length, so the incompleteness "
+        "survives a reload rather than living only in the tab that saw it"))
 
 
 class ConversationDetailResponse(ConversationResponse):

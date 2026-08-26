@@ -78,6 +78,69 @@ def _default_max_tokens() -> int:
     """
     return max(1, _settings.get_int("default_max_tokens"))
 
+
+# Header the chat page sends on its own requests. The distinction matters because
+# the two kinds of caller want opposite things from us: a browser wants a rendered
+# document, while a program driving `/v1` wants exactly the messages it sent and
+# nothing else — an injected system turn changes its output, and because the turn
+# becomes conversation history it keeps changing it for the rest of the session.
+# So the capability note below is browser-only, and this is how we can tell.
+_UI_CLIENT_HEADER = "x-smart-router-client"
+_UI_CLIENT_VALUE = "ui"
+
+
+def _is_ui_client(request) -> bool:
+    return (request.headers.get(_UI_CLIENT_HEADER) or "").strip().lower() \
+        == _UI_CLIENT_VALUE
+
+
+def _rich_output_preamble() -> str:
+    """A system turn telling the model what the chat page can actually render.
+
+    Without it a model has no way to know, and defaults to plain prose — which is
+    why asking for something visual produced no visuals. Nothing here asks for
+    decoration: it says what the surface supports and leaves the judgement of
+    whether a diagram helps to the model, because a mandatory chart on a prompt
+    that didn't want one is worse than no chart.
+
+    UI-managed so the wording is tunable without a deploy, and blankable — an
+    operator who wants the model unprompted sets it to empty.
+    """
+    return (_settings.get("chat_rich_output_prompt") or "").strip()
+
+
+def _output_budget(profile, spec=None) -> int:
+    """Output ceiling for a caller who didn't name one, given what they asked for.
+
+    One number cannot serve both "what's the capital of France" and "write me a
+    short story". Sized for the first, the second comes back a paragraph long and
+    cut mid-sentence; sized for the second, every trivial question carries a
+    budget it will never use — which costs nothing directly, since billing follows
+    the tokens actually written, but on a reasoning model an oversized budget is an
+    invitation to think for a while.
+
+    So the prompt profile decides. It already knows the answer is a document (see
+    `PromptProfile.is_long_form`), and it knew it *before* this function existed —
+    the information was there and simply wasn't being used. Never lowers the
+    ordinary default: an operator who raised that meant it.
+
+    Then the model's own ceiling clamps whatever we arrived at, because asking for
+    more than a model can emit is not a harmless overshoot — several providers
+    reject the call, which turns a long answer into no answer at all. Output limits
+    on the live catalog run from 2048 to 1.8M, so this is the difference between a
+    generous setting and a broken one. `max_output == 0` means the catalog didn't
+    say; we send the budget unclamped, which is right for local models (Ollama
+    treats max_tokens as num_predict and just stops).
+    """
+    base = _default_max_tokens()
+    want = base
+    if profile is not None and profile.is_long_form():
+        want = max(base, _settings.get_int("long_form_max_tokens"))
+    limit = int(getattr(spec, "max_output", 0) or 0)
+    if limit > 0:
+        want = min(want, limit)
+    return max(1, want)
+
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
 # many seconds during which the agent loop yields nothing; without a heartbeat
@@ -756,6 +819,9 @@ async def chat_completions(request: Request):
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
+    # The chosen model's spec, for its output ceiling. One store read, and only
+    # this: everything else about the decision is already in `decision`.
+    routed_spec = cr.get_model(routed_model)
 
     mode = "orchestrator" if is_orchestrator else profile.describe()
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
@@ -765,10 +831,24 @@ async def chat_completions(request: Request):
     print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
+    # Tell the model what the chat page can render — but only when the caller *is*
+    # the chat page, and only after classification, so the note never influences
+    # the routing profile it isn't part of. Prepended rather than merged into an
+    # existing system turn: the caller's own instructions stay verbatim, and a
+    # later turn wins any disagreement, which is the right precedence for a note
+    # about the display surface.
+    if _is_ui_client(request) and not forward_body.get("tools"):
+        preamble = _rich_output_preamble()
+        if preamble:
+            forward_body["messages"] = (
+                [{"role": "system", "content": preamble}]
+                + list(forward_body.get("messages") or [])
+            )
     # Apply a generous output-token default when the caller omits one, so
-    # reasoning models have budget for thinking + answer instead of truncating.
+    # reasoning models have budget for thinking + answer instead of truncating —
+    # and a document-sized one when the profile says the answer is a document.
     if not forward_body.get("max_tokens"):
-        forward_body["max_tokens"] = _default_max_tokens()
+        forward_body["max_tokens"] = _output_budget(profile, routed_spec)
     # Callers the operator never vetted — anonymous visitors and self-issued keys
     # — get a hard output ceiling, applied after the default and over anything they
     # asked for. This is what bounds the damage while the spend cap is blind: a
@@ -792,6 +872,11 @@ async def chat_completions(request: Request):
         "X-Classifier": classifier_used,
         "X-User": getattr(request.state, "user", "") or "",
         "X-Prompt-Profile": _header_safe(profile.describe()),
+        # The ceiling this reply had to fit in. Reported so a truncated answer can
+        # say *what* cut it off: "the model was terse" and "the model was stopped
+        # at 1024 tokens" look identical on screen, and only one of them is
+        # something the reader can do anything about.
+        "X-Output-Limit": str(forward_body.get("max_tokens") or 0),
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"
@@ -827,7 +912,10 @@ async def chat_completions(request: Request):
             and reassembles tool calls from the fragments."""
             fwd = {**req_body, "model": real_model, "stream": True}
             if not fwd.get("max_tokens"):
-                fwd["max_tokens"] = _default_max_tokens()
+                # Per *round*, not per request — the loop may take several. The
+                # profile-aware budget still applies: an agent writing a document
+                # to a file needs room for the document.
+                fwd["max_tokens"] = _output_budget(profile, routed_spec)
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 async with client.stream(
                     "POST", url, headers=_headers(api_key), json=fwd,

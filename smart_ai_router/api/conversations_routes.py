@@ -103,7 +103,8 @@ def _msg_to_response(msg: ChatMessage) -> ChatMessageResponse:
             content = json.loads(msg.content)
         except (json.JSONDecodeError, TypeError):
             content = msg.content  # fall back to raw text if somehow corrupt
-    return ChatMessageResponse(role=msg.role, content=content, ts=msg.ts)
+    return ChatMessageResponse(role=msg.role, content=content, ts=msg.ts,
+                               truncated=msg.truncated)
 
 
 def _owned_or_404(request: Request, conversation_id: str) -> Conversation:
@@ -255,5 +256,6 @@ def add_message(
         role=body.role,
         content=content,
         content_json=content_json,
+        truncated=bool(body.truncated),
     ))
     return _msg_to_response(msg)
