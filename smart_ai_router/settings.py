@@ -114,6 +114,45 @@ SPECS: tuple[SettingSpec, ...] = (
         help="Output-token ceiling applied when a request omits max_tokens. "
         "Caps output only — for reasoning models this covers thinking plus the "
         "answer, so too low a value yields empty or truncated replies.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="long_form_max_tokens",
+        env="SMART_ROUTER_LONG_FORM_MAX_TOKENS",
+        type="int",
+        default=16384,
+        label="Long-form max output tokens",
+        group="Routing",
+        help="Output ceiling for a prompt whose answer is a document — a story, "
+        "a guide, a lesson, a translation. The ordinary default is sized for a "
+        "reply; asking for a short story and getting one paragraph, cut "
+        "mid-sentence, is that default doing exactly what it was set to do. Still "
+        "bounded by the per-identity ceilings under Public access and Self-serve "
+        "accounts, which win when they are lower.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="chat_rich_output_prompt",
+        env="SMART_ROUTER_CHAT_RICH_OUTPUT_PROMPT",
+        type="str",
+        default=(
+            "You are answering in a chat UI that renders your reply as Markdown, "
+            "and additionally renders fenced ```html and ```svg blocks as live, "
+            "sandboxed previews the reader can open, download, or print. Use them "
+            "when a visual genuinely helps — diagrams, charts, tables, timelines, "
+            "styled documents — and write self-contained markup with inline CSS. "
+            "Sandboxed previews cannot load anything over the network, so draw "
+            "with inline SVG or CSS rather than linking to external images, "
+            "fonts, or scripts. When asked for a document — a story, a guide, a "
+            "lesson — write the whole thing, at the length the request implies, "
+            "rather than an outline or an excerpt."
+        ),
+        label="Chat rich-output prompt",
+        group="Routing",
+        help="System note prepended to requests from the chat page only, so the "
+        "model knows the page renders HTML and SVG previews. Never sent to /v1 API "
+        "clients or tool-using requests, where an injected turn would change their "
+        "output and then persist in their history. Blank it to send nothing.",
     ),
     SettingSpec(
         key="classifier_model",
@@ -301,12 +340,14 @@ SPECS: tuple[SettingSpec, ...] = (
         key="public_max_output_tokens",
         env="SMART_ROUTER_PUBLIC_MAX_OUTPUT_TOKENS",
         type="int",
-        default=1024,
+        default=4096,
         label="Anonymous max output tokens",
         group="Public access",
         help="Hard ceiling on max_tokens for an anonymous request. This is what "
         "bounds how far concurrent requests can overshoot the daily cap, since a "
-        "call's real cost is only known after it returns.",
+        "call's real cost is only known after it returns. Was 1024, which on a "
+        "reasoning model left roughly a paragraph after thinking — low enough to "
+        "look like the model being terse rather than a ceiling being hit.",
         validate=_reject_negative,
     ),
     SettingSpec(
@@ -413,12 +454,13 @@ SPECS: tuple[SettingSpec, ...] = (
         key="self_signup_max_output_tokens",
         env="SMART_ROUTER_SIGNUP_MAX_OUTPUT_TOKENS",
         type="int",
-        default=2048,
+        default=4096,
         label="Self-serve max output tokens",
         group="Self-serve accounts",
         help="Hard ceiling on max_tokens for a self-issued key's request. This is "
         "what bounds how far concurrent requests can overshoot the daily caps, "
-        "since a call's real cost is only known after it returns.",
+        "since a call's real cost is only known after it returns. Sized to leave "
+        "room for a real document after a reasoning model's thinking budget.",
         validate=_reject_negative,
     ),
     SettingSpec(

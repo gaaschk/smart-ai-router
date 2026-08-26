@@ -272,6 +272,19 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: this reply was cut off at the output ceiling.
+            # DEFAULT 0 backfills history as untruncated, which is a claim we
+            # can't verify — the flag wasn't recorded, so some old replies really
+            # were cut off and will keep looking merely terse. Guessing from the
+            # text would be worse: a reply that legitimately ends without
+            # punctuation would get a warning it doesn't deserve, and a warning
+            # that is sometimes wrong is worth less than no warning at all.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN truncated INTEGER DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -953,10 +966,11 @@ class SqliteStore(MatrixStore):
             ordinal = row["n"] if msg.ordinal == 0 else msg.ordinal
             cur = self._conn.execute(
                 """INSERT INTO chat_messages
-                   (conversation_id, ordinal, role, content, content_json, ts)
-                   VALUES (?,?,?,?,?,?)""",
+                   (conversation_id, ordinal, role, content, content_json, ts,
+                    truncated)
+                   VALUES (?,?,?,?,?,?,?)""",
                 (msg.conversation_id, ordinal, msg.role, msg.content,
-                 1 if msg.content_json else 0, ts),
+                 1 if msg.content_json else 0, ts, 1 if msg.truncated else 0),
             )
             # Appending a message bumps the conversation's recency.
             self._conn.execute(
@@ -998,6 +1012,7 @@ class SqliteStore(MatrixStore):
             content=row["content"] or "",
             content_json=bool(row["content_json"]),
             ts=row["ts"] or "",
+            truncated=bool(row["truncated"]),
         )
 
     @staticmethod

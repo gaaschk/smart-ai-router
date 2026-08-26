@@ -490,6 +490,45 @@
   }
   .chat-bubble.md th { background: var(--bg); font-weight: 600; }
 
+  /* Rendered HTML/SVG the model produced. A card rather than inline output so
+     it reads as an artifact with its own actions, and so a full-page layout
+     can't be mistaken for part of the reply's prose. */
+  .artifact {
+    margin: 0.7rem 0; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden; background: #fff;
+  }
+  .artifact-bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.5rem; background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+  .artifact-kind {
+    font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+  }
+  .artifact-actions { margin-left: auto; display: flex; gap: 0.3rem; }
+  .artifact-actions button {
+    background: none; border: 1px solid var(--border); color: var(--text-secondary);
+    border-radius: var(--radius-sm); padding: 0.15rem 0.45rem;
+    font-size: 0.72rem; cursor: pointer; font-family: inherit;
+  }
+  .artifact-actions button:hover { color: var(--text); border-color: var(--accent); }
+  /* White background and a fixed height: model markup usually assumes a page,
+     and an auto-height iframe can't be measured without same-origin access —
+     which is exactly the access the sandbox is there to withhold. */
+  .artifact-frame {
+    display: block; width: 100%; height: 420px; border: 0; background: #fff;
+  }
+  .artifact-frame.tall { height: 70vh; }
+  .artifact-code { margin: 0 !important; border-radius: 0 !important; }
+
+  /* The one action offered on a cut-off reply. Styled as a link, not a button:
+     it sits inside a sentence of running text. */
+  .chat-continue {
+    background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+    color: var(--accent); text-decoration: underline;
+  }
+
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 
@@ -1306,6 +1345,20 @@
       <div class="chat-composer-actions">
         <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
         <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
+        <!-- Export is a <select> that immediately acts and resets, so it reads as
+             a menu of one-shot actions rather than a setting with a current
+             value. PDF goes through the browser's own print dialog: it needs no
+             server-side renderer, and it is the one path guaranteed to match
+             what the reader is looking at. -->
+        <label class="chat-agent-toggle" id="chat-export-label" title="Save this conversation, or print it to PDF">
+          ⤓ Export
+          <select id="chat-export" class="chat-agent-select" onchange="exportChat(this.value); this.value=''">
+            <option value="" selected></option>
+            <option value="md">Markdown (.md)</option>
+            <option value="html">Web page (.html)</option>
+            <option value="print">Print / Save as PDF…</option>
+          </select>
+        </label>
         <label class="chat-agent-toggle" id="chat-agent-label" title="Agent mode lets the assistant read, write, and create files in your private workspace. Auto turns it on only when your request asks for a file or filesystem work.">
           🛠 Agent
           <select id="chat-agent" class="chat-agent-select">
@@ -3738,9 +3791,40 @@ function onTagsModalKey(e) {
   if (e.key === 'Enter') { e.preventDefault(); saveTagsModal(); }
 }
 
-// Render a stored message (content is a string, or an OpenAI content-parts
-// array with text + file/image refs) back into a transcript bubble.
-function renderStoredMsg(role, content) {
+// The "this reply is unfinished" marker, plus the one action that resolves it.
+// Shown both live and on a reopened thread, from the same function, because the
+// two used to disagree: the live stream warned and the reload didn't, so the
+// permanent record of a truncated answer was the one that looked fine.
+//
+// Continue is a real follow-up turn rather than a silent stitch-together. It
+// costs another request either way, and a visible turn means the transcript still
+// says what was actually asked — a stitched reply that looks like one answer
+// hides the fact that the model never saw its own ending as one piece.
+function appendTruncationNotice(bubbleWrap, limit) {
+  const cap = parseInt(limit, 10);
+  const at = cap > 0 ? ` (${cap.toLocaleString()} tokens)` : '';
+  bubbleWrap.insertAdjacentHTML('beforeend',
+    `<div class="chat-meta chat-truncated" style="color:var(--error)">` +
+      `⚠ Cut off at the output limit${at} — this reply is incomplete. ` +
+      `<button class="chat-continue" onclick="continueReply()">Continue it</button>` +
+    `</div>`);
+}
+
+// Ask the model to pick the truncated reply back up. The unfinished text is
+// already the last assistant turn in history, so this needs no special plumbing
+// — which is also why it works on a thread reopened in a fresh tab.
+function continueReply() {
+  const input = document.getElementById('chat-input');
+  input.value = 'Continue from exactly where you stopped, without repeating '
+    + 'anything you already wrote, and finish the piece.';
+  autoGrow(input);
+  sendChat();
+}
+
+// Split a stored message's content into its text and its attachment counts. A
+// turn is either a plain string or an OpenAI content-parts array; both the
+// transcript and the exporters need the same reading of it.
+function messageParts(content) {
   let text = '', imgs = 0, files = 0;
   if (typeof content === 'string') {
     text = content;
@@ -3751,11 +3835,23 @@ function renderStoredMsg(role, content) {
       else if (p && p.type === 'file') files++;
     }
   }
+  return { text, imgs, files };
+}
+
+// Render a stored message (content is a string, or an OpenAI content-parts
+// array with text + file/image refs) back into a transcript bubble.
+function renderStoredMsg(role, content, meta = {}) {
+  const { text, imgs, files } = messageParts(content);
   const opts = {};
   if (imgs) opts.images = Array(imgs).fill('image');
   if (files) opts.files = Array(files).fill('attachment');
   const wrap = renderChatMsg(role, text, opts);
-  if (role === 'assistant') finalizeChatBubble(wrap.querySelector('.chat-bubble'), text);
+  if (role === 'assistant') {
+    finalizeChatBubble(wrap.querySelector('.chat-bubble'), text);
+    // The output limit isn't stored per message — only the fact that one bit.
+    // Naming a number we'd have to guess at would be worse than not naming one.
+    if (meta.truncated) appendTruncationNotice(wrap, '');
+  }
 }
 
 async function selectConversation(id) {
@@ -3773,7 +3869,7 @@ async function selectConversation(id) {
       '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
     for (const m of (conv.messages || [])) {
       _chatMessages.push({ role: m.role, content: m.content });
-      renderStoredMsg(m.role, m.content);
+      renderStoredMsg(m.role, m.content, { truncated: !!m.truncated });
     }
     renderConvList();
   } catch(e) { alert(e.message); }
@@ -3802,7 +3898,7 @@ async function deleteConversation(id) {
 // Persist one turn to the active conversation, creating the conversation on the
 // first turn (titled from the user's message). Returns false on failure so the
 // caller can decide whether to keep going.
-async function persistTurn(role, content) {
+async function persistTurn(role, content, opts = {}) {
   try {
     if (_chatConvId === null) {
       const title = typeof content === 'string'
@@ -3819,7 +3915,7 @@ async function persistTurn(role, content) {
     }
     await fetch(`${API}/conversations/${_chatConvId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, content }),
+      body: JSON.stringify({ role, content, truncated: !!opts.truncated }),
     });
     return true;
   } catch(_) { return false; }
@@ -4023,7 +4119,13 @@ async function sendChat() {
   try {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Marks this as the chat page rather than an API client, which is what
+        // earns the reply its rich-output system note. A program driving /v1
+        // gets exactly the messages it sent — see proxy.py:_is_ui_client.
+        'X-Smart-Router-Client': 'ui',
+      },
       body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: agentFlag }),
       signal: _chatAbort.signal,
     });
@@ -4068,8 +4170,7 @@ async function sendChat() {
 
     finalizeChatBubble(bubble, acc);
     if (truncated) {
-      bubbleWrap.insertAdjacentHTML('beforeend',
-        `<div class="chat-meta" style="color:var(--error)">⚠ Reply was cut off at the output token limit — it may be incomplete.</div>`);
+      appendTruncationNotice(bubbleWrap, res.headers.get('X-Output-Limit') || '');
     }
     if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }));
     _chatMessages.push({ role: 'assistant', content: acc });
@@ -4080,7 +4181,11 @@ async function sendChat() {
     // reply; the sidebar refresh reflects the new/renamed thread + recency.
     if (!streamError) {
       await persistTurn('user', userContent);
-      await persistTurn('assistant', acc);
+      // `truncated` travels with the message so reopening this thread still says
+      // the reply is unfinished. Without it the stored text reads as a complete
+      // (if oddly short) answer, and the reader diagnoses the model instead of
+      // the ceiling.
+      await persistTurn('assistant', acc, { truncated });
       await loadConversations();
     }
   } catch(e) {
@@ -4186,6 +4291,236 @@ function finalizeChatBubble(bubble, text) {
   bubble.innerHTML = renderMarkdown(text);
 }
 
+// ── Artifacts: model-authored HTML/SVG, rendered ────────────────────────────
+// Fenced blocks the model *intended* as output rather than as code to read. Each
+// becomes a card with a live preview, a code view, and open/download/print.
+//
+// SECURITY. The preview is an iframe with `sandbox="allow-scripts"` and NO
+// `allow-same-origin`, so the document lands in an opaque origin: it cannot touch
+// this page's DOM, cookies, or the localStorage the API key lives in. Those two
+// tokens together would undo the sandbox entirely, which is why only one is here.
+// A CSP inside the document then blocks the network, so markup that tries to
+// fetch, beacon, or load a remote font/image/script gets nothing — a reply is
+// authored by a model that read the conversation, so "can it phone home" is a
+// question about the conversation's contents, not just about scripts.
+//
+// The visible cost of that choice: external images don't load. Inline SVG, CSS,
+// and data: URIs do, which is what actually draws diagrams and charts.
+const ARTIFACT_LANGS = { html: 'HTML', svg: 'SVG' };
+const _ARTIFACT_CSP =
+  "default-src 'none'; img-src data: blob:; media-src data: blob:; " +
+  "style-src 'unsafe-inline' data:; font-src data:; script-src 'unsafe-inline'";
+let _artifactSeq = 0;
+const _artifacts = new Map();   // id → { lang, src }
+
+// Wrap raw markup into a standalone document. An SVG block gets a host page that
+// centres it; an HTML block is assumed to be (or to be close enough to) a page
+// already, and only gains the CSP + a sane default font if it declared none.
+function artifactDocument(lang, src) {
+  const csp = `<meta http-equiv="Content-Security-Policy" content="${escapeHtml(_ARTIFACT_CSP)}">`;
+  if (lang === 'svg') {
+    return `<!doctype html><html><head><meta charset="utf-8">${csp}` +
+      `<style>html,body{margin:0;height:100%;display:grid;place-items:center;` +
+      `background:#fff}svg{max-width:100%;max-height:100%}</style></head>` +
+      `<body>${src}</body></html>`;
+  }
+  // A full document from the model: inject the CSP just after <head> so it still
+  // governs, and leave everything else exactly as written.
+  if (/<head[\s>]/i.test(src)) {
+    return src.replace(/<head([^>]*)>/i, `<head$1>${csp}`);
+  }
+  if (/<html[\s>]/i.test(src)) {
+    return src.replace(/<html([^>]*)>/i, `<html$1><head>${csp}</head>`);
+  }
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}` +
+    `<style>body{margin:0;padding:1rem;font:14px/1.5 -apple-system,BlinkMacSystemFont,` +
+    `"Segoe UI",sans-serif;color:#111;background:#fff}</style></head>` +
+    `<body>${src}</body></html>`;
+}
+
+// Set while building an export document. An artifact's iframe exists to contain
+// untrusted markup inside the app; a saved file has no app around it to protect,
+// and an iframe would print blank — so the export inlines the markup instead. A
+// flag rather than a parameter because the caller is renderMarkdown, five frames
+// up, and threading a render mode through Markdown parsing to reach it would put
+// the concern in four functions that have nothing to do with it.
+let _artifactInline = false;
+
+function renderArtifact(lang, src) {
+  const id = ++_artifactSeq;
+  _artifacts.set(id, { lang, src });
+  if (_artifactInline) {
+    return `<div class="artifact-inline">${src}</div>`;
+  }
+  const doc = artifactDocument(lang, src);
+  return `<div class="artifact" data-artifact="${id}">` +
+    `<div class="artifact-bar">` +
+      `<span class="artifact-kind">${escapeHtml(ARTIFACT_LANGS[lang])}</span>` +
+      `<span class="artifact-actions">` +
+        `<button onclick="artifactToggleCode(${id}, this)">Code</button>` +
+        `<button onclick="artifactExpand(${id}, this)">Expand</button>` +
+        `<button onclick="artifactOpen(${id})" title="Open in a new tab, where you can print or save as PDF">Open</button>` +
+        `<button onclick="artifactDownload(${id})">Download</button>` +
+      `</span>` +
+    `</div>` +
+    // srcdoc, not src: no server round-trip, and the document inherits no origin.
+    `<iframe class="artifact-frame" sandbox="allow-scripts" ` +
+      `referrerpolicy="no-referrer" srcdoc="${escapeHtml(doc)}"></iframe>` +
+    `<pre class="artifact-code" style="display:none"><code>${escapeHtml(src)}</code></pre>` +
+  `</div>`;
+}
+
+function _artifactCard(id) {
+  return document.querySelector(`.artifact[data-artifact="${id}"]`);
+}
+
+function artifactToggleCode(id, btn) {
+  const card = _artifactCard(id); if (!card) return;
+  const code = card.querySelector('.artifact-code');
+  const frame = card.querySelector('.artifact-frame');
+  const showCode = code.style.display === 'none';
+  code.style.display = showCode ? 'block' : 'none';
+  frame.style.display = showCode ? 'none' : 'block';
+  btn.textContent = showCode ? 'Preview' : 'Code';
+}
+
+function artifactExpand(id, btn) {
+  const frame = _artifactCard(id)?.querySelector('.artifact-frame');
+  if (!frame) return;
+  frame.classList.toggle('tall');
+  btn.textContent = frame.classList.contains('tall') ? 'Shrink' : 'Expand';
+}
+
+// Open the artifact as a real page. A blob URL rather than document.write into
+// the new window: a blob: document is its own opaque origin, so the popup can't
+// reach back into this one, and the browser's own Print → Save as PDF is then a
+// working export path with no dependency added here.
+function artifactOpen(id) {
+  const a = _artifacts.get(id); if (!a) return;
+  const url = URL.createObjectURL(
+    new Blob([artifactDocument(a.lang, a.src)], { type: 'text/html' }));
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function artifactDownload(id) {
+  const a = _artifacts.get(id); if (!a) return;
+  downloadBlob(artifactDocument(a.lang, a.src), 'text/html', `artifact-${id}.html`);
+}
+
+// One place that turns text into a saved file, so every export path below
+// behaves the same way.
+function downloadBlob(text, mime, filename) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ── Exporting a conversation ────────────────────────────────────────────────
+// Markdown, a standalone web page, or the browser's print dialog (which is also
+// how you get a PDF). All three are built client-side from the history already
+// loaded, so exporting adds no endpoint, no dependency, and no server CPU that
+// an anonymous visitor could spend on the operator's behalf.
+
+function conversationTitle() {
+  const conv = _chatConvs.find(c => c.id === _chatConvId);
+  return (conv && conv.title) || 'Conversation';
+}
+
+function conversationSlug() {
+  return (conversationTitle().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'conversation').slice(0, 60);
+}
+
+function conversationMarkdown() {
+  const out = [`# ${conversationTitle()}`, ''];
+  for (const m of _chatMessages) {
+    if (m.role === 'system') continue;
+    const { text, imgs, files } = messageParts(m.content);
+    out.push(`## ${m.role === 'user' ? 'You' : 'Assistant'}`, '');
+    const attached = [];
+    if (imgs) attached.push(`${imgs} image${imgs > 1 ? 's' : ''}`);
+    if (files) attached.push(`${files} file${files > 1 ? 's' : ''}`);
+    if (attached.length) out.push(`*(attached: ${attached.join(', ')})*`, '');
+    out.push(text, '');
+  }
+  return out.join('\n');
+}
+
+// A self-contained page. Artifacts are inlined here rather than kept in sandboxed
+// iframes: this file is a *document* the reader saves and opens themselves, not a
+// surface inside the app, so it holds nothing to steal — and inlining is what
+// makes the print output right, since iframe printing is unreliable and would
+// silently drop the visuals from the PDF.
+function conversationHtml({ autoPrint = false } = {}) {
+  const parts = [];
+  _artifactInline = true;
+  try {
+    for (const m of _chatMessages) {
+      if (m.role === 'system') continue;
+      const { text } = messageParts(m.content);
+      const who = m.role === 'user' ? 'You' : 'Assistant';
+      // The user's own turn stays plain text. Rendering it as Markdown would let
+      // a pasted fragment become live markup in the exported file, and nothing
+      // about a typed message asks to be interpreted.
+      const body = m.role === 'user'
+        ? `<p>${escapeHtml(text)}</p>`
+        : renderMarkdown(text);
+      parts.push(`<section class="turn ${m.role}"><h2>${who}</h2>${body}</section>`);
+    }
+  } finally {
+    _artifactInline = false;   // must not leak into the live transcript
+  }
+  const html = parts.join('\n');
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(conversationTitle())}</title>
+<style>
+  body { max-width: 46rem; margin: 2rem auto; padding: 0 1.5rem;
+         font: 16px/1.65 Georgia, "Times New Roman", serif; color: #16181d; }
+  h1 { font-size: 1.7rem; margin-bottom: 1.5rem; }
+  .turn { margin: 0 0 2rem; }
+  .turn h2 { font: 600 0.7rem/1 -apple-system, sans-serif; letter-spacing: 0.08em;
+             text-transform: uppercase; color: #8a8f98; margin: 0 0 0.5rem; }
+  .turn.user { padding-left: 1rem; border-left: 3px solid #d5d8de; color: #4a4f58; }
+  pre { background: #f5f6f8; padding: 0.8rem; overflow-x: auto;
+        font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #d5d8de; padding: 0.35rem 0.7rem; text-align: left; }
+  blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 3px solid #d5d8de;
+               color: #4a4f58; }
+  .artifact-inline { margin: 1.2rem 0; }
+  .artifact-inline svg, .artifact-inline img { max-width: 100%; height: auto; }
+  @media print { body { margin: 0; max-width: none; } .turn { break-inside: avoid; } }
+</style></head>
+<body onload="${autoPrint ? 'window.print()' : ''}">
+<h1>${escapeHtml(conversationTitle())}</h1>
+${html}
+</body></html>`;
+}
+
+function exportChat(kind) {
+  if (!kind) return;
+  if (!_chatMessages.length) { alert('Nothing to export yet.'); return; }
+  if (kind === 'md') {
+    downloadBlob(conversationMarkdown(), 'text/markdown', `${conversationSlug()}.md`);
+    return;
+  }
+  if (kind === 'html') {
+    downloadBlob(conversationHtml(), 'text/html', `${conversationSlug()}.html`);
+    return;
+  }
+  // print → open the same document in a tab and raise the print dialog, which is
+  // where "Save as PDF" lives. A blob URL keeps it out of this origin.
+  const url = URL.createObjectURL(
+    new Blob([conversationHtml({ autoPrint: true })], { type: 'text/html' }));
+  const w = window.open(url, '_blank');
+  if (!w) alert('Your browser blocked the print window. Allow pop-ups for this site, or export the .html file instead.');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 // A small, dependency-free Markdown → HTML renderer matching the no-build UI.
 // Supports headings, bold/italic, inline + fenced code, ordered/unordered lists
 // (with nesting by indent), blockquotes, horizontal rules, GFM tables, and
@@ -4201,16 +4536,28 @@ function renderMarkdown(src) {
   while (i < lines.length) {
     let line = lines[i];
 
-    // Fenced code block: ``` or ~~~ (language after the fence is ignored).
+    // Fenced code block: ``` or ~~~. The language tag is read now (it used to be
+    // discarded) because `html` and `svg` blocks are renderable output, not code
+    // to look at — see renderArtifact.
     const fence = line.match(/^\s*(```+|~~~+)(.*)$/);
     if (fence) {
       const marker = fence[1][0], body = [];
+      const lang = (fence[2] || '').trim().toLowerCase().split(/\s+/)[0];
       i++;
       while (i < lines.length && !new RegExp('^\\s*' + marker + '{3,}\\s*$').test(lines[i])) {
         body.push(lines[i]); i++;
       }
+      const closed = i < lines.length;   // false → the fence never closed
       i++;  // consume the closing fence
-      html += `<pre><code>${escapeHtml(body.join('\n'))}</code></pre>`;
+      const src = body.join('\n');
+      // Only render a *finished* block. A half-streamed or truncated document
+      // would render as a broken page, and the reader would have no way to know
+      // whether the model or the renderer produced the mess.
+      if (closed && ARTIFACT_LANGS[lang] && src.trim()) {
+        html += renderArtifact(lang, src);
+      } else {
+        html += `<pre><code>${escapeHtml(src)}</code></pre>`;
+      }
       continue;
     }
 

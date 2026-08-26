@@ -167,6 +167,12 @@ class ChatMessage:
     id: int = 0                      # autoincrement
     ordinal: int = 0                 # per-conversation sequence (stable ordering)
     ts: str = ""
+    # The provider stopped this reply at the output ceiling (finish_reason
+    # "length") rather than finishing its thought. Stored, not just shown live,
+    # because otherwise reopening the thread turns "we cut this off" into "the
+    # model wrote one paragraph" — the reader is left diagnosing the wrong
+    # problem, and the text on screen gives them no way to tell.
+    truncated: bool = False
 
 
 @dataclass

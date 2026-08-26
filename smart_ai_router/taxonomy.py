@@ -62,6 +62,22 @@ FIELDS: dict[str, tuple[str, str]] = {
 
 FIELD_KEYS = tuple(FIELDS)
 
+# Fields whose answer *is* a document. Naming them is the difference between "a
+# short story" and one paragraph of one: the output ceiling that keeps a chatty
+# model from burning tokens on a factual question is the same ceiling that cuts a
+# story off mid-sentence, because nothing upstream distinguished the two. These
+# get a much larger output budget — see `api/proxy.py:_output_budget`.
+#
+# Deliberately narrow. `humanities_social` and `product_design` produce long
+# answers too, but they produce *analysis*, which is bounded by the question;
+# these four produce artifacts, whose length is set by the artifact.
+LONG_FORM_FIELDS: frozenset[str] = frozenset({
+    "creative_writing",
+    "technical_writing",
+    "education_explanation",
+    "translation_multilingual",   # output length is the *input's* length
+})
+
 # ── Depth ─────────────────────────────────────────────────────────────────────
 # How far into a field the answer has to go, and the model score that demands.
 #
@@ -217,6 +233,20 @@ class PromptProfile:
 
     def primary_field(self) -> str:
         return self.domains[0].field if self.domains else "general_knowledge"
+
+    def is_long_form(self) -> bool:
+        """Whether the answer is a document, and so needs room to be one.
+
+        Any named field being long-form counts, not just the primary one: "write
+        the API guide for this service" names technical_writing *second*, behind
+        a primary the classifier reads off the subject matter, and it is still a
+        document. `long_synthesis` counts on its own because that demand means
+        "integrate many sources into one coherent artifact", which is a length
+        claim in everything but name.
+        """
+        if "long_synthesis" in self.demands:
+            return True
+        return any(d.field in LONG_FORM_FIELDS for d in self.domains)
 
     def legacy_labels(self) -> tuple[str, str]:
         """(domain, complexity) in the old vocabulary, for the usage log, the
