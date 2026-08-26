@@ -13,7 +13,9 @@ Each group pins the property, not the implementation: the numbers come from
 settings, so a test asserting "16384" would pass while asserting nothing about
 whether the *profile* is what chose it.
 """
+import json
 import warnings
+from io import BytesIO
 
 import httpx
 import pytest
@@ -21,12 +23,14 @@ from fastapi.testclient import TestClient
 
 from smart_ai_router import public_access as _public
 from smart_ai_router import settings as _settings
+from smart_ai_router import sync as sync_mod
 from smart_ai_router.api import proxy as _proxy
 from smart_ai_router.api.app import create_app
 from smart_ai_router.classifier import classify_profile
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.models import ChatMessage, Conversation, ModelSpec
 from smart_ai_router.store.sqlite_store import SqliteStore
+from smart_ai_router.sync import sync_from_providers
 from smart_ai_router.taxonomy import DomainNeed, PromptProfile
 
 _REPLY = {
@@ -152,6 +156,172 @@ def test_a_secondary_long_form_field_counts(client):
     profile = classify_profile("Write the API guide for this service")
     assert profile.primary_field() != "technical_writing"
     assert profile.is_long_form() is True
+
+
+# ── The one ceiling we can't raise: the model's own ─────────────────────────────
+
+def _long_form():
+    return PromptProfile(
+        domains=(DomainNeed(field="creative_writing", depth="practitioner"),)
+    )
+
+
+def test_the_budget_never_exceeds_what_the_model_can_emit(monkeypatch):
+    """Asking for more than a model allows is not a harmless overshoot.
+
+    Several providers reject the call outright, so an ambitious setting would turn
+    a long answer into no answer — and output limits on the live catalog run from
+    2048 to 1.8M, which is why this has to come from the model rather than a guess.
+    """
+    monkeypatch.setenv("SMART_ROUTER_DEFAULT_MAX_TOKENS", "4096")
+    monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MAX_TOKENS", "32768")
+    cramped = ModelSpec(value="openrouter/cramped", max_output=2048)
+    roomy = ModelSpec(value="openrouter/roomy", max_output=64000)
+
+    assert _proxy._output_budget(_long_form(), roomy) == 32768
+    assert _proxy._output_budget(_long_form(), cramped) == 2048
+    # And on an ordinary reply too: the default alone would be rejected here.
+    assert _proxy._output_budget(None, cramped) == 2048
+
+
+def test_an_unknown_model_ceiling_does_not_clamp(monkeypatch):
+    """0 means the catalog didn't say, not "zero tokens".
+
+    Every local model is in that position. Clamping on an unknown would silence
+    them; sending the budget is right, because Ollama treats max_tokens as
+    num_predict and simply stops there.
+    """
+    monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MAX_TOKENS", "32768")
+    assert _proxy._output_budget(
+        _long_form(), ModelSpec(value="ollama/local", max_output=0)
+    ) == 32768
+    assert _proxy._output_budget(_long_form(), None) == 32768
+
+
+def test_a_models_output_ceiling_round_trips_through_the_store():
+    store = SqliteStore(":memory:")
+    store.upsert_model(ModelSpec(value="openrouter/x", max_output=65536))
+    assert store.get("openrouter/x").max_output == 65536
+    # Unknown stays unknown rather than becoming a number we made up.
+    store.upsert_model(ModelSpec(value="ollama/y"))
+    assert store.get("ollama/y").max_output == 0
+
+
+def test_sync_reads_each_models_output_ceiling_from_the_catalog(monkeypatch):
+    """OpenRouter publishes it per model; nothing else in the row implies it.
+
+    The second model here is the case that matters: a 200k context window and a
+    2048-token output ceiling. Reading it off context_length — the obvious guess —
+    would ask for 100x what it can give.
+    """
+    catalog = {"data": [
+        {"id": "vendor/roomy", "context_length": 200000,
+         "architecture": {"modality": "text->text"},
+         "top_provider": {"max_completion_tokens": 64000}},
+        {"id": "vendor/cramped", "context_length": 200000,
+         "architecture": {"modality": "text->text"},
+         "top_provider": {"max_completion_tokens": 2048}},
+        # No top_provider block at all — a handful of real rows look like this.
+        {"id": "vendor/silent", "context_length": 200000,
+         "architecture": {"modality": "text->text"}},
+    ]}
+
+    def _open(req, timeout=0):
+        class _Resp(BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        return _Resp(json.dumps(catalog).encode())
+
+    monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _open)
+    store = SqliteStore(":memory:")
+    sync_from_providers(store, openrouter_key="k")
+
+    ceilings = {s.value: s.max_output for s in store.all_models()}
+    assert ceilings["openrouter/vendor/roomy"] == 64000
+    assert ceilings["openrouter/vendor/cramped"] == 2048
+    # Unknown, not guessed from the 200k context window.
+    assert ceilings["openrouter/vendor/silent"] == 0
+
+
+def test_the_curated_bedrock_rows_carry_an_output_ceiling():
+    """Bedrock's catalog isn't fetched, so these numbers are ours to get right.
+
+    Anthropic rejects a max_tokens above the model's limit, so a missing ceiling
+    here would mean every Claude row silently accepts whatever long_form_max_tokens
+    is set to — and errors once someone raises it past 32k.
+    """
+    store = SqliteStore(":memory:")
+    sync_from_providers(store, bedrock_key="x")
+    assert all(s.max_output > 0 for s in store.all_models())
+
+
+@pytest.fixture
+def mixed_client(monkeypatch, client):
+    """Two qualified models: the cheap one can't finish a document, the dear one can.
+
+    This is the shape the catalog actually has — low output ceilings cluster at the
+    cheap end — and it is the case where "cheapest qualified wins" and "don't
+    truncate the story" pull in opposite directions.
+    """
+    monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT", "8192")
+    client.store.delete_model("openrouter/generalist")
+    client.store.upsert_model(ModelSpec(
+        value="openrouter/cheap-cramped", provider="openrouter", cost=1, ctx_k=200,
+        max_output=2048, reliability=1.0, tools=True, profile=_profile(),
+        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
+    ))
+    client.store.upsert_model(ModelSpec(
+        value="openrouter/dear-roomy", provider="openrouter", cost=5, ctx_k=200,
+        max_output=64000, reliability=1.0, tools=True, profile=_profile(),
+        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
+    ))
+    return client
+
+
+def test_a_document_avoids_a_model_that_cannot_finish_one(mixed_client):
+    """Room to write is worth more than the price difference, for a document.
+
+    The user's call, stated plainly: a clean answer beats saving a few cents. So
+    the cheapest-qualified rule yields on long-form requests only — and the
+    explanation says so, because otherwise the pick looks like the router quietly
+    ignoring its own rule.
+    """
+    r = _chat(mixed_client, _STORY)
+    assert r.headers["X-Routed-Model"] == "openrouter/dear-roomy"
+    assert "capped too low to finish a document" in r.headers["X-Routing-Why"]
+    assert mixed_client.sent[-1]["max_tokens"] > 2048
+
+
+def test_an_ordinary_question_still_takes_the_cheapest(mixed_client):
+    """The preference is scoped to documents. A 2048-token ceiling is plenty for
+    "what is the capital of France", and paying five times as much for it would be
+    the router failing at its whole purpose."""
+    r = _chat(mixed_client, _FACT)
+    assert r.headers["X-Routed-Model"] == "openrouter/cheap-cramped"
+    assert "capped too low" not in r.headers["X-Routing-Why"]
+
+
+def test_capacity_is_a_preference_not_a_veto(monkeypatch, client):
+    """When nothing roomy qualifies, the request is still answered.
+
+    A hard filter here would turn "no model can write a long story" into an error
+    on a request that a cramped model would have answered imperfectly — trading a
+    truncated story for no story, which is the wrong direction.
+    """
+    monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT", "8192")
+    client.store.delete_model("openrouter/generalist")
+    client.store.upsert_model(ModelSpec(
+        value="openrouter/only-option", provider="openrouter", cost=1, ctx_k=200,
+        max_output=2048, reliability=1.0, tools=True, profile=_profile(),
+        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
+    ))
+    r = _chat(client, _STORY)
+    assert r.status_code == 200
+    assert r.headers["X-Routed-Model"] == "openrouter/only-option"
+    # Nothing was passed over, so nothing is claimed to have been.
+    assert "capped too low" not in r.headers["X-Routing-Why"]
+    # And we ask for exactly what it can give rather than a number it would reject.
+    assert client.sent[-1]["max_tokens"] == 2048
 
 
 @pytest.mark.parametrize("prompt", [

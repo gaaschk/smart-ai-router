@@ -25,6 +25,16 @@ class ModelSpec:
     provider: str = ""                  # "openrouter" | "ollama" | "bedrock" | ...
     cost: int = 0                       # relative tier for router sorting (0=local, 1=free-tier, 2+=paid)
     ctx_k: int = 0                      # context window in K tokens
+    max_output: int = 0
+    # Most tokens this model can emit in one reply, 0 = unknown. Distinct from
+    # ctx_k: the catalog's output limits range from 2048 to 1.8M while context
+    # windows are uniformly large, so context tells you nothing about whether a
+    # story will fit. Stored because it is the only ceiling we cannot raise — and
+    # because asking for more than it allows is not harmless: several providers
+    # reject the request outright, turning a long answer into no answer.
+    # OpenRouter reports it (top_provider.max_completion_tokens) for 411 of 417
+    # models; local models leave it unknown, which is safe, since Ollama treats
+    # max_tokens as num_predict and simply stops there.
     tools: bool = False                 # supports tool/function calling
     vision: bool = False                # supports image inputs
     structured_outputs: bool = False

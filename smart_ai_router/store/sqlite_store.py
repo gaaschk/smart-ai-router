@@ -218,6 +218,12 @@ class SqliteStore(MatrixStore):
                 ("agentic", "REAL DEFAULT 0.0"),
                 ("structured_outputs", "INTEGER DEFAULT 0"),
                 ("reasoning", "INTEGER DEFAULT 0"),
+                # Output ceiling the *model* imposes (ModelSpec.max_output).
+                # DEFAULT 0 reads as "unknown", which is what a pre-migration row
+                # honestly is, and is the safe direction: unknown means we send
+                # the configured budget rather than a number derived from a guess
+                # at the model's limit.
+                ("max_output", "INTEGER DEFAULT 0"),
             ):
                 try:
                     self._conn.execute(
@@ -302,8 +308,8 @@ class SqliteStore(MatrixStore):
                     competence_reasoning, competence_general,
                     profile_json, description,
                     profile_ratings_json, profile_note, agentic,
-                    structured_outputs, reasoning
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    structured_outputs, reasoning, max_output
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -323,7 +329,8 @@ class SqliteStore(MatrixStore):
                     profile_note=excluded.profile_note,
                     agentic=excluded.agentic,
                     structured_outputs=excluded.structured_outputs,
-                    reasoning=excluded.reasoning
+                    reasoning=excluded.reasoning,
+                    max_output=excluded.max_output
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -347,6 +354,7 @@ class SqliteStore(MatrixStore):
                     float(max(0.0, min(1.0, spec.agentic))),
                     1 if spec.structured_outputs else 0,
                     1 if spec.reasoning else 0,
+                    max(0, int(spec.max_output or 0)),
                 ),
             )
             self._conn.commit()
@@ -1183,6 +1191,7 @@ class SqliteStore(MatrixStore):
             provider=row["provider"] or "",
             cost=row["cost"] or 0,
             ctx_k=row["ctx_k"] or 0,
+            max_output=int(cls._num_column(row, "max_output")),
             tools=bool(row["tools"]),
             vision=bool(row["vision"]) if row["vision"] is not None else False,
             reliability=row["reliability"] if row["reliability"] is not None else 1.0,

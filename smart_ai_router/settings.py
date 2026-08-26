@@ -120,15 +120,32 @@ SPECS: tuple[SettingSpec, ...] = (
         key="long_form_max_tokens",
         env="SMART_ROUTER_LONG_FORM_MAX_TOKENS",
         type="int",
-        default=16384,
+        default=32768,
         label="Long-form max output tokens",
         group="Routing",
         help="Output ceiling for a prompt whose answer is a document — a story, "
         "a guide, a lesson, a translation. The ordinary default is sized for a "
         "reply; asking for a short story and getting one paragraph, cut "
-        "mid-sentence, is that default doing exactly what it was set to do. Still "
-        "bounded by the per-identity ceilings under Public access and Self-serve "
-        "accounts, which win when they are lower.",
+        "mid-sentence, is that default doing exactly what it was set to do. "
+        "Generous on purpose: this is a ceiling, not a target, and you are billed "
+        "for what the model actually writes. Automatically lowered to the chosen "
+        "model's own output limit, so a large value here can't produce a request "
+        "the provider rejects.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="long_form_min_model_output",
+        env="SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT",
+        type="int",
+        default=8192,
+        label="Long-form minimum model capacity",
+        group="Routing",
+        help="For a document request, prefer a model that can emit at least this "
+        "many tokens. Some cheap models cap output at 2–4k no matter what we ask "
+        "for, and cheapest-qualified-wins would hand them a story they physically "
+        "cannot finish. A preference, not a filter: if no roomier model qualifies, "
+        "the cheapest qualified one still answers rather than the request failing. "
+        "Set to 0 to rank documents on price alone.",
         validate=_reject_negative,
     ),
     SettingSpec(
@@ -340,14 +357,16 @@ SPECS: tuple[SettingSpec, ...] = (
         key="public_max_output_tokens",
         env="SMART_ROUTER_PUBLIC_MAX_OUTPUT_TOKENS",
         type="int",
-        default=4096,
+        default=16384,
         label="Anonymous max output tokens",
         group="Public access",
         help="Hard ceiling on max_tokens for an anonymous request. This is what "
         "bounds how far concurrent requests can overshoot the daily cap, since a "
-        "call's real cost is only known after it returns. Was 1024, which on a "
-        "reasoning model left roughly a paragraph after thinking — low enough to "
-        "look like the model being terse rather than a ceiling being hit.",
+        "call's real cost is only known after it returns. Deliberately roomy — a "
+        "stranger asking for a story should get a whole one, and what actually "
+        "bounds the bill is the daily budget, the rate limit, and the tier ceiling "
+        "rather than a ceiling that truncates every long answer. Lower it if you "
+        "would rather cut replies off than risk a single expensive call.",
         validate=_reject_negative,
     ),
     SettingSpec(
@@ -454,13 +473,14 @@ SPECS: tuple[SettingSpec, ...] = (
         key="self_signup_max_output_tokens",
         env="SMART_ROUTER_SIGNUP_MAX_OUTPUT_TOKENS",
         type="int",
-        default=4096,
+        default=16384,
         label="Self-serve max output tokens",
         group="Self-serve accounts",
         help="Hard ceiling on max_tokens for a self-issued key's request. This is "
         "what bounds how far concurrent requests can overshoot the daily caps, "
-        "since a call's real cost is only known after it returns. Sized to leave "
-        "room for a real document after a reasoning model's thinking budget.",
+        "since a call's real cost is only known after it returns. Roomy enough for "
+        "a whole document, because truncating one to save a fraction of a cent is "
+        "a bad trade; the daily caps are what bound the bill.",
         validate=_reject_negative,
     ),
     SettingSpec(

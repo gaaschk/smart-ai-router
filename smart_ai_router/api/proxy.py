@@ -109,24 +109,37 @@ def _rich_output_preamble() -> str:
     return (_settings.get("chat_rich_output_prompt") or "").strip()
 
 
-def _output_budget(profile) -> int:
+def _output_budget(profile, spec=None) -> int:
     """Output ceiling for a caller who didn't name one, given what they asked for.
 
     One number cannot serve both "what's the capital of France" and "write me a
     short story". Sized for the first, the second comes back a paragraph long and
     cut mid-sentence; sized for the second, every trivial question carries a
-    budget it will never use — which costs nothing directly, but on a reasoning
-    model an oversized budget is an invitation to think for a while.
+    budget it will never use — which costs nothing directly, since billing follows
+    the tokens actually written, but on a reasoning model an oversized budget is an
+    invitation to think for a while.
 
     So the prompt profile decides. It already knows the answer is a document (see
     `PromptProfile.is_long_form`), and it knew it *before* this function existed —
     the information was there and simply wasn't being used. Never lowers the
     ordinary default: an operator who raised that meant it.
+
+    Then the model's own ceiling clamps whatever we arrived at, because asking for
+    more than a model can emit is not a harmless overshoot — several providers
+    reject the call, which turns a long answer into no answer at all. Output limits
+    on the live catalog run from 2048 to 1.8M, so this is the difference between a
+    generous setting and a broken one. `max_output == 0` means the catalog didn't
+    say; we send the budget unclamped, which is right for local models (Ollama
+    treats max_tokens as num_predict and just stops).
     """
     base = _default_max_tokens()
-    if profile is None or not profile.is_long_form():
-        return base
-    return max(base, _settings.get_int("long_form_max_tokens"))
+    want = base
+    if profile is not None and profile.is_long_form():
+        want = max(base, _settings.get_int("long_form_max_tokens"))
+    limit = int(getattr(spec, "max_output", 0) or 0)
+    if limit > 0:
+        want = min(want, limit)
+    return max(1, want)
 
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
@@ -806,6 +819,9 @@ async def chat_completions(request: Request):
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
+    # The chosen model's spec, for its output ceiling. One store read, and only
+    # this: everything else about the decision is already in `decision`.
+    routed_spec = cr.get_model(routed_model)
 
     mode = "orchestrator" if is_orchestrator else profile.describe()
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
@@ -832,7 +848,7 @@ async def chat_completions(request: Request):
     # reasoning models have budget for thinking + answer instead of truncating —
     # and a document-sized one when the profile says the answer is a document.
     if not forward_body.get("max_tokens"):
-        forward_body["max_tokens"] = _output_budget(profile)
+        forward_body["max_tokens"] = _output_budget(profile, routed_spec)
     # Callers the operator never vetted — anonymous visitors and self-issued keys
     # — get a hard output ceiling, applied after the default and over anything they
     # asked for. This is what bounds the damage while the spend cap is blind: a
@@ -899,7 +915,7 @@ async def chat_completions(request: Request):
                 # Per *round*, not per request — the loop may take several. The
                 # profile-aware budget still applies: an agent writing a document
                 # to a file needs room for the document.
-                fwd["max_tokens"] = _output_budget(profile)
+                fwd["max_tokens"] = _output_budget(profile, routed_spec)
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 async with client.stream(
                     "POST", url, headers=_headers(api_key), json=fwd,

@@ -216,18 +216,23 @@ def sync_from_providers(
 # gave them two places to drift apart. The profiler derives both the per-field
 # profile and the legacy competence summary from the model id, so these rows now
 # carry only what is genuinely Bedrock-specific: the id, context, and rates.
+# max_output is the conservative floor across the Claude family rather than each
+# model's advertised best. Anthropic rejects a max_tokens above the model's own
+# limit, so overstating it turns a long answer into an error, while understating
+# it only means a very long document gets a continuation — and 32k is already far
+# past anything a chat reply needs.
 _BEDROCK_CLAUDE_MODELS = [
-    # (model_id, ctx_k, cost_input, cost_output)
-    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0),
-    ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0),
-    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0),
+    # (model_id, ctx_k, cost_input, cost_output, max_output)
+    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0, 32000),
+    ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0, 32000),
+    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0, 32000),
 ]
 
 
 def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
     existing = {s.value: s for s in store.all_models()}
     seen: set[str] = set()
-    for mid, ctx_k, cost_input, cost_output in _BEDROCK_CLAUDE_MODELS:
+    for mid, ctx_k, cost_input, cost_output, max_output in _BEDROCK_CLAUDE_MODELS:
         value = f"bedrock/{mid}"
         # Every Claude model on Bedrock supports extended thinking.
         profile = profile_model(value, supports_reasoning=True)
@@ -236,6 +241,7 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
             provider="bedrock",
             cost=_cost_tier(cost_input, cost_output),
             ctx_k=ctx_k,
+            max_output=max_output,
             tools=True,
             vision=True,
             # Left False because it is unverified, not because Claude can't do
@@ -416,6 +422,14 @@ def _sync_openrouter(
 
         value = f"openrouter/{mid}"
         ctx_k = (m.get("context_length") or 0) // 1000
+        # The provider's own output ceiling. Absent for a handful of models, and
+        # left as 0 (unknown) rather than defaulted to the context window — a
+        # guess here becomes a request the provider rejects, which is worse than
+        # having no number. Range on the live catalog is 2048 to 1.8M, so this
+        # cannot be inferred from context_length.
+        max_output = int(
+            (m.get("top_provider") or {}).get("max_completion_tokens") or 0
+        )
 
         pr = m.get("pricing") or {}
         try:
@@ -464,6 +478,7 @@ def _sync_openrouter(
             provider="openrouter",
             cost=cost,
             ctx_k=ctx_k,
+            max_output=max_output,
             tools=tools,
             vision=vision,
             structured_outputs=structured_outputs,
