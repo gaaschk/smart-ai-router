@@ -13,6 +13,11 @@ exact shape the client sent.
 
 Threads carry free-form `tags` for grouping, and the list endpoint takes `?user=`
 (admin only — a per-user key may only ask for itself) and `?tag=` filters.
+
+Admin's reach over other people's threads is not absolute: a thread defaults to
+`shared=True`, and its owner may turn that off. A private thread is invisible to
+the admin identity everywhere — absent from the list, from the owner options, and
+a 404 by id — so admin cannot tell it exists. Only the owner can flip the flag.
 """
 from __future__ import annotations
 
@@ -87,6 +92,7 @@ def _to_response(conv: Conversation) -> ConversationResponse:
         updated_at=conv.updated_at,
         tags=list(conv.tags),
         user=conv.user,
+        shared=conv.shared,
     )
 
 
@@ -104,14 +110,21 @@ def _owned_or_404(request: Request, conversation_id: str) -> Conversation:
     """Fetch a conversation the caller may see, else 404.
 
     A 404 (not 403) for someone else's conversation avoids leaking that the id
-    exists.
+    exists — which is also why a private thread 404s for admin rather than 403ing.
+    The fetch itself is unfiltered because the owner must always reach their own
+    thread; this function is the single place that decides who may see it.
     """
     cr = _router_instance(request)
     conv = cr.get_conversation(conversation_id)
+    missing = HTTPException(
+        status_code=404, detail=f"No such conversation: {conversation_id!r}"
+    )
     if conv is None:
-        raise HTTPException(status_code=404, detail=f"No such conversation: {conversation_id!r}")
-    if not _is_admin(request) and conv.user != _caller(request):
-        raise HTTPException(status_code=404, detail=f"No such conversation: {conversation_id!r}")
+        raise missing
+    if conv.user == _caller(request):
+        return conv                       # your own thread, private or not
+    if not _is_admin(request) or not conv.shared:
+        raise missing
     return conv
 
 
@@ -137,9 +150,14 @@ def list_conversations(
             )
         scope = caller
 
-    convs = cr.list_conversations(scope, tag=(tag.strip().lower() if tag else None))
-    # Owner options for the admin's filter come from who actually has history.
-    users = cr.list_conversation_users() if is_admin else []
+    # `caller` is what keeps other people's private threads out of an admin listing
+    # while leaving the caller's own private threads in their own.
+    convs = cr.list_conversations(
+        scope, tag=(tag.strip().lower() if tag else None), caller=caller
+    )
+    # Owner options for the admin's filter come from who actually has history the
+    # admin can see — an owner with only private threads is not an option.
+    users = cr.list_conversation_users(caller=caller) if is_admin else []
     return ConversationListResponse(
         data=[_to_response(c) for c in convs], users=users
     )
@@ -153,6 +171,7 @@ def create_conversation(request: Request, body: ConversationCreateRequest):
         user=_caller(request),
         title=(body.title or "New chat").strip() or "New chat",
         tags=_normalize_tags(body.tags or []),
+        shared=body.shared,
     )
     return _to_response(cr.create_conversation(conv))
 
@@ -176,12 +195,20 @@ def get_conversation(conversation_id: str, request: Request):
 def update_conversation(
     conversation_id: str, request: Request, body: ConversationUpdateRequest
 ):
-    """Rename a thread, retag it, or both — whichever fields the client sent."""
-    _owned_or_404(request, conversation_id)
+    """Rename a thread, retag it, change who can see it — whichever fields were sent."""
+    conv = _owned_or_404(request, conversation_id)
     cr = _router_instance(request)
 
-    if body.title is None and body.tags is None:
-        raise HTTPException(status_code=422, detail="send a title and/or tags")
+    if body.title is None and body.tags is None and body.shared is None:
+        raise HTTPException(status_code=422, detail="send a title, tags, and/or shared")
+
+    # Sharing is the owner's call alone. Admin can see and manage a shared thread,
+    # but letting it flip the flag would mean either hiding a thread from the person
+    # paying for the service or overriding a user's decision to keep one private.
+    if body.shared is not None and conv.user != _caller(request):
+        raise HTTPException(
+            status_code=403, detail="only the owner can change who a chat is shared with"
+        )
 
     title = None
     if body.title is not None:
@@ -191,7 +218,7 @@ def update_conversation(
 
     tags = None if body.tags is None else _normalize_tags(body.tags)
 
-    cr.update_conversation(conversation_id, title=title, tags=tags)
+    cr.update_conversation(conversation_id, title=title, tags=tags, shared=body.shared)
     # Return the fresh record (a rename also bumps updated_at).
     conv = cr.get_conversation(conversation_id)
     return _to_response(conv)

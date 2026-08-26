@@ -138,6 +138,11 @@ class Conversation:
     `tags` are the owner's own labels for grouping threads in the sidebar. A
     thread can carry several (they live in a conversation_tags join table), so
     grouping is a filter rather than a folder a chat can only be in one of.
+
+    `shared` is whether the admin identity may see this thread. It defaults to
+    True — the admin runs the service and pays for it — but the owner can turn it
+    off per thread, and a thread with shared=False is invisible to everyone but
+    its owner: absent from admin's list, from the owner picker, and a 404 by id.
     """
     id: str                          # "conv-<token>" — opaque identifier
     user: str = ""                   # owner identity (per-user scoping)
@@ -145,6 +150,7 @@ class Conversation:
     created_at: str = ""
     updated_at: str = ""
     tags: list[str] = field(default_factory=list)  # lowercase, deduped labels
+    shared: bool = True              # visible to admin? owner-controlled
 
 
 @dataclass

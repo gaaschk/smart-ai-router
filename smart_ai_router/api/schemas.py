@@ -370,6 +370,7 @@ class ConversationResponse(BaseModel):
     # The owner, so the admin's list can say whose thread each one is. A per-user
     # key only ever sees its own conversations, so this tells it nothing new.
     user: str = ""
+    shared: bool = Field(True, description="Whether the admin identity may see this thread")
 
 
 class ConversationListResponse(BaseModel):
@@ -383,14 +384,20 @@ class ConversationListResponse(BaseModel):
 class ConversationCreateRequest(BaseModel):
     title: str = "New chat"
     tags: list[str] = Field(default_factory=list)
+    # Defaults to shared: the admin runs and pays for the service, so visibility is
+    # the norm and privacy is the deliberate choice, not the reverse.
+    shared: bool = True
 
 
 class ConversationUpdateRequest(BaseModel):
-    """Rename and/or regroup. Both fields are optional, but at least one must be
-    present; `tags: []` clears a thread's labels."""
+    """Rename, regroup, and/or change admin visibility. Every field is optional, but
+    at least one must be present; `tags: []` clears a thread's labels."""
     title: str | None = Field(None, description="New title for the conversation")
     tags: list[str] | None = Field(
         None, description="Replacement tag set (order and case are normalized)"
+    )
+    shared: bool | None = Field(
+        None, description="Let the admin see this thread (owner only)"
     )
 
 

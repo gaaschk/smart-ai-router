@@ -158,15 +158,25 @@ class MatrixStore(ABC):
 
     @abstractmethod
     def list_conversations(
-        self, user: str | None = None, *, tag: str | None = None
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
     ) -> list[Conversation]:
         """Conversations, newest-updated first, optionally filtered to one owner
-        (`user`) and/or one grouping label (`tag`). Each record carries its tags."""
+        (`user`) and/or one grouping label (`tag`). Each record carries its tags.
+
+        `caller` is the identity asking, and it gates privacy: a thread with
+        shared=False is returned only to its own owner. caller=None yields shared
+        threads only — the fail-safe direction, losing rows rather than leaking."""
 
     @abstractmethod
-    def list_conversation_users(self) -> list[str]:
-        """Every distinct owner that has at least one conversation, sorted. Backs
-        the admin's owner filter, so it lists who actually has chat history."""
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        """Every distinct owner with at least one conversation the caller may see,
+        sorted. Backs the admin's owner filter, so it lists who actually has visible
+        chat history — an owner whose every thread is private is omitted, since
+        appearing here would itself report that they exist."""
 
     @abstractmethod
     def update_conversation(
@@ -175,9 +185,10 @@ class MatrixStore(ABC):
         *,
         title: str | None = None,
         tags: list[str] | None = None,
+        shared: bool | None = None,
     ) -> bool:
-        """Rename and/or replace the tag set of a conversation. Fields left None
-        are untouched; `tags=[]` clears them. False if nothing matched."""
+        """Rename, replace the tag set, and/or set admin visibility. Fields left
+        None are untouched; `tags=[]` clears them. False if nothing matched."""
 
     @abstractmethod
     def delete_conversation(self, conversation_id: str) -> bool:

@@ -400,12 +400,16 @@ class CapabilityRouter:
         return self._store.get_conversation(conversation_id)
 
     def list_conversations(
-        self, user: str | None = None, *, tag: str | None = None
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
     ) -> list[Conversation]:
-        return self._store.list_conversations(user, tag=tag)
+        return self._store.list_conversations(user, tag=tag, caller=caller)
 
-    def list_conversation_users(self) -> list[str]:
-        return self._store.list_conversation_users()
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        return self._store.list_conversation_users(caller=caller)
 
     def update_conversation(
         self,
@@ -413,8 +417,11 @@ class CapabilityRouter:
         *,
         title: str | None = None,
         tags: list[str] | None = None,
+        shared: bool | None = None,
     ) -> bool:
-        return self._store.update_conversation(conversation_id, title=title, tags=tags)
+        return self._store.update_conversation(
+            conversation_id, title=title, tags=tags, shared=shared
+        )
 
     def delete_conversation(self, conversation_id: str) -> bool:
         return self._store.delete_conversation(conversation_id)
