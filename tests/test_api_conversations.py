@@ -1,7 +1,8 @@
 """Integration tests for the /api/conversations chat-history endpoints.
 
 Covers create → list → get → rename → delete, message append + retrieval,
-structured-content round-trip, and per-user scoping (a per-user key sees only
+structured-content round-trip, tag (grouping) normalization and limits, the
+admin's `?user=` owner filter, and per-user scoping (a per-user key sees only
 its own conversations; admin sees all; someone else's id is a 404, not a 403).
 """
 import warnings
@@ -139,3 +140,105 @@ def test_admin_sees_all_conversations(scoped):
     client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
     titles = {c["title"] for c in client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]}
     assert titles == {"A", "B"}
+
+
+# ── Tags (grouping) ────────────────────────────────────────────────────────────
+
+def test_tags_survive_create_list_and_get(open_client):
+    conv = open_client.post(
+        "/api/conversations", json={"title": "t", "tags": ["work", "cost"]}
+    ).json()
+    assert sorted(conv["tags"]) == ["cost", "work"]
+    assert sorted(open_client.get("/api/conversations").json()["data"][0]["tags"]) == ["cost", "work"]
+    assert sorted(open_client.get(f"/api/conversations/{conv['id']}").json()["tags"]) == ["cost", "work"]
+
+
+def test_tags_are_normalized(open_client):
+    conv = open_client.post(
+        "/api/conversations", json={"title": "t", "tags": ["  Work ", "WORK", "", "  ", "Cost"]}
+    ).json()
+    # Lowercased, trimmed, blanks dropped, deduped case-insensitively, order kept.
+    assert conv["tags"] == ["work", "cost"]
+
+
+def test_patch_replaces_tags_without_touching_title(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "keep", "tags": ["a"]}).json()["id"]
+    r = open_client.patch(f"/api/conversations/{cid}", json={"tags": ["b", "c"]})
+    assert r.status_code == 200
+    assert r.json()["title"] == "keep"
+    assert r.json()["tags"] == ["b", "c"]
+
+
+def test_patch_can_clear_tags(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "t", "tags": ["a"]}).json()["id"]
+    assert open_client.patch(f"/api/conversations/{cid}", json={"tags": []}).json()["tags"] == []
+
+
+def test_patch_renames_without_touching_tags(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "old", "tags": ["a"]}).json()["id"]
+    r = open_client.patch(f"/api/conversations/{cid}", json={"title": "new"})
+    assert (r.json()["title"], r.json()["tags"]) == ("new", ["a"])
+
+
+def test_patch_title_and_tags_together(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "old"}).json()["id"]
+    r = open_client.patch(f"/api/conversations/{cid}", json={"title": "new", "tags": ["x"]})
+    assert (r.json()["title"], r.json()["tags"]) == ("new", ["x"])
+
+
+def test_patch_with_no_fields_is_422(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
+    assert open_client.patch(f"/api/conversations/{cid}", json={}).status_code == 422
+
+
+def test_rejected_tags_are_422(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
+    for bad in (["a" * 25], ["needs,split"], [f"t{n}" for n in range(13)]):
+        assert open_client.patch(f"/api/conversations/{cid}", json={"tags": bad}).status_code == 422
+    # None of the rejected sets were applied.
+    assert open_client.get(f"/api/conversations/{cid}").json()["tags"] == []
+
+
+def test_list_filters_by_tag(open_client):
+    open_client.post("/api/conversations", json={"title": "A", "tags": ["work"]})
+    open_client.post("/api/conversations", json={"title": "B", "tags": ["home"]})
+    titles = [c["title"] for c in open_client.get("/api/conversations?tag=WORK").json()["data"]]
+    assert titles == ["A"]   # the filter is case-folded like the tags themselves
+
+
+def test_deleting_a_conversation_drops_it_from_tag_filters(open_client):
+    cid = open_client.post("/api/conversations", json={"title": "A", "tags": ["work"]}).json()["id"]
+    open_client.delete(f"/api/conversations/{cid}")
+    assert open_client.get("/api/conversations?tag=work").json()["data"] == []
+
+
+# ── Admin owner filter ─────────────────────────────────────────────────────────
+
+def test_admin_can_filter_by_user(scoped):
+    client, alice, bob = scoped
+    client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice))
+    client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
+
+    body = client.get("/api/conversations?user=alice", headers=_auth(_ADMIN)).json()
+    assert [c["title"] for c in body["data"]] == ["A"]
+    assert [c["user"] for c in body["data"]] == ["alice"]
+    # The owner options list everyone with history, not just the filtered owner,
+    # so the picker can always get back out of the filter.
+    assert body["users"] == ["alice", "bob"]
+
+
+def test_admin_filter_on_unknown_user_is_empty(scoped):
+    client, alice, _ = scoped
+    client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice))
+    assert client.get("/api/conversations?user=nobody", headers=_auth(_ADMIN)).json()["data"] == []
+
+
+def test_user_may_not_filter_by_another_user(scoped):
+    client, alice, bob = scoped
+    client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
+    r = client.get("/api/conversations?user=bob", headers=_auth(alice))
+    assert r.status_code == 403
+    # Asking for itself is fine, and gets no owner options to snoop through.
+    own = client.get("/api/conversations?user=alice", headers=_auth(alice))
+    assert own.status_code == 200
+    assert own.json()["users"] == []

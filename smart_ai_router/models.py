@@ -134,12 +134,17 @@ class Conversation:
     `title` is a short human label (auto-derived from the first user message,
     editable). `created_at`/`updated_at` are ISO-8601 UTC; `updated_at` bumps
     whenever a message is appended, so the conversation list can sort by recency.
+
+    `tags` are the owner's own labels for grouping threads in the sidebar. A
+    thread can carry several (they live in a conversation_tags join table), so
+    grouping is a filter rather than a folder a chat can only be in one of.
     """
     id: str                          # "conv-<token>" — opaque identifier
     user: str = ""                   # owner identity (per-user scoping)
     title: str = "New chat"          # short display label
     created_at: str = ""
     updated_at: str = ""
+    tags: list[str] = field(default_factory=list)  # lowercase, deduped labels
 
 
 @dataclass

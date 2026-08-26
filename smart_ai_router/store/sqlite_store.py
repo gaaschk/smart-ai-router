@@ -152,6 +152,20 @@ class SqliteStore(MatrixStore):
                 "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv "
                 "ON chat_messages (conversation_id, ordinal)"
             )
+            # A conversation's grouping labels. Many-to-many on purpose: a thread
+            # can sit in more than one group, so this is a join table rather than
+            # a column on conversations.
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_tags (
+                    conversation_id TEXT NOT NULL,
+                    tag             TEXT NOT NULL,
+                    PRIMARY KEY (conversation_id, tag)
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag "
+                "ON conversation_tags (tag)"
+            )
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key   TEXT PRIMARY KEY,
@@ -735,6 +749,8 @@ class SqliteStore(MatrixStore):
                    VALUES (?,?,?,?,?)""",
                 (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at),
             )
+            if conv.tags:
+                self._write_tags_locked(conv.id, conv.tags)
             self._conn.commit()
         return conv
 
@@ -743,40 +759,111 @@ class SqliteStore(MatrixStore):
             row = self._conn.execute(
                 "SELECT * FROM conversations WHERE id=?", (conversation_id,)
             ).fetchone()
-        return self._row_to_conversation(row) if row else None
+            if row is None:
+                return None
+            conv = self._row_to_conversation(row)
+            conv.tags = self._tags_locked([conv.id]).get(conv.id, [])
+        return conv
 
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
+    def list_conversations(
+        self, user: str | None = None, *, tag: str | None = None
+    ) -> list[Conversation]:
         with self._lock:
-            if user is None:
-                rows = self._conn.execute(
-                    "SELECT * FROM conversations ORDER BY updated_at DESC"
-                ).fetchall()
-            else:
-                rows = self._conn.execute(
-                    "SELECT * FROM conversations WHERE user=? ORDER BY updated_at DESC",
-                    (user,),
-                ).fetchall()
-        return [self._row_to_conversation(r) for r in rows]
+            where, params = [], []
+            if user is not None:
+                where.append("user=?")
+                params.append(user)
+            if tag:
+                where.append(
+                    "id IN (SELECT conversation_id FROM conversation_tags WHERE tag=?)"
+                )
+                params.append(tag)
+            sql = "SELECT * FROM conversations"
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            rows = self._conn.execute(sql + " ORDER BY updated_at DESC", params).fetchall()
+            convs = [self._row_to_conversation(r) for r in rows]
+            # One batched lookup for the whole page rather than a query per row.
+            tags = self._tags_locked([c.id for c in convs])
+            for c in convs:
+                c.tags = tags.get(c.id, [])
+        return convs
 
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
+    def list_conversation_users(self) -> list[str]:
         with self._lock:
-            cur = self._conn.execute(
-                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
-                (title, _utcnow_iso(), conversation_id),
-            )
+            rows = self._conn.execute(
+                "SELECT DISTINCT user FROM conversations ORDER BY user"
+            ).fetchall()
+        return [r["user"] or "" for r in rows]
+
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        with self._lock:
+            exists = self._conn.execute(
+                "SELECT 1 FROM conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if exists is None:
+                return False
+            if title is not None:
+                self._conn.execute(
+                    "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                    (title, _utcnow_iso(), conversation_id),
+                )
+            if tags is not None:
+                # Filing a thread under a label isn't activity, so `updated_at`
+                # stays put — retagging must not reshuffle the sidebar's order.
+                self._conn.execute(
+                    "DELETE FROM conversation_tags WHERE conversation_id=?",
+                    (conversation_id,),
+                )
+                self._write_tags_locked(conversation_id, tags)
             self._conn.commit()
-        return cur.rowcount > 0
+        return True
 
     def delete_conversation(self, conversation_id: str) -> bool:
         with self._lock:
             self._conn.execute(
                 "DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,)
             )
+            self._conn.execute(
+                "DELETE FROM conversation_tags WHERE conversation_id=?", (conversation_id,)
+            )
             cur = self._conn.execute(
                 "DELETE FROM conversations WHERE id=?", (conversation_id,)
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    # Both tag helpers assume self._lock is already held (it is a plain Lock, so
+    # re-acquiring it from a nested call would deadlock).
+
+    def _write_tags_locked(self, conversation_id: str, tags: list[str]) -> None:
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO conversation_tags (conversation_id, tag) VALUES (?,?)",
+            [(conversation_id, t) for t in tags],
+        )
+
+    def _tags_locked(self, ids: list[str]) -> dict[str, list[str]]:
+        """Tags for many conversations at once, keyed by conversation id."""
+        out: dict[str, list[str]] = {}
+        # Chunked to stay well under SQLite's bound-parameter limit (999 on the
+        # oldest builds we might run against).
+        for start in range(0, len(ids), 500):
+            batch = ids[start:start + 500]
+            marks = ",".join("?" * len(batch))
+            rows = self._conn.execute(
+                "SELECT conversation_id, tag FROM conversation_tags "
+                f"WHERE conversation_id IN ({marks}) ORDER BY tag",
+                batch,
+            ).fetchall()
+            for r in rows:
+                out.setdefault(r["conversation_id"], []).append(r["tag"])
+        return out
 
     def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
         ts = msg.ts or _utcnow_iso()

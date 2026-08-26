@@ -304,19 +304,66 @@
   .chat-conv-list { flex: 1; overflow-y: auto; padding: 0.4rem; }
   .chat-conv-empty { color: var(--text-muted); font-size: 0.78rem; padding: 0.6rem; text-align: center; }
   .chat-conv {
-    display: flex; align-items: center; gap: 0.3rem;
+    display: flex; flex-direction: column; gap: 0.2rem;
     padding: 0.45rem 0.5rem; border-radius: var(--radius-sm);
     cursor: pointer; font-size: 0.82rem; color: var(--text-secondary);
   }
   .chat-conv:hover { background: var(--surface-raised); }
   .chat-conv.active { background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent); }
+  .chat-conv-main { display: flex; align-items: center; gap: 0.3rem; position: relative; }
   .chat-conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-conv-x {
-    opacity: 0; color: var(--text-muted); font-weight: 700;
-    padding: 0 0.2rem; border-radius: 4px; flex-shrink: 0;
+  /* The action cluster floats over the title's tail instead of sitting in the
+     flow: three buttons' worth of reserved width would cost every title an
+     ellipsis in a sidebar this narrow. Hidden until hover, so the list reads as
+     titles rather than toolbars, and opaque so the covered tail doesn't show. */
+  .chat-conv-acts {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    display: flex; align-items: center; gap: 0.3rem;
+    opacity: 0; padding-left: 0.5rem; background: var(--surface-raised);
   }
-  .chat-conv:hover .chat-conv-x { opacity: 1; }
+  .chat-conv:hover .chat-conv-acts { opacity: 1; }
+  .chat-conv.active .chat-conv-acts { background: var(--accent-soft); }
+  .chat-conv-act { color: var(--text-muted); font-size: 0.78rem; padding: 0 0.15rem; border-radius: 4px; }
+  .chat-conv-act:hover { color: var(--accent); }
+  .chat-conv-x { color: var(--text-muted); font-weight: 700; padding: 0 0.2rem; border-radius: 4px; }
   .chat-conv-x:hover { color: var(--error); }
+  .chat-conv-rename {
+    flex: 1; min-width: 0; font-size: 0.82rem; font-family: inherit;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 0.1rem 0.3rem;
+  }
+  /* Second line of a row: the thread's own tags, plus its owner in the admin's
+     all-users view (which is the only place two rows can belong to two people). */
+  .chat-conv-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; }
+  .chat-conv-tag {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .chat-conv-owner {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--accent-soft); color: var(--accent-text); font-weight: 600;
+  }
+
+  /* ── Sidebar filters (tag chips, and the admin's owner picker) ───────── */
+  .chat-filters { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .chat-filter-label {
+    display: block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem;
+  }
+  .chat-owner-select {
+    width: 100%; margin-bottom: 0.5rem;
+    background: var(--surface-raised); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 2px 4px; font-size: 0.78rem; cursor: pointer;
+  }
+  .chat-tag-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .chat-tag-chips .chip { padding: 0.15rem 0.45rem; font-size: 0.66rem; }
+  .tags-modal-input {
+    width: 100%; margin: 0.5rem 0; font-family: inherit; font-size: 0.85rem;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.45rem 0.6rem;
+  }
+  .tags-modal-input:focus { border-color: var(--accent); outline: none; }
 
   .chat-shell {
     flex: 1;
@@ -1149,6 +1196,18 @@
      <div class="chat-sidebar-head">
        <button class="btn btn-primary btn-sm chat-new-btn" onclick="newChat()">＋ New chat</button>
      </div>
+     <!-- Filters render themselves: the owner picker only for an admin key, the
+          tag chips only once some thread carries a tag. -->
+     <div class="chat-filters" id="chat-filters" style="display:none">
+       <div id="chat-owner-filter" style="display:none">
+         <span class="chat-filter-label">Owner</span>
+         <select class="chat-owner-select" id="chat-owner-select" onchange="onOwnerFilterChange(this.value)"></select>
+       </div>
+       <div id="chat-tag-filter" style="display:none">
+         <span class="chat-filter-label">Groups</span>
+         <div class="chat-tag-chips" id="chat-tag-chips"></div>
+       </div>
+     </div>
      <div class="chat-conv-list" id="chat-conv-list">
        <div class="chat-conv-empty">No conversations yet.</div>
      </div>
@@ -1690,13 +1749,26 @@ function onIdentityClick() {
 // Show who the stored key authenticates as (root/admin, a per-user label, or
 // open mode) so it's never a mystery which key is in use. /api/whoami reads the
 // identity the server attached to the request — it never returns the secret.
+// Fetched once and shared: the badge below and the chat sidebar (which offers the
+// owner filter to an admin key only) both need the same answer, and startup fires
+// loadWhoAmI() without awaiting it.
+let _whoAmIPromise = null;
+
+function fetchWhoAmI() {
+  if (!_whoAmIPromise) {
+    _whoAmIPromise = fetch(`${API}/whoami`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return _whoAmIPromise;
+}
+
 async function loadWhoAmI() {
   const el = document.getElementById('topbar-whoami');
   if (!el) return;
   try {
-    const r = await fetch(`${API}/whoami`);
-    if (!r.ok) throw new Error();
-    const me = await r.json();
+    const me = await fetchWhoAmI();
+    if (!me) throw new Error();
     el.classList.toggle('admin', me.kind === 'admin');
     if (me.kind === 'admin') {
       el.innerHTML = `<span class="whoami-icon">🔑</span> root (admin)`;
@@ -3036,8 +3108,14 @@ let _chatAttachments = [];     // {id, filename, mime, isImage} uploaded this tu
 let _chatCaps = null;
 let _chatInited = false;
 let _chatConvId = null;        // id of the conversation being viewed (null = unsaved/new)
-let _chatConvs = [];           // sidebar list of {id, title, updated_at}
+let _chatConvs = [];           // sidebar list of {id, title, tags, user, updated_at}
 let _chatAbort = null;         // AbortController for the in-flight reply, if any
+let _chatIsAdmin = false;      // admin key → the owner filter is offered
+let _chatOwners = [];          // every owner with chat history (admin only)
+let _chatOwnerFilter = '';     // '' = all owners; server-side filter
+let _chatTagFilter = '';       // '' = all groups; filtered in the browser
+let _chatRenamingId = null;    // row whose title is being edited inline
+let _chatTagsEditId = null;    // row the groups modal is editing
 
 // Max messages replayed upstream per turn (see trimChatHistory). ~20 turns.
 const _CHAT_HISTORY_MAX = 40;
@@ -3054,6 +3132,10 @@ async function initChat() {
     });
     await refreshChatCaps();
   }
+  // Only an admin key can see other people's threads, so only it gets the owner
+  // filter. Cached, so this costs one request per page load at most.
+  const me = await fetchWhoAmI();
+  _chatIsAdmin = !!me && me.kind === 'admin';
   await loadConversations();
 }
 
@@ -3064,25 +3146,238 @@ async function initChat() {
 
 async function loadConversations() {
   try {
-    const r = await fetch(`${API}/conversations`);
+    // The owner filter is a server-side scope (admin only, and the server refuses
+    // it for anyone else); the group filter is applied below, in the browser.
+    const qs = _chatOwnerFilter ? `?user=${encodeURIComponent(_chatOwnerFilter)}` : '';
+    const r = await fetch(`${API}/conversations${qs}`);
     if (!r.ok) throw new Error();
-    _chatConvs = (await r.json()).data || [];
+    const body = await r.json();
+    _chatConvs = body.data || [];
+    // `users` is every owner with history, not just the ones in this response, so
+    // the picker can always get back out of a filter. Empty for a non-admin key.
+    if (body.users && body.users.length) _chatOwners = body.users;
   } catch(_) { _chatConvs = []; }
+  renderConvFilters();
   renderConvList();
+}
+
+// Whose thread this is, for the admin's mixed list. Anonymous owners are
+// "anon:<session>" — far too long for a 240px sidebar, so they get shortened.
+function ownerLabel(user) {
+  if (!user) return '(no owner)';
+  if (user.startsWith('anon:')) return `guest · ${user.slice(5, 11)}…`;
+  return user;
+}
+
+// Tag counts across the loaded list — the source for both the chip row and the
+// groups modal's suggestions.
+function convTagCounts() {
+  const counts = new Map();
+  for (const c of _chatConvs) {
+    for (const t of (c.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  return counts;
+}
+
+function renderConvFilters() {
+  const ownerBox = document.getElementById('chat-owner-filter');
+  const tagBox = document.getElementById('chat-tag-filter');
+
+  if (_chatIsAdmin) {
+    const owners = _chatOwners.slice();
+    // Keep the active choice selectable even if its last thread just went away.
+    if (_chatOwnerFilter && !owners.includes(_chatOwnerFilter)) owners.push(_chatOwnerFilter);
+    document.getElementById('chat-owner-select').innerHTML =
+      ['<option value="">All users</option>'].concat(owners.map(u =>
+        `<option value="${escapeHtml(u)}"${u === _chatOwnerFilter ? ' selected' : ''}>${escapeHtml(ownerLabel(u))}</option>`
+      )).join('');
+    ownerBox.style.display = '';
+  } else {
+    ownerBox.style.display = 'none';
+  }
+
+  // Chips are computed from the whole loaded list and the filter is applied in
+  // the browser, so toggling one is instant and the row never collapses to just
+  // the group you picked.
+  const counts = convTagCounts();
+  if (_chatTagFilter && !counts.has(_chatTagFilter)) {
+    _chatTagFilter = '';   // the last thread in that group lost the tag
+  }
+  if (counts.size) {
+    const chips = [`<button class="chip ${_chatTagFilter ? '' : 'active'}" data-tag="">All</button>`]
+      .concat([...counts.keys()].sort().map(t =>
+        `<button class="chip ${t === _chatTagFilter ? 'active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)} · ${counts.get(t)}</button>`
+      ));
+    const host = document.getElementById('chat-tag-chips');
+    host.innerHTML = chips.join('');
+    // Delegated so a tag containing a quote can't break an inline handler.
+    host.onclick = (e) => {
+      const chip = e.target.closest('.chip');
+      if (chip) setTagFilter(chip.dataset.tag || '');
+    };
+    tagBox.style.display = '';
+  } else {
+    tagBox.style.display = 'none';
+  }
+
+  document.getElementById('chat-filters').style.display =
+    (_chatIsAdmin || counts.size) ? '' : 'none';
+}
+
+function setTagFilter(tag) {
+  _chatTagFilter = tag || '';
+  renderConvFilters();
+  renderConvList();
+}
+
+async function onOwnerFilterChange(user) {
+  _chatOwnerFilter = user || '';
+  await loadConversations();
 }
 
 function renderConvList() {
   const el = document.getElementById('chat-conv-list');
-  if (!_chatConvs.length) {
-    el.innerHTML = '<div class="chat-conv-empty">No conversations yet.</div>';
+  const visible = _chatTagFilter
+    ? _chatConvs.filter(c => (c.tags || []).includes(_chatTagFilter))
+    : _chatConvs;
+
+  if (!visible.length) {
+    el.innerHTML = `<div class="chat-conv-empty">${
+      _chatConvs.length ? 'No chats in this group.' : 'No conversations yet.'}</div>`;
     return;
   }
-  el.innerHTML = _chatConvs.map(c =>
-    `<div class="chat-conv ${c.id === _chatConvId ? 'active' : ''}" onclick="selectConversation('${c.id}')" title="${escapeHtml(c.title)}">
-       <span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>
-       <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
-     </div>`
-  ).join('');
+
+  el.innerHTML = visible.map(c => {
+    const badges = (c.tags || []).map(t => `<span class="chat-conv-tag">#${escapeHtml(t)}</span>`);
+    // Owner is only worth a badge where the list can mix people: admin, unfiltered.
+    if (_chatIsAdmin && !_chatOwnerFilter) {
+      badges.push(`<span class="chat-conv-owner">${escapeHtml(ownerLabel(c.user))}</span>`);
+    }
+    const renaming = c.id === _chatRenamingId;
+    const title = renaming
+      ? `<input class="chat-conv-rename" id="chat-rename-input" value="${escapeHtml(c.title || '')}"
+                onclick="event.stopPropagation()" onkeydown="onRenameKey(event, '${c.id}')"
+                onblur="commitRename('${c.id}', this.value)">`
+      : `<span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>`;
+    // The cluster overlays the row's right edge, so it steps aside while the
+    // rename input owns that space.
+    const acts = renaming ? '' : `<span class="chat-conv-acts">
+         <span class="chat-conv-act" onclick="event.stopPropagation(); startRename('${c.id}')" title="Rename">✎</span>
+         <span class="chat-conv-act" onclick="event.stopPropagation(); openTagsModal('${c.id}')" title="Groups">🏷</span>
+         <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
+       </span>`;
+    return `<div class="chat-conv ${c.id === _chatConvId ? 'active' : ''}" onclick="selectConversation('${c.id}')" title="${escapeHtml(c.title)}">
+       <div class="chat-conv-main">
+         ${title}
+         ${acts}
+       </div>
+       ${badges.length ? `<div class="chat-conv-meta">${badges.join('')}</div>` : ''}
+     </div>`;
+  }).join('');
+
+  if (_chatRenamingId) {
+    const inp = document.getElementById('chat-rename-input');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+
+// ── Rename (inline) and grouping ────────────────────────────────────────────
+// Renaming happens in place in the sidebar row: Enter or blur saves, Escape
+// backs out. Grouping is a tag set, edited in a modal — a thread can be in
+// several groups, so it's a filter over the list rather than a folder.
+
+function startRename(id) {
+  _chatRenamingId = id;
+  renderConvList();          // re-render swaps the title for an input and focuses it
+}
+
+function onRenameKey(e, id) {
+  e.stopPropagation();       // Escape here must not also close a modal
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.target.blur();         // blur commits
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    _chatRenamingId = null;  // makes the blur handler below a no-op
+    renderConvList();
+  }
+}
+
+async function commitRename(id, value) {
+  if (_chatRenamingId !== id) return;   // already cancelled with Escape
+  _chatRenamingId = null;
+  const conv = _chatConvs.find(c => c.id === id);
+  const title = (value || '').trim();
+  if (!title || (conv && title === conv.title)) { renderConvList(); return; }
+  await patchConversation(id, { title });
+}
+
+async function patchConversation(id, body) {
+  try {
+    const r = await fetch(`${API}/conversations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const detail = (await r.json().catch(() => ({}))).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Update failed (${r.status})`);
+    }
+  } catch(e) { alert(e.message); }
+  await loadConversations();
+}
+
+function openTagsModal(id) {
+  const conv = _chatConvs.find(c => c.id === id);
+  if (!conv) return;
+  _chatTagsEditId = id;
+  document.getElementById('tags-modal-title').textContent = `Groups for “${conv.title || 'Untitled'}”`;
+  const inp = document.getElementById('tags-modal-input');
+  inp.value = (conv.tags || []).join(', ');
+
+  // Offer the groups already in use, so labels stay consistent instead of
+  // sprouting near-duplicates one typo at a time.
+  const known = [...convTagCounts().keys()].sort();
+  const host = document.getElementById('tags-modal-suggest');
+  host.innerHTML = known.length
+    ? known.map(t => `<button class="chip" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`).join('')
+    : '<span style="font-size:0.72rem;color:var(--text-muted)">No groups yet — type one above.</span>';
+  host.onclick = (e) => {
+    const chip = e.target.closest('.chip');
+    if (chip) toggleTagInInput(chip.dataset.tag);
+  };
+
+  document.getElementById('tags-modal').classList.add('open');
+  inp.focus();
+}
+
+function parseTagInput(value) {
+  return (value || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function toggleTagInInput(tag) {
+  const inp = document.getElementById('tags-modal-input');
+  const cur = parseTagInput(inp.value);
+  const next = cur.includes(tag) ? cur.filter(t => t !== tag) : cur.concat([tag]);
+  inp.value = next.join(', ');
+  inp.focus();
+}
+
+function closeTagsModal() {
+  _chatTagsEditId = null;
+  document.getElementById('tags-modal').classList.remove('open');
+}
+
+async function saveTagsModal() {
+  const id = _chatTagsEditId;
+  if (!id) return;
+  const tags = [...new Set(parseTagInput(document.getElementById('tags-modal-input').value))];
+  closeTagsModal();
+  await patchConversation(id, { tags });
+}
+
+function onTagsModalKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); saveTagsModal(); }
 }
 
 // Render a stored message (content is a string, or an OpenAI content-parts
@@ -3154,9 +3449,12 @@ async function persistTurn(role, content) {
     if (_chatConvId === null) {
       const title = typeof content === 'string'
         ? content : (Array.isArray(content) ? (content.find(p => p.type === 'text') || {}).text || 'New chat' : 'New chat');
+      // Start the thread in whatever group is being filtered, so a chat begun
+      // while looking at #work lands in #work instead of vanishing from the list.
+      const tags = _chatTagFilter ? [_chatTagFilter] : [];
       const r = await fetch(`${API}/conversations`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.slice(0, 60) }),
+        body: JSON.stringify({ title: title.slice(0, 60), tags }),
       });
       if (!r.ok) throw new Error();
       _chatConvId = (await r.json()).id;
@@ -3694,6 +3992,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (document.getElementById('key-modal').classList.contains('open')) closeKeyModal();
   if (document.getElementById('profile-modal').classList.contains('open')) closeProfileModal();
+  if (document.getElementById('tags-modal').classList.contains('open')) closeTagsModal();
 });
 initDashboard();
 </script>
@@ -3710,6 +4009,24 @@ initDashboard();
     <div class="modal-actions">
       <button class="btn btn-sm" id="btn-modal-copy" onclick="copyModalKey()">Copy key</button>
       <button class="btn btn-sm btn-primary" onclick="closeKeyModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Chat groups (sidebar row → 🏷) ─────────────────────────────────── -->
+<div class="modal-backdrop" id="tags-modal" onclick="if(event.target===this)closeTagsModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tags-modal-title">
+    <div class="modal-title" id="tags-modal-title">Groups</div>
+    <div class="modal-body">
+      Comma-separated labels. A chat can be in several groups, and the sidebar
+      filters by one at a time.
+      <input class="tags-modal-input" id="tags-modal-input" placeholder="work, taxes, side project"
+             onkeydown="onTagsModalKey(event)" autocomplete="off">
+      <div class="chat-tag-chips" id="tags-modal-suggest"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeTagsModal()">Cancel</button>
+      <button class="btn btn-sm btn-primary" onclick="saveTagsModal()">Save</button>
     </div>
   </div>
 </div>
