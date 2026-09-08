@@ -570,6 +570,19 @@
   @media (prefers-reduced-motion: reduce) {
     #btn-chat-voice.voice-listening { animation: none; }
   }
+  .voice-status {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: var(--text-dim); margin: 0.4rem 0 0.1rem;
+  }
+  /* A level bar, not a waveform: the only question it has to answer is "is any
+     sound reaching the microphone", and the answer needs to be readable out of the
+     corner of an eye while you're talking. */
+  .voice-meter {
+    flex: 0 0 64px; height: 4px; border-radius: 2px;
+    background: var(--border); overflow: hidden;
+  }
+  .voice-meter i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .voice-status.voice-problem { color: var(--warning); }
   .chat-cap-note { font-size: 0.72rem; color: var(--warning); }
   .chat-agent-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; user-select: none; }
   .chat-agent-toggle input { cursor: pointer; accent-color: var(--accent); }
@@ -1351,6 +1364,16 @@
 
     <div class="chat-attachments" id="chat-attachments"></div>
 
+    <!-- Voice runs with your eyes free, which is exactly when a silent failure is
+         worst: a mic that never opened and a mic waiting for you to speak look
+         identical. This strip is the only place the page can say which. The level
+         bar is fed straight from the microphone, so it answers "can it hear me"
+         even when speech recognition itself is the thing that's broken. -->
+    <div class="voice-status" id="voice-status" style="display:none">
+      <span class="voice-meter"><i id="voice-level"></i></span>
+      <span id="voice-status-text"></span>
+    </div>
+
     <div class="chat-composer">
       <textarea id="chat-input" rows="1" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)"></textarea>
       <div class="chat-composer-actions">
@@ -1361,7 +1384,7 @@
              voice works with whichever model it picks. Press Escape to cut the
              assistant off mid-sentence and talk again. -->
         <button class="btn btn-ghost btn-sm" id="btn-chat-voice" onclick="toggleVoice()"
-                title="Talk instead of typing. The reply is read back to you; Escape interrupts it. Needs HTTPS or localhost — browsers block the microphone on plain HTTP.">🎙 Voice</button>
+                title="Talk instead of typing: speak, pause, and it sends. The reply is read back to you; Escape interrupts it. A level bar shows whether the microphone is reaching the page. Needs HTTPS or localhost — browsers block the microphone on plain HTTP.">🎙 Voice</button>
         <!-- Export is a <select> that immediately acts and resets, so it reads as
              a menu of one-shot actions rather than a setting with a current
              value. PDF goes through the browser's own print dialog: it needs no
@@ -4762,10 +4785,83 @@ let _spokenUpTo = 0;        // chars of the current reply already queued to spea
 // generation, so it hears the reply through the speakers and answers itself.
 let _voiceBusy = false;
 
+let _voiceStream = null;    // live getUserMedia stream, kept only for the meter
+let _voiceRaf = 0;
+
 // Voice fails in ways the page cannot see (OS-level mic permission, a browser
 // that throws on start(), a recogniser that never opens). Logging the lifecycle
 // is what turns "the button does nothing" into something diagnosable.
 function _vlog(...a) { console.debug('[voice]', ...a); }
+
+// The status strip. Voice is used with your attention elsewhere, so every state it
+// can be in has to be readable without clicking anything — including the states
+// that are failures, which is the whole reason this exists.
+function setVoiceStatus(text, problem = false) {
+  const box = document.getElementById('voice-status');
+  const out = document.getElementById('voice-status-text');
+  if (!box || !out) return;
+  box.style.display = text ? 'flex' : 'none';
+  box.classList.toggle('voice-problem', !!problem);
+  out.textContent = text || '';
+}
+
+// Open the microphone ourselves, before handing the turn to speech recognition.
+//
+// Two things this buys, and both were missing. It draws the browser's permission
+// prompt explicitly and reports refusal by name, where SpeechRecognition just
+// declines to fire. And the stream feeds a level meter, so "can it hear me" is
+// answerable independently of whether recognition works at all — on a machine
+// where the OS never granted the browser a microphone, the bar simply never moves
+// and that is the diagnosis.
+async function startMeter() {
+  if (_voiceStream) return '';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return '';   // no meter, but recognition may still work; not worth blocking on
+  }
+  try {
+    _voiceStream = await navigator.mediaDevices.getUserMedia({
+      // The mic is live while the assistant speaks only in the meter's case, but
+      // ask for cancellation anyway: it costs nothing and is what a future
+      // full-duplex version needs.
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (e) {
+    _vlog('getUserMedia failed', e.name, e.message);
+    return e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError'
+      ? 'No microphone was found on this machine.'
+      : 'The microphone was refused (' + e.name + '). Allow it for this site in the '
+        + 'address bar, and check this browser is listed under System Settings › '
+        + 'Privacy & Security › Microphone.';
+  }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  ctx.createMediaStreamSource(_voiceStream).connect(analyser);
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  const bar = document.getElementById('voice-level');
+  const tick = () => {
+    if (!_voiceStream) return;
+    analyser.getByteTimeDomainData(buf);
+    // Peak deviation from silence (128), not RMS: it tracks speech onset closely
+    // enough to look responsive, which is the only job.
+    let peak = 0;
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    if (bar) bar.style.width = Math.min(100, Math.round(peak / 60 * 100)) + '%';
+    _voiceRaf = requestAnimationFrame(tick);
+  };
+  tick();
+  return '';
+}
+
+function stopMeter() {
+  if (_voiceRaf) { cancelAnimationFrame(_voiceRaf); _voiceRaf = 0; }
+  if (_voiceStream) {
+    _voiceStream.getTracks().forEach(t => t.stop());
+    _voiceStream = null;
+  }
+  const bar = document.getElementById('voice-level');
+  if (bar) bar.style.width = '0';
+}
 
 function voiceUnsupportedReason() {
   // Order matters: name the fixable problem first. Speech recognition needs a
@@ -4844,6 +4940,7 @@ function speakStreamed(acc, { flush = false } = {}) {
 function endVoiceTurn(acc) {
   if (!_voiceOn) return;
   speakStreamed(acc, { flush: true });
+  setVoiceStatus('Reading the reply — Escape interrupts and hands the turn back.');
   const resume = () => { if (_voiceOn) startListening(); };
   // Poll rather than trust utterance.onend: cancel() and queued-utterance
   // behaviour differ across browsers, and a missed onend would strand the loop
@@ -4881,17 +4978,26 @@ function startListening() {
   // nothing would call, so the turn never ends on its own.
   rec.continuous = false;
   const input = document.getElementById('chat-input');
-  rec.onstart = () => { _vlog('recogniser open'); setVoiceButton('listening'); };
+  rec.onstart = () => {
+    _vlog('recogniser open');
+    setVoiceButton('listening');
+    setVoiceStatus('Listening — speak, then pause and it will send.');
+  };
   rec.onresult = (e) => {
     let text = '';
     for (const r of e.results) text += r[0].transcript;
     input.value = text;
+    // Interim text on screen is the proof that it can hear you. Without it, a
+    // recogniser that is working but slow to finalise is indistinguishable from one
+    // that never heard anything.
+    if (text.trim()) setVoiceStatus('Heard: ' + text);
     // Send only on a final result. Acting on interim text sends half a sentence.
     if (e.results[e.results.length - 1].isFinal && text.trim()) {
       _vlog('heard', JSON.stringify(text));
       _voiceBusy = true;          // set before stop(), because onend fires from it
       _rec = null; rec.stop();
       setVoiceButton('speaking');
+      setVoiceStatus('Sending… the reply will be read aloud. Escape interrupts it.');
       sendChat();
     }
   };
@@ -4901,7 +5007,14 @@ function startListening() {
   rec.onerror = (e) => {
     _vlog('error', e.error);
     _rec = null;
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      // Say it anyway. Silently re-arming is why a mic that hears nothing at all
+      // looks the same as one that is patiently waiting.
+      setVoiceStatus('Nothing heard yet — still listening. '
+        + 'If the bar stays flat while you talk, the microphone is not reaching '
+        + 'this page.', true);
+      return;
+    }
     stopVoice(e.error === 'not-allowed' || e.error === 'service-not-allowed'
       ? 'The microphone was refused. Check the site permission in the address bar, '
         + 'and that this browser is allowed the microphone in System Settings › '
@@ -4918,6 +5031,7 @@ function startListening() {
   };
   _rec = rec;
   setVoiceButton('starting');
+  setVoiceStatus('Opening the microphone…');
   try {
     rec.start();
   } catch (e) {
@@ -4933,19 +5047,31 @@ function stopVoice(message) {
   _voiceBusy = false;
   if (_rec) { try { _rec.abort(); } catch (_) {} _rec = null; }
   window.speechSynthesis.cancel();
+  stopMeter();
   setVoiceButton('off');
+  // Leave a failure on screen after the alert is dismissed — an alert is gone the
+  // moment it's acknowledged, which is before anyone can act on it.
+  setVoiceStatus(message || '', !!message);
   if (message) { _vlog('stopped:', message); alert(message); }
 }
 
-function toggleVoice() {
-  if (_voiceOn) { stopVoice(); return; }
+async function toggleVoice() {
+  if (_voiceOn) { stopVoice(); setVoiceStatus(''); return; }
   const why = voiceUnsupportedReason();
-  if (why) { alert(why); return; }
+  if (why) { setVoiceStatus(why, true); alert(why); return; }
   _voiceOn = true;
   _voiceBusy = false;   // clicking on is always the start of a fresh turn
+  setVoiceButton('starting');
+  setVoiceStatus('Asking for the microphone…');
   // getVoices() is empty until the list loads on some browsers; touching it here
   // means the first reply already has a good voice rather than the second.
   window.speechSynthesis.getVoices();
+  // Claim the microphone before recognition does. This is what draws the permission
+  // prompt and what reports refusal by name — recognition alone just goes quiet,
+  // which is the failure that made this look like a dead button.
+  const problem = await startMeter();
+  if (problem) { stopVoice(problem); return; }
+  if (!_voiceOn) return;   // toggled off while the prompt was up
   startListening();
 }
 
