@@ -217,6 +217,12 @@ def _mic(script: str) -> list:
     Everything the browser supplies is stubbed to the minimum the function
     touches. `mics` records one entry per recogniser the page constructs, which is
     the thing under test: how many times, and when, the microphone is opened.
+
+    Timers are faked and advanced by `tick(ms)`. The code under test waits 150ms to
+    re-arm and five seconds to give up on a recogniser that never opened, and
+    sleeping through either would trade seconds of suite time for a less certain
+    result — a real clock makes "the timer hasn't fired yet" and "the timer did
+    nothing" the same observation.
     """
     harness = f"""
       {_js_function("setVoiceButton")}
@@ -226,6 +232,18 @@ def _mic(script: str) -> list:
       function _vlog() {{}}
       function stopMeter() {{}}
       const mics = [], alerts = [], sends = [], statuses = [];
+      // Fake clock. `now` only ever moves when a test says so, so a callback that
+      // ran is a callback the code asked to run at a time the test reached.
+      let now = 0;
+      const timers = [];
+      global.setTimeout = (fn, ms) => timers.push({{ fn, at: now + (ms || 0) }});
+      global.clearTimeout = (id) => {{ if (timers[id - 1]) timers[id - 1].dead = true; }};
+      function tick(ms) {{
+        now += ms;
+        for (const t of timers.slice()) {{
+          if (!t.dead && t.at <= now) {{ t.dead = true; t.fn(); }}
+        }}
+      }}
       // The status strip is the feature under test in several of these: it is the
       // only channel the page has for "it can hear you" and "it cannot".
       function setVoiceStatus(text, problem) {{ statuses.push([text || '', !!problem]); }}
@@ -288,10 +306,9 @@ def test_the_microphone_stays_shut_for_the_whole_assistant_turn():
       startListening();
       mics[0].onstart();
       heard(mics[0], 'how many teams are in the WNBA', true);
-      // onend has already fired from stop(); give the re-arm timer room to run.
-      setTimeout(() => {
-        console.log(JSON.stringify([{ sent: sends.length, mics: mics.length, busy: _voiceBusy }]));
-      }, 400);
+      // onend has already fired from stop(); give the re-arm timer its moment.
+      tick(400);
+      console.log(JSON.stringify([{ sent: sends.length, mics: mics.length, busy: _voiceBusy }]));
     """)
     assert out["sent"] == 1, "the final transcript was not sent"
     assert out["busy"] is True
@@ -329,9 +346,8 @@ def test_a_silent_turn_reopens_the_microphone_without_being_asked():
       mics[0].onstart();
       mics[0].onerror({ error: 'no-speech' });
       mics[0].onend();
-      setTimeout(() => {
-        console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, alerts: alerts.length }]));
-      }, 400);
+      tick(400);
+      console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, alerts: alerts.length }]));
     """)
     assert out["mics"] == 2, "a quiet moment ended the loop"
     assert out["on"] is True
@@ -349,9 +365,8 @@ def test_a_refused_microphone_turns_voice_off_and_explains():
       startListening();
       mics[0].onstart();
       mics[0].onerror({ error: 'not-allowed' });
-      setTimeout(() => {
-        console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, said: alerts[0] || '' }]));
-      }, 400);
+      tick(400);
+      console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, said: alerts[0] || '' }]));
     """)
     assert out["mics"] == 1
     assert out["on"] is False
@@ -475,17 +490,65 @@ def test_no_microphone_at_all_is_a_different_message():
     assert "address bar" not in out
 
 
-def test_the_microphone_is_claimed_before_recognition_starts():
-    """Order matters, and it is the fix as much as the diagnostic.
+def test_a_recogniser_that_never_opens_is_caught_by_the_clock():
+    """The reported symptom, exactly: stuck on "Starting…" with a moving level bar.
 
-    getUserMedia draws the permission prompt and reports refusal by name.
-    SpeechRecognition on its own just goes quiet, which is the failure that made
-    this look like a dead button.
+    Some browsers ship the interface with no engine behind it — start() returns
+    normally and then nothing arrives, not onstart, not onerror, not onend. There is
+    no flag to check and no event to wait for, so a timer is the only detector, and
+    without it the page waits forever on something that will never happen.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      // No events at all: the whole point. Just let the clock run past the watchdog.
+      tick(5400);
+      console.log(JSON.stringify([{
+        on: _voiceOn, said: alerts[0] || '', shown: statuses[statuses.length - 1][0],
+      }]));
+    """)
+    assert out["on"] is False, "the page waited forever"
+    assert "never started" in out["said"]
+    # Names the class of cause, because "it didn't work" leaves nothing to try.
+    assert "Brave" in out["said"]
+    assert out["shown"] == out["said"], "the reason vanished with the alert"
+
+
+def test_an_engine_that_answers_at_all_is_left_alone():
+    """The watchdog must not fire on a browser that works.
+
+    `onstart` is proof of life; so is an error, and so is a close. Any of them means
+    the engine is there, and a five-second timer that stops a working recogniser
+    mid-question would be worse than the bug it's for.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      tick(5400);
+      console.log(JSON.stringify([{ on: _voiceOn, alerts: alerts.length }]));
+    """)
+    assert out["on"] is True
+    assert out["alerts"] == 0, "the watchdog fired on a live recogniser"
+
+
+def test_recognition_starts_before_anything_is_awaited():
+    """User activation does not survive an `await`.
+
+    A recogniser started outside the click's own task is ignored *silently* — no
+    throw, no error event, no onstart. Claiming the microphone first read better and
+    was exactly that bug: the level bar moved, proving the mic worked, while the
+    button sat on "Starting…" forever.
+
+    Pinned by source order because there is no way to observe user activation from a
+    test, and the failure it causes is indistinguishable from a dead browser.
     """
     src = _js_function("toggleVoice")
-    assert src.index("startMeter") < src.index("startListening")
-    # And a refusal must stop there rather than arming a recogniser that cannot work.
-    assert "if (problem) { stopVoice(problem); return; }" in src
+    assert src.index("startListening()") < src.index("await startMeter()"), \
+        "recognition is started after an await, which drops user activation"
+    # The meter is a diagnostic, not a gate: a refused mic is reported by recognition
+    # too, and blocking on the meter would mean no voice wherever it isn't available.
+    assert "stopVoice(problem)" not in src
 
 
 def test_the_recogniser_ends_the_turn_on_a_pause_not_on_a_button():
