@@ -16,6 +16,7 @@ Beyond the routing proxy, the built-in web UI at `http://localhost:8001/` is a f
 - **Chat** with persistent, server-side conversation history — every message shows which model it was routed to and why.
 - **File uploads** — PDF, Word, PowerPoint, Excel, and text/code files are extracted to text and fed to the model as context; images are inlined for vision-capable models.
 - **Agent mode** — a tool-capable model can read, write, and edit files in your private, path-jailed workspace, and **create downloadable documents** (PDF, Word, PowerPoint, Excel, Markdown). Auto-enables when your request needs a file; can be forced on or off.
+- **Voice** — talk instead of typing and have the reply read back to you, using the browser's own speech engine so routing is unaffected. Needs Safari or Chrome, and HTTPS or localhost — see [Voice](#voice).
 - **Per-user API keys** — mint, scope, rate-limit, revoke, and rotate keys from the Keys page; a signed-in badge shows which identity you're using.
 
 ## Quick start
@@ -380,6 +381,17 @@ curl -X DELETE http://localhost:8001/v1/files/file-XXXX -H "Authorization: Beare
 ```
 
 Extractable-to-text types: **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, and plain-text/code files (`text/*`, JSON, XML, YAML, TOML, JS, shell, Python). Legacy `.doc`/`.ppt`/`.xls` are not supported — save as the modern OpenXML format. Images aren't extracted here; they're inlined as base64 for vision-capable models at request time. Uploads over the size ceiling return `413`; unsupported types return `415`. See `SMART_ROUTER_MAX_FILE_MB` and `SMART_ROUTER_FILES_DIR` below.
+
+### Voice
+
+The chat page has a hands-free mode: click **🎙 Voice**, speak, and pause — the pause is what sends it. The reply is read back while it is still streaming, and Escape interrupts it and hands the turn back. A level bar and a status line under the composer show what it is doing, including whether any sound is reaching the page.
+
+This is the browser's own speech recognition and synthesis, not a speech-to-speech model. The router still only ever sees text, so voice works with whichever model routing picks — including a local Ollama one — and adds nothing to the bill. The trade is prosody: you get the OS voice rather than something conversational.
+
+Two requirements, both browser-side:
+
+- **A secure context.** `http://localhost:8001` counts; `http://your-host.local:8001` does not, and the microphone is blocked there. Put the router behind TLS to use voice from another machine.
+- **A browser with a speech engine.** Use **Safari** (Apple's recogniser) or **Chrome** (Google's). **Opera, Brave and Vivaldi are Chromium without that access** — they expose the `SpeechRecognition` interface, accept the request, and then never report anything at all. The page detects that by timing out and says so, rather than sitting on "Starting…" forever.
 
 ### Chat history (conversations)
 

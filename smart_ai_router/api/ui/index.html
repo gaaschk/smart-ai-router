@@ -4986,11 +4986,13 @@ function startListening() {
   let watchdog = setTimeout(() => {
     if (opened || _rec !== rec) return;
     _vlog('no onstart within 5s', navigator.userAgent);
-    stopVoice('Speech recognition never started. The microphone works — the level '
-      + 'bar moves — but this browser accepted the request and then reported '
-      + 'nothing at all, which is what happens in builds that ship the API without '
-      + 'a speech engine (Brave and Vivaldi disable it; some Chromium builds omit '
-      + 'it). Try Chrome or Safari. Typing still works.');
+    stopVoice('Speech recognition never started, so voice will not work in this '
+      + 'browser. The microphone is fine — the level bar moves — but the browser '
+      + 'accepted the request and then reported nothing at all. That is what '
+      + 'happens in builds that ship the interface without a speech engine behind '
+      + 'it: Chrome reaches Google\'s recogniser and Safari uses Apple\'s, while '
+      + 'Opera, Brave and Vivaldi are Chromium without that access. Use Safari or '
+      + 'Chrome for voice. Typing works everywhere.');
   }, 5000);
   const engineAlive = () => { opened = true; clearTimeout(watchdog); };
   rec.onstart = () => {
