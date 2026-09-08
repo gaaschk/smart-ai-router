@@ -393,6 +393,23 @@ Two requirements, both browser-side:
 - **A secure context.** `http://localhost:8001` counts; `http://your-host.local:8001` does not, and the microphone is blocked there. Put the router behind TLS to use voice from another machine.
 - **A browser with a speech engine.** Use **Safari** (Apple's recogniser) or **Chrome** (Google's). **Opera, Brave and Vivaldi are Chromium without that access** — they expose the `SpeechRecognition` interface, accept the request, and then never report anything at all. The page detects that by timing out and says so, rather than sitting on "Starting…" forever.
 
+#### Model-native voice (🔊 Talk — admin only)
+
+The other trade. **🔊 Talk** sends your microphone audio to an audio-in/audio-out model and plays back its reply as speech, so the model hears your voice and answers in its own — the thing that makes ChatGPT's voice mode sound human rather than like a screen reader.
+
+It needs no speech engine in the browser, so it works where 🎙 Voice doesn't (Opera included). What it gives up is the router's whole premise:
+
+- **A spoken turn is not routed.** Of the models OpenRouter carries, a few dozen accept audio input and only `openai/gpt-audio` and `openai/gpt-audio-mini` emit audio at all. There is nothing to choose between on price, so `/v1/voice` bypasses `CapabilityRouter` entirely rather than pretending to route. The chat badge says so on every turn.
+- **It bills audio tokens.** Roughly **$0.11 per hour** of conversation on `gpt-audio-mini`, roughly **$1.70** on `gpt-audio`. The usage page reads the real figure back from the provider rather than pricing it at the model's text rate, which would report an hour of talking as a rounding error. Pick the model under **Settings → Voice**.
+- **Admin only, for now.** That per-turn cost on a model nobody chose on price is not something to hand a self-serve or anonymous visitor before the spend controls for it exist. The button is hidden unless the admin key is in use, and `/v1/voice` 403s for every other identity (and 401s before that for anonymous ones — it is not on the anonymous path allowlist).
+
+Ceilings worth knowing, all of them the same one: OpenRouter exposes no realtime/WebSocket endpoint, only SSE.
+
+- **Half-duplex.** You cannot talk over the reply; Escape interrupts it. Real barge-in needs a duplex transport.
+- **Your words are not transcribed.** The model returns a transcript of its own reply but never of your audio, so the history it is sent carries only its side, and the chat log shows your turns as `🎙 (spoken)`. A question leaning on your exact earlier words may miss them. Fixing it means a transcription call alongside — a cascade, which this mode exists to avoid.
+- **No tools.** Both gpt-audio models advertise function calling, so agent mode and web search are reachable from here later, but a tool call is a silent gap in the middle of a spoken sentence and covering it needs the model to say "let me look that up" first.
+- **One turn per request**, endpointed locally on a 1.1s silence timer with a 25s cap — not by the model.
+
 ### Chat history (conversations)
 
 Server-side conversation storage backs the web UI's chat, scoped per identity.
