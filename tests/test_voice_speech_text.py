@@ -1,8 +1,18 @@
-"""The two pure functions behind voice mode, exercised in node.
+"""The parts of voice mode that can be run without a microphone, exercised in node.
 
-Voice lives in the browser, so most of it (microphone, synthesis, permissions)
-can't be tested here. Two parts are pure text transforms, and they are the two
-that decide whether the feature is pleasant or unbearable:
+Voice lives in the browser, so the microphone, synthesis and permissions can't be
+tested here. What can is the text that gets read aloud, and the state machine that
+decides when the microphone is open — and that machine is where the bugs were:
+
+  * a swallowed exception from recognition.start() left the button saying
+    "Listening…" with nothing behind it and nothing that would ever restart it
+  * the microphone re-armed as soon as the question ended, so it was open through
+    the whole reply and heard the assistant through the speakers
+
+Both are invisible from outside: the page looks armed and simply never answers.
+
+The text transforms matter for a different reason — they decide whether voice is
+pleasant or unbearable:
 
   * stripForSpeech — what a reply sounds like when read aloud. Verbatim Markdown
     dictates fenced code, pipe tables and URLs, which is the fastest way to make
@@ -193,3 +203,161 @@ def test_the_last_fragment_is_spoken_even_without_final_punctuation():
     """
     spoken = _chunks(["The bounty hunter drew his"])
     assert "".join(spoken).strip() == "The bounty hunter drew his"
+
+
+# ── When the microphone is open ─────────────────────────────────────────────────
+
+def _mic(script: str) -> list:
+    """Drive startListening() against a fake SpeechRecognition.
+
+    Everything the browser supplies is stubbed to the minimum the function
+    touches. `mics` records one entry per recogniser the page constructs, which is
+    the thing under test: how many times, and when, the microphone is opened.
+    """
+    harness = f"""
+      {_js_function("setVoiceButton")}
+      {_js_function("stopVoice")}
+      {_js_function("startListening")}
+      let _voiceOn = false, _voiceBusy = false, _rec = null;
+      function _vlog() {{}}
+      const mics = [], alerts = [], sends = [];
+      let startThrows = null;
+      function sendChat() {{ sends.push(1); }}
+      function _Rec() {{
+        this.started = false;
+        this.start = () => {{ if (startThrows) throw startThrows; this.started = true; }};
+        this.stop = () => {{ this.onend && this.onend(); }};
+        this.abort = () => {{}};
+        mics.push(this);
+      }}
+      global.alert = (m) => alerts.push(m);
+      global.navigator = {{ language: 'en-US' }};
+      // One stub for both lookups the code makes: the textarea (.value) and the
+      // button (.classList/.textContent). The label isn't what's under test.
+      const el = {{ value: '', textContent: '', classList: {{ toggle: () => {{}} }} }};
+      global.document = {{ getElementById: () => el }};
+      global.window = {{ speechSynthesis: {{ cancel: () => {{}} }} }};
+      function heard(rec, text, isFinal) {{
+        const results = [[{{ transcript: text }}]];
+        results[0].isFinal = isFinal;
+        rec.onresult({{ results }});
+      }}
+      {script}
+    """
+    return _run(harness)
+
+
+def test_a_microphone_that_will_not_start_says_so_instead_of_pretending():
+    """The reported symptom: toggled on, stays on, never responds.
+
+    start() throws for reasons the page can't see — OS-level microphone
+    permission, a browser that refuses outside a gesture. Swallowed, the button
+    keeps claiming it is listening and no callback will ever fire to correct it,
+    because no recogniser was ever opened.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startThrows = new Error('not allowed');
+      startThrows.name = 'InvalidStateError';
+      startListening();
+      console.log(JSON.stringify([{ on: _voiceOn, alerts: alerts.length, rec: _rec }]));
+    """)
+    assert out["alerts"] == 1, "failure was swallowed"
+    assert out["on"] is False, "voice still claims to be armed"
+    assert out["rec"] is None
+
+
+def test_the_microphone_stays_shut_for_the_whole_assistant_turn():
+    """Otherwise the assistant hears itself and answers its own reply.
+
+    Recognition ends the instant the question does — long before there is any
+    speech to detect — so "is it speaking yet?" is the wrong question to gate
+    re-arming on. The gate has to be the turn, not the audio.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      heard(mics[0], 'how many teams are in the WNBA', true);
+      // onend has already fired from stop(); give the re-arm timer room to run.
+      setTimeout(() => {
+        console.log(JSON.stringify([{ sent: sends.length, mics: mics.length, busy: _voiceBusy }]));
+      }, 400);
+    """)
+    assert out["sent"] == 1, "the final transcript was not sent"
+    assert out["busy"] is True
+    assert out["mics"] == 1, "the microphone reopened during the reply"
+
+
+def test_the_microphone_comes_back_once_the_turn_is_released():
+    """The other half: shut for the turn, open again after it.
+
+    A guard that never lifts is the same bug in the other direction — one
+    question, then a dead button that still says it's on.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      heard(mics[0], 'hello', true);
+      _voiceBusy = false;        // what endVoiceTurn does when speech drains
+      startListening();
+      console.log(JSON.stringify([{ mics: mics.length, started: mics[1].started }]));
+    """)
+    assert out["mics"] == 2
+    assert out["started"] is True
+
+
+def test_a_silent_turn_reopens_the_microphone_without_being_asked():
+    """Nobody spoke: the recogniser closes on its own after a few seconds.
+
+    If that didn't re-arm, pausing to think would end the conversation, and the
+    button would sit on "Listening…" with the microphone shut.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      mics[0].onerror({ error: 'no-speech' });
+      mics[0].onend();
+      setTimeout(() => {
+        console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, alerts: alerts.length }]));
+      }, 400);
+    """)
+    assert out["mics"] == 2, "a quiet moment ended the loop"
+    assert out["on"] is True
+    assert out["alerts"] == 0, "silence was reported as an error"
+
+
+def test_a_refused_microphone_turns_voice_off_and_explains():
+    """Permission denial is permanent until the user changes something.
+
+    Re-arming into it would loop forever on an error the page cannot fix, so this
+    is the one case that has to stop and say what to go and do.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      mics[0].onerror({ error: 'not-allowed' });
+      setTimeout(() => {
+        console.log(JSON.stringify([{ mics: mics.length, on: _voiceOn, said: alerts[0] || '' }]));
+      }, 400);
+    """)
+    assert out["mics"] == 1
+    assert out["on"] is False
+    assert "microphone" in out["said"].lower()
+    # Naming where to fix it, because the browser prompt is only half the story on
+    # macOS — the app needs the permission too, and that dialog appears once.
+    assert "System Settings" in out["said"]
+
+
+def test_the_recogniser_ends_the_turn_on_a_pause_not_on_a_button():
+    """`continuous` must stay false: that setting IS the end-of-question detector.
+
+    With continuous = true the recogniser keeps the turn open waiting for a stop()
+    that nothing calls, which reads as "it never responds".
+    """
+    src = _js_function("startListening")
+    assert "rec.continuous = false" in src
+    assert "rec.interimResults = true" in src
