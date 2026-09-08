@@ -4061,7 +4061,7 @@ function renderChatMsg(role, text, opts = {}) {
 // and whether the pick actually cleared the bar. The `why` string names the
 // binding constraint, so a surprising pick can be understood rather than
 // guessed at. (Replaces the old dashboard "playground" routing panel.)
-function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }) {
+function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto, webSearch }) {
   const parts = [];
   // Prefer the profile ("Law & regulatory @ specialist + ..."), which says what
   // the router actually matched on; fall back to the legacy label pair.
@@ -4082,6 +4082,12 @@ function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity,
       ? 'Your request asked for a file or filesystem work, so agent mode turned on automatically.'
       : 'Agent mode was on for this request.';
     html += ` <span class="chat-routing-agent" title="${escapeHtml(tip)}">${label}</span>`;
+  }
+  // Only shown when a search happened. The absence of the badge is not a claim
+  // that nothing was checked — plenty of prompts need no checking — so labelling
+  // every unsearched reply would be noise on almost all of them.
+  if (webSearch) {
+    html += ` <span class="chat-routing-agent" title="This answer was checked against live web results, because it depends on facts that change.">🌐 web</span>`;
   }
   html += `</div>`;
   return html;
@@ -4154,6 +4160,7 @@ async function sendChat() {
     const qualified = res.headers.get('X-Qualified') === 'false' ? false : true;
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
+    const webSearch = res.headers.get('X-Web-Search') === 'true';
     const { text: acc, truncated, streamError } = await streamChatInto(res, bubble);
 
     // A reply with no text is a failed turn, not a valid empty answer. Show it
@@ -4172,7 +4179,7 @@ async function sendChat() {
     if (truncated) {
       appendTruncationNotice(bubbleWrap, res.headers.get('X-Output-Limit') || '');
     }
-    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }));
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto, webSearch }));
     _chatMessages.push({ role: 'assistant', content: acc });
     trimChatHistory();
     // Persist both turns only now that the reply succeeded — on failure we drop

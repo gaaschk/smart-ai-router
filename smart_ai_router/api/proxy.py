@@ -19,6 +19,7 @@ Supported provider prefixes in the routed model value:
 from __future__ import annotations
 
 import asyncio
+import datetime as _dt
 import json
 import re
 import sys
@@ -107,6 +108,54 @@ def _rich_output_preamble() -> str:
     operator who wants the model unprompted sets it to empty.
     """
     return (_settings.get("chat_rich_output_prompt") or "").strip()
+
+
+def _todays_date_note() -> str:
+    """A system turn stating today's date.
+
+    A model has no clock. Asked what is current it answers from training and calls
+    a 2024 season "current" in 2026, with no way to notice — the reported bug, and
+    half of it is fixed by this one line, no search required. Knowing the date is
+    also what lets a model say "my information may be out of date" instead of
+    asserting a stale fact, and what makes "this year" resolvable at all.
+
+    Server-side rather than in the tunable preamble because it has to be computed
+    per request, and unconditional because a wrong date is never the better input.
+    """
+    return (
+        f"Today's date is {_dt.date.today().isoformat()}. Your training data has a "
+        "cutoff before this. For anything that can change over time — who holds a "
+        "position, prices, counts, standings, what is 'current' or 'latest' — say "
+        "plainly that your information may be out of date, and give the date your "
+        "figure refers to rather than calling it current."
+    )
+
+
+def _web_search_plugin(profile, model_value: str) -> list[dict] | None:
+    """OpenRouter's web plugin, when the prompt needs facts newer than the model.
+
+    Search runs provider-side: OpenRouter does the retrieval, puts the results in
+    front of the model, and returns citations as message annotations. That is the
+    reason this is a body field and not a tool in tools.py — a `web_search` tool
+    would mean an agent loop, several round trips, and a search API key of our own,
+    to arrive at the same place.
+
+    Returns None when it can't or shouldn't run, and the caller reports which:
+    OpenRouter-only, since a local Ollama model and Bedrock's OpenAI-compatible
+    endpoint both ignore `plugins`. Answering unsearched is the right fallback —
+    the alternative is refusing a question the model can still partly answer — but
+    it is only honest if the caller can tell, hence X-Web-Search.
+    """
+    if not _settings.get_bool("web_search_enabled"):
+        return None
+    if profile is None or not profile.needs_current_info():
+        return None
+    if not model_value.startswith("openrouter/"):
+        return None
+    return [{
+        "id": "web",
+        "max_results": max(1, _settings.get_int("web_search_max_results")),
+    }]
 
 
 def _output_budget(profile, spec=None) -> int:
@@ -837,13 +886,22 @@ async def chat_completions(request: Request):
     # existing system turn: the caller's own instructions stay verbatim, and a
     # later turn wins any disagreement, which is the right precedence for a note
     # about the display surface.
-    if _is_ui_client(request) and not forward_body.get("tools"):
-        preamble = _rich_output_preamble()
-        if preamble:
-            forward_body["messages"] = (
-                [{"role": "system", "content": preamble}]
-                + list(forward_body.get("messages") or [])
-            )
+    # The date comes first and is not conditional on `tools`: an agent loop needs to
+    # know what day it is as much as a chat reply does, and unlike the rendering note
+    # it is a fact rather than a suggestion, so it is never noise.
+    if _is_ui_client(request):
+        notes = [_todays_date_note()]
+        if not forward_body.get("tools"):
+            notes.append(_rich_output_preamble())
+        forward_body["messages"] = (
+            [{"role": "system", "content": n} for n in notes if n]
+            + list(forward_body.get("messages") or [])
+        )
+    # Search the web when the prompt turns on facts that move. Set on forward_body
+    # before the agent branch reads it, so an agent round searches too.
+    search_plugin = _web_search_plugin(profile, routed_model)
+    if search_plugin:
+        forward_body["plugins"] = search_plugin
     # Apply a generous output-token default when the caller omits one, so
     # reasoning models have budget for thinking + answer instead of truncating —
     # and a document-sized one when the profile says the answer is a document.
@@ -877,6 +935,11 @@ async def chat_completions(request: Request):
         # at 1024 tokens" look identical on screen, and only one of them is
         # something the reader can do anything about.
         "X-Output-Limit": str(forward_body.get("max_tokens") or 0),
+        # Whether this answer was checked against the live web. Reported for every
+        # request, not just searched ones: "searched and found nothing newer" and
+        # "answered from 2024 training data" read identically on screen, and the
+        # reader's trust in a date-sensitive fact should differ between them.
+        "X-Web-Search": "true" if search_plugin else "false",
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"

@@ -401,22 +401,31 @@ def _system_turns(body):
     return [m for m in body["messages"] if m.get("role") == "system"]
 
 
+def _render_notes(body):
+    """System turns other than the date note, which every UI request carries."""
+    return [m for m in _system_turns(body) if "Today's date is" not in m["content"]]
+
+
 def test_the_chat_page_gets_told_what_it_can_render(client):
     r = _chat(client, _STORY, headers=_UI)
     assert r.status_code == 200
-    notes = _system_turns(client.sent[-1])
+    notes = _render_notes(client.sent[-1])
     assert len(notes) == 1
     assert notes[0]["content"] == _settings.get("chat_rich_output_prompt").strip()
     # Prepended, so the caller's own turns still read in their original order and
     # anything they said later wins a disagreement.
     forwarded = client.sent[-1]["messages"]
-    assert forwarded[0]["role"] == "system"
-    assert forwarded[1:] == [{"role": "user", "content": _STORY}]
+    assert [m["role"] for m in forwarded] == ["system", "system", "user"]
+    assert forwarded[2] == {"role": "user", "content": _STORY}
 
 
 def test_an_api_client_gets_exactly_the_messages_it_sent(client):
     """A program driving /v1 wants its own prompt and nothing else — an injected
-    system turn changes its output, and once it's history it keeps changing it."""
+    system turn changes its output, and once it's history it keeps changing it.
+
+    Covers the date note too: it's the newest thing prepended here, and a program
+    that builds its own prompt is the caller least willing to have one appear.
+    """
     _chat(client, _STORY)
     assert _system_turns(client.sent[-1]) == []
 
@@ -427,7 +436,7 @@ def test_a_tool_using_client_gets_no_note_even_from_the_page(client):
         "type": "function",
         "function": {"name": "noop", "parameters": {"type": "object", "properties": {}}},
     }])
-    assert _system_turns(client.sent[-1]) == []
+    assert _render_notes(client.sent[-1]) == []
 
 
 def test_an_operator_can_switch_the_note_off(monkeypatch, client):
@@ -435,7 +444,7 @@ def test_an_operator_can_switch_the_note_off(monkeypatch, client):
     preference and shouldn't require a code change to express."""
     monkeypatch.setenv("SMART_ROUTER_CHAT_RICH_OUTPUT_PROMPT", "")
     _chat(client, _STORY, headers=_UI)
-    assert _system_turns(client.sent[-1]) == []
+    assert _render_notes(client.sent[-1]) == []
 
 
 def test_the_note_does_not_change_how_the_prompt_is_classified(client):

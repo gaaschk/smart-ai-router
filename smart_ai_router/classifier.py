@@ -292,6 +292,34 @@ _QUANTITATIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The answer depends on the state of the world rather than on knowledge, so a
+# training cutoff makes it wrong rather than incomplete. Two kinds of cue:
+# explicit recency words, and the counting/roster/price/standings questions whose
+# answer silently changed at some point after the model stopped learning — "how
+# many teams are in the WNBA" is the reported case, and nothing in the wording
+# marks it as time-sensitive.
+#
+# A bare four-digit year is included because a prompt that names one is asking
+# about a specific moment, and the model's sense of which moment is "now" is the
+# thing that cannot be trusted. Deliberately broader than the long-form cues: a
+# false positive here costs one search (about $0.007), a false negative is a
+# confidently wrong answer, and those are not the same size of mistake.
+_CURRENT_INFO_RE = re.compile(
+    r"\b(?:current\w*|currently|latest|most recent|recent\w*|today|todays|"
+    r"tonight|yesterday|this (?:year|month|week|season)|"
+    r"right now|as of|up[- ]to[- ]date|so far|"
+    r"news|headline\w*|breaking|announce\w*|release\w*|launch\w*|"
+    r"who won|standing\w*|score\w*|schedule\w*|roster\w*|lineup\w*|"
+    r"price|prices|cost of|stock|share price|exchange rate|"
+    # "still" only in the shapes that ask whether something has since changed —
+    # not bare, which would catch "I still don't understand this function".
+    r"still (?:the|in|a|an|called|named|true|valid|active|available|"
+    r"supported|maintained|around|working)\b|"
+    r"how many (?:teams|players|members|states|countries|models)|"
+    r"\b20[2-9]\d)\b",
+    re.IGNORECASE,
+)
+
 # Cap on fields named from cues, matching taxonomy's own limit on how many
 # fields a profile may name.
 _MAX_CUE_FIELDS = 2
@@ -334,6 +362,8 @@ def classify_profile(prompt: str) -> PromptProfile:
         demands.add("factual_precision")
     if _QUANTITATIVE_RE.search(lower):
         demands.add("quantitative")
+    if _CURRENT_INFO_RE.search(lower):
+        demands.add("current_info")
     if len(prompt) >= _LEN_HARD:
         demands.add("long_synthesis")
 
