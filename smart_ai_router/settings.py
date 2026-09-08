@@ -149,6 +149,36 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="web_search_enabled",
+        env="SMART_ROUTER_WEB_SEARCH",
+        type="bool",
+        default=True,
+        label="Search the web for time-sensitive prompts",
+        group="Routing",
+        help="When the classifier reads a prompt as depending on current facts — "
+        "news, prices, standings, how many of something there are now — search the "
+        "web and give the model the results before it answers. Without this a model "
+        "answers from training data and has no way to know the world moved on: it "
+        "will call a 2024 season 'current' in 2026 and sound certain. Costs about "
+        "$0.007 per searched request (OpenRouter's web plugin, billed per search, "
+        "not per token). OpenRouter models only — a request routed to a local Ollama "
+        "model or to Bedrock answers unsearched, and the X-Web-Search response "
+        "header says which happened.",
+    ),
+    SettingSpec(
+        key="web_search_max_results",
+        env="SMART_ROUTER_WEB_SEARCH_MAX_RESULTS",
+        type="int",
+        default=5,
+        label="Web results per search",
+        group="Routing",
+        help="How many search results to put in front of the model. Up to 10 are "
+        "included in the per-search price, so lowering this saves nothing — it "
+        "only narrows what the model can check. Raising it past 10 costs $0.001 "
+        "per extra result and mostly adds prompt tokens.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="chat_rich_output_prompt",
         env="SMART_ROUTER_CHAT_RICH_OUTPUT_PROMPT",
         type="str",
