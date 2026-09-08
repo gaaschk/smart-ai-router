@@ -562,13 +562,16 @@
   /* Voice is the one control that keeps running after you click it, so unlike the
      other ghost buttons it has to look switched-on at a glance — a hot microphone
      the user has forgotten about is a privacy problem, not just a UI one. */
-  #btn-chat-voice.voice-active { color: var(--accent); border-color: var(--accent); }
-  #btn-chat-voice.voice-listening { animation: voice-pulse 1.4s ease-in-out infinite; }
+  #btn-chat-voice.voice-active,
+  #btn-chat-talk.voice-active { color: var(--accent); border-color: var(--accent); }
+  #btn-chat-voice.voice-listening,
+  #btn-chat-talk.voice-listening { animation: voice-pulse 1.4s ease-in-out infinite; }
   @keyframes voice-pulse { 50% { opacity: 0.45; } }
   /* Respect a reduced-motion preference: the pulse is decoration, and the colour
      already carries the state. */
   @media (prefers-reduced-motion: reduce) {
-    #btn-chat-voice.voice-listening { animation: none; }
+    #btn-chat-voice.voice-listening,
+    #btn-chat-talk.voice-listening { animation: none; }
   }
   .voice-status {
     display: flex; align-items: center; gap: 0.5rem;
@@ -1385,6 +1388,13 @@
              assistant off mid-sentence and talk again. -->
         <button class="btn btn-ghost btn-sm" id="btn-chat-voice" onclick="toggleVoice()"
                 title="Talk instead of typing: speak, pause, and it sends. The reply is read back to you; Escape interrupts it. A level bar shows whether the microphone is reaching the page. Needs HTTPS or localhost — browsers block the microphone on plain HTTP.">🎙 Voice</button>
+        <!-- Model-native voice: the audio itself goes to an audio-in/audio-out
+             model and comes back as speech, which is what makes ChatGPT's voice
+             mode sound human. Hidden unless the admin key is in use — it bills
+             audio tokens on a model that was not chosen on price, so it stays
+             behind the one identity with no spend cap until it has one. -->
+        <button class="btn btn-ghost btn-sm" id="btn-chat-talk" onclick="toggleTalk()" style="display:none"
+                title="Speech-to-speech: the model hears your voice and answers in its own, instead of the browser transcribing and reading text aloud. Sounds far better and costs audio tokens per turn — and voice turns are NOT routed, because barely any model can emit audio. Admin only.">🔊 Talk</button>
         <!-- Export is a <select> that immediately acts and resets, so it reads as
              a menu of one-shot actions rather than a setting with a current
              value. PDF goes through the browser's own print dialog: it needs no
@@ -2187,6 +2197,7 @@ async function loadWhoAmI() {
       el.title = 'No API key required by this router';
     }
     el.style.display = 'inline-flex';
+    revealNativeVoice(me);
     renderSelfServeBanner(me);
   } catch(_) {
     el.style.display = 'none';   // e.g. still unauthenticated; the prompt handles it
@@ -4787,6 +4798,7 @@ let _voiceBusy = false;
 
 let _voiceStream = null;    // live getUserMedia stream, kept only for the meter
 let _voiceRaf = 0;
+let _voiceCtx = null;       // the AudioContext behind the meter; native voice reuses it
 
 // Voice fails in ways the page cannot see (OS-level mic permission, a browser
 // that throws on start(), a recogniser that never opens). Logging the lifecycle
@@ -4833,7 +4845,10 @@ async function startMeter() {
         + 'address bar, and check this browser is listed under System Settings › '
         + 'Privacy & Security › Microphone.';
   }
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // Kept on the module, because native voice records and plays through this same
+  // context. Opening a second one would mean a second permission-shaped surface
+  // and a second sample rate to keep straight for no gain.
+  const ctx = _voiceCtx = new (window.AudioContext || window.webkitAudioContext)();
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   ctx.createMediaStreamSource(_voiceStream).connect(analyser);
@@ -4858,6 +4873,14 @@ function stopMeter() {
   if (_voiceStream) {
     _voiceStream.getTracks().forEach(t => t.stop());
     _voiceStream = null;
+  }
+  // Close the context too. Browsers cap how many a page may have open, so leaving
+  // one behind on every toggle is a limit you eventually hit — and an open context
+  // on a stopped stream keeps the tab's mic indicator lit on some platforms, which
+  // says the microphone is live when it isn't.
+  if (_voiceCtx) {
+    try { _voiceCtx.close(); } catch (_) {}
+    _voiceCtx = null;
   }
   const bar = document.getElementById('voice-level');
   if (bar) bar.style.width = '0';
@@ -5100,15 +5123,339 @@ async function toggleVoice() {
   if (problem) setVoiceStatus(problem, true);
 }
 
-// Escape stops the assistant mid-sentence and listens again — the interruption
-// affordance, given the mic can't do it in half-duplex. Registered separately
-// from the modal handler below so neither can swallow the other.
+// ── Native voice: the model hears you and answers in its own voice ──────────
+//
+// The other trade from the block above. Instead of the browser transcribing your
+// microphone and reading text back, the audio goes to an audio-in/audio-out model
+// and its reply arrives as speech. That is what makes ChatGPT's voice mode sound
+// like a person rather than a screen reader, and the difference is not subtle.
+//
+// What it gives up is routing. Barely any model emits audio, so a spoken turn
+// goes to one fixed model rather than the cheapest that clears the bar — which is
+// why /v1/voice bypasses the router entirely, why it bills audio tokens, and why
+// the button is hidden unless the admin key is in use. See voice_routes.py.
+//
+// Deliberate ceilings, all of them the same shape — SSE cannot carry a duplex
+// conversation:
+//   * Half-duplex, like the browser mode. Real barge-in needs a WebSocket, and
+//     OpenRouter exposes no realtime endpoint at all. Escape interrupts.
+//   * The model returns a transcript of *its* reply but never of yours, so the
+//     history sent upstream carries only its side. A turn that leans on your exact
+//     earlier words ("say that again in French") may miss them. Fixing it means a
+//     transcription call alongside — a cascade, which this mode exists to avoid.
+//   * One turn per request. The recording is endpointed locally on a silence
+//     timer, not by the model.
+
+// Peak sample level (0…1) that counts as speech rather than room noise, and how
+// long a gap ends the turn. 1.1s is above a mid-sentence breath and below the
+// pause that means "your turn" — the same judgement SpeechRecognition makes
+// internally, which is the one thing it does that has to be rebuilt here.
+const _TALK_SPEECH_PEAK = 0.02;
+const _TALK_HANG_SECS = 1.1;
+// Hard ceiling on one recording, well inside the server's payload cap. Also the
+// backstop for a microphone that reads as permanently loud, where the silence
+// timer would never fire and the turn would never end.
+const _TALK_MAX_SECS = 25;
+
+let _talkOn = false;        // native voice loop armed
+let _talkBusy = false;      // the model's turn: sent → last sample played
+let _talkNode = null;       // live capture node, or null between turns
+let _talkPlayAt = 0;        // playback cursor in AudioContext time
+let _talkSources = [];      // scheduled buffers, so Escape can stop them
+let _talkHistory = [];      // assistant turns only — see the ceiling note above
+let _talkModel = '';        // reported by the server, for the routing badge
+
+// Show the button only for the admin key. Called from loadWhoAmI, which already
+// has the answer, rather than asking again.
+function revealNativeVoice(me) {
+  const b = document.getElementById('btn-chat-talk');
+  if (b) b.style.display = (me && me.kind === 'admin') ? 'inline-flex' : 'none';
+}
+
+function setTalkButton(state) {
+  const b = document.getElementById('btn-chat-talk');
+  if (!b) return;
+  b.classList.toggle('voice-active', state !== 'off');
+  b.classList.toggle('voice-listening', state === 'listening');
+  b.textContent = state === 'listening' ? '🔊 Listening…'
+                : state === 'thinking'  ? '🔊 Thinking…'
+                : state === 'speaking'  ? '🔊 Speaking…'
+                : '🔊 Talk';
+}
+
+// Float32 mono → base64 16-bit PCM wav. Written here rather than using
+// MediaRecorder because MediaRecorder produces webm on Chrome and mp4 on Safari,
+// and no audio model accepts either; wav is on every provider's list.
+function encodeWav(chunks, rate) {
+  let n = 0;
+  for (const c of chunks) n += c.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const tag = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  tag(0, 'RIFF');  v.setUint32(4, 36 + n * 2, true);  tag(8, 'WAVE');
+  tag(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);          // PCM, uncompressed
+  v.setUint16(22, 1, true);          // mono
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);   // byte rate = rate × channels × bytes
+  v.setUint16(32, 2, true);          // block align
+  v.setUint16(34, 16, true);         // bits per sample
+  tag(36, 'data'); v.setUint32(40, n * 2, true);
+  let off = 44;
+  for (const c of chunks) {
+    for (let i = 0; i < c.length; i++, off += 2) {
+      // Clamp before scaling: a sample slightly outside ±1 (which happens with
+      // gain applied) would otherwise wrap to full-scale opposite sign and click.
+      const s = Math.max(-1, Math.min(1, c[i]));
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+  }
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  // In 32k slices: String.fromCharCode.apply on a whole recording is hundreds of
+  // thousands of arguments and overflows the call stack.
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// Record until the speaker stops, then hand back the wav. Resolves with '' if
+// nothing above the noise floor was ever heard, so a silent turn costs nothing.
+function captureTurn() {
+  return new Promise((resolve) => {
+    const rate = _voiceCtx.sampleRate;
+    // ponytail: ScriptProcessorNode is deprecated in favour of AudioWorklet, and
+    // works in every browser that has Web Audio at all. Worth swapping only if the
+    // main-thread hop starts dropping frames — a worklet needs a separate module
+    // file or a Blob URL, which is real structure for the same 20 lines.
+    const node = _voiceCtx.createScriptProcessor(4096, 1, 1);
+    // A sink is required or onaudioprocess never fires, and it must be silent or
+    // the microphone is routed to the speakers and the room howls.
+    const mute = _voiceCtx.createGain();
+    mute.gain.value = 0;
+    const chunks = [];
+    let spoke = false, quiet = 0, elapsed = 0;
+    const finish = (out) => {
+      node.onaudioprocess = null;
+      try { node.disconnect(); mute.disconnect(); } catch (_) {}
+      if (_talkNode === node) _talkNode = null;
+      resolve(out);
+    };
+    node.onaudioprocess = (e) => {
+      const inp = e.inputBuffer.getChannelData(0);
+      let peak = 0;
+      for (let i = 0; i < inp.length; i++) peak = Math.max(peak, Math.abs(inp[i]));
+      const secs = inp.length / rate;
+      elapsed += secs;
+      if (peak >= _TALK_SPEECH_PEAK) { spoke = true; quiet = 0; }
+      else if (spoke) quiet += secs;
+      // Only keep audio from the first word on. Leading room tone is billed at
+      // audio-token rates like anything else.
+      if (spoke) chunks.push(new Float32Array(inp));
+      if (spoke && quiet >= _TALK_HANG_SECS) return finish(encodeWav(chunks, rate));
+      if (elapsed >= _TALK_MAX_SECS) return finish(spoke ? encodeWav(chunks, rate) : '');
+    };
+    _talkNode = node;
+    _voiceCtx.createMediaStreamSource(_voiceStream).connect(node);
+    node.connect(mute);
+    mute.connect(_voiceCtx.destination);
+  });
+}
+
+// Queue one base64 pcm16 chunk for playback, gapless after whatever is already
+// scheduled. Scheduling on the audio clock rather than firing each chunk on
+// arrival is what makes the reply sound continuous instead of stuttered.
+function playPcm16(b64, rate) {
+  if (!_voiceCtx) return;
+  const bin = atob(b64);
+  const n = bin.length >> 1;
+  if (!n) return;
+  const buf = _voiceCtx.createBuffer(1, n, rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    let s = (bin.charCodeAt(i * 2 + 1) << 8) | bin.charCodeAt(i * 2);
+    if (s >= 0x8000) s -= 0x10000;   // little-endian signed
+    ch[i] = s / 0x8000;
+  }
+  const src = _voiceCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(_voiceCtx.destination);
+  const now = _voiceCtx.currentTime;
+  // A short lead on the first chunk. Starting at currentTime exactly means any
+  // decode jitter lands after the clock has already passed the start time, and
+  // that audio is simply dropped.
+  if (_talkPlayAt < now) _talkPlayAt = now + 0.08;
+  src.start(_talkPlayAt);
+  _talkPlayAt += buf.duration;
+  _talkSources.push(src);
+  src.onended = () => { _talkSources = _talkSources.filter((s) => s !== src); };
+}
+
+function stopTalkPlayback() {
+  for (const s of _talkSources) { try { s.stop(); } catch (_) {} }
+  _talkSources = [];
+  _talkPlayAt = 0;
+}
+
+// Send one turn and play the reply as it arrives. Returns the transcript.
+async function speakTurn(b64) {
+  const res = await fetch('/v1/voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: b64, format: 'wav', messages: _talkHistory }),
+  });
+  if (!res.ok) {
+    let detail;
+    try { const b = await res.json(); detail = b.detail || b.error; }
+    catch (_) { detail = await res.text(); }
+    throw new Error(detail || `Voice turn failed (${res.status})`);
+  }
+  const rate = parseInt(res.headers.get('X-Voice-Sample-Rate') || '24000', 10) || 24000;
+  _talkModel = res.headers.get('X-Voice-Model') || '';
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buffered = '';
+  let transcript = '';
+  let first = true;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += dec.decode(value, { stream: true });
+    // Hold the tail: a chunk boundary lands mid-line often, and half a base64
+    // payload decodes to noise.
+    const lines = buffered.split('\n');
+    buffered = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const payload = line.slice(6).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let obj;
+      try { obj = JSON.parse(payload); } catch (_) { continue; }
+      for (const c of obj.choices || []) {
+        const a = (c.delta || {}).audio;
+        if (!a) continue;
+        if (a.data) {
+          if (first) { first = false; setTalkButton('speaking'); }
+          playPcm16(a.data, rate);
+        }
+        if (a.transcript) {
+          transcript += a.transcript;
+          setVoiceStatus('“' + transcript + '”');
+        }
+      }
+    }
+  }
+  return transcript;
+}
+
+// One full turn: listen, send, speak, repeat. A loop rather than recursion so a
+// long conversation doesn't grow the stack one frame per exchange.
+async function talkLoop() {
+  while (_talkOn) {
+    setTalkButton('listening');
+    setVoiceStatus('Listening — speak, then pause. The model answers in its own voice.');
+    const b64 = await captureTurn();
+    if (!_talkOn) return;
+    if (!b64) continue;   // nothing above the noise floor; listen again
+
+    _talkBusy = true;
+    setTalkButton('thinking');
+    setVoiceStatus('Sending your voice to the model… Escape interrupts the reply.');
+    let transcript = '';
+    try {
+      transcript = await speakTurn(b64);
+    } catch (e) {
+      stopTalk('Voice turn failed: ' + e.message);
+      return;
+    }
+    if (!_talkOn) return;
+    if (transcript.trim()) {
+      // Shown in the transcript so a spoken conversation leaves the same record a
+      // typed one does. The user side says only that something was said — the
+      // model does not hand back a transcript of the audio it was given.
+      renderChatMsg('user', '🎙 (spoken)');
+      const wrap = renderChatMsg('assistant', '');
+      finalizeChatBubble(wrap.querySelector('.chat-bubble'), transcript);
+      wrap.insertAdjacentHTML('beforeend', chatRoutingBadge({
+        routed: _talkModel || 'native voice', profile: 'voice / native',
+        why: 'Spoken turns are not routed — almost no model emits audio, so there '
+           + 'is nothing to choose between on price. Billed in audio tokens.',
+      }));
+      _talkHistory.push({ role: 'assistant', content: transcript });
+      // Trim in step with the server's own history cap, so the page is not
+      // building a list that gets silently truncated upstream.
+      if (_talkHistory.length > 20) _talkHistory = _talkHistory.slice(-20);
+    }
+    // Wait out the audio before reopening the microphone. Without this the model
+    // hears itself through the speakers and answers its own reply — the same
+    // half-duplex constraint the browser mode has.
+    while (_talkOn && _voiceCtx && _talkPlayAt > _voiceCtx.currentTime) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    _talkBusy = false;
+  }
+}
+
+function stopTalk(message) {
+  _talkOn = false;
+  _talkBusy = false;
+  if (_talkNode) {
+    _talkNode.onaudioprocess = null;
+    try { _talkNode.disconnect(); } catch (_) {}
+    _talkNode = null;
+  }
+  stopTalkPlayback();
+  stopMeter();
+  setTalkButton('off');
+  setVoiceStatus(message || '', !!message);
+  if (message) { _vlog('native voice stopped:', message); alert(message); }
+}
+
+async function toggleTalk() {
+  if (_talkOn) { stopTalk(); setVoiceStatus(''); return; }
+  // The two modes share one microphone, one AudioContext and one status strip, so
+  // running both at once would have each hearing the other's output.
+  if (_voiceOn) stopVoice();
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    const why = 'This browser has no Web Audio support, so native voice cannot '
+      + 'record or play. Typing works everywhere.';
+    setVoiceStatus(why, true); alert(why); return;
+  }
+  if (!window.isSecureContext) {
+    const why = 'Native voice needs HTTPS or http://localhost — browsers block the '
+      + 'microphone on plain HTTP.';
+    setVoiceStatus(why, true); alert(why); return;
+  }
+  setTalkButton('listening');
+  setVoiceStatus('Opening the microphone…');
+  const problem = await startMeter();
+  if (problem) { stopTalk(problem); return; }
+  // resume() after the click, not before: a context created outside a gesture
+  // starts suspended on some browsers, and a suspended context neither records
+  // nor plays while reporting no error at all.
+  try { await _voiceCtx.resume(); } catch (_) {}
+  _talkOn = true;
+  _talkPlayAt = 0;
+  _talkHistory = [];
+  talkLoop();
+}
+
+// Escape stops whichever mode is talking and hands the turn back — the
+// interruption affordance, given neither mode can be talked over. Registered
+// separately from the modal handler below so neither can swallow the other.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || !_voiceOn) return;
-  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+  if (e.key !== 'Escape') return;
+  if (_voiceOn && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
     window.speechSynthesis.cancel();
     _voiceBusy = false;   // you interrupted; the assistant's turn is over
     startListening();
+  }
+  if (_talkOn && _talkSources.length) {
+    // The loop is already waiting on the playback cursor, so clearing it is all
+    // that's needed — it reopens the microphone on its own next tick.
+    stopTalkPlayback();
+    setVoiceStatus('Interrupted — listening again.');
   }
 });
 
