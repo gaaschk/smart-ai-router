@@ -49,7 +49,11 @@ def _js_function(name: str) -> str:
     functions contain braces inside regex literals and template strings.
     """
     src = _UI.read_text()
-    start = src.index(f"\nfunction {name}(")
+    for decl in (f"\nfunction {name}(", f"\nasync function {name}("):
+        start = src.find(decl)
+        if start != -1:
+            break
+    assert start != -1, f"no top-level function {name} in {_UI.name}"
     # The body's opening brace, not a destructured parameter's — `function f(a,
     # { flush = false } = {})` has two braces before the body starts, and counting
     # from the first one returns the parameter list as if it were the function.
@@ -220,7 +224,12 @@ def _mic(script: str) -> list:
       {_js_function("startListening")}
       let _voiceOn = false, _voiceBusy = false, _rec = null;
       function _vlog() {{}}
-      const mics = [], alerts = [], sends = [];
+      function stopMeter() {{}}
+      const mics = [], alerts = [], sends = [], statuses = [];
+      // The status strip is the feature under test in several of these: it is the
+      // only channel the page has for "it can hear you" and "it cannot".
+      function setVoiceStatus(text, problem) {{ statuses.push([text || '', !!problem]); }}
+      const said = () => statuses.map(s => s[0]).join(' | ');
       let startThrows = null;
       function sendChat() {{ sends.push(1); }}
       function _Rec() {{
@@ -350,6 +359,133 @@ def test_a_refused_microphone_turns_voice_off_and_explains():
     # Naming where to fix it, because the browser prompt is only half the story on
     # macOS — the app needs the permission too, and that dialog appears once.
     assert "System Settings" in out["said"]
+
+
+def test_it_says_it_can_hear_you_before_it_sends_anything():
+    """The reported gap: "I don't even know if it can hear me."
+
+    Interim results arrive well before the final one. Showing them is the only
+    evidence a listener has that the microphone is working — otherwise a recogniser
+    that is hearing fine but hasn't finalised yet looks exactly like a dead one.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      heard(mics[0], 'how many teams', false);
+      console.log(JSON.stringify([{ said: said(), sent: sends.length }]));
+    """)
+    assert "how many teams" in out["said"], "interim speech was never shown"
+    assert out["sent"] == 0, "an unfinished sentence was sent"
+
+
+def test_hearing_nothing_is_reported_instead_of_silently_retrying():
+    """`no-speech` must not be invisible.
+
+    Re-arming quietly is correct behaviour and terrible feedback: a microphone that
+    hears nothing at all produces this error forever, and the page looked identical
+    to one patiently waiting for you to start.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startListening();
+      mics[0].onstart();
+      mics[0].onerror({ error: 'no-speech' });
+      console.log(JSON.stringify([{
+        problem: statuses[statuses.length - 1][1], said: said(), on: _voiceOn,
+      }]));
+    """)
+    assert "Nothing heard" in out["said"]
+    assert out["problem"] is True, "not flagged as a problem worth looking at"
+    assert out["on"] is True, "silence ended the loop"
+
+
+def test_a_failure_outlives_the_alert_that_announced_it():
+    """An alert is gone the moment it's dismissed — before anyone can act on it.
+
+    The instruction it carries ("check System Settings") takes longer to follow
+    than the dialog survives, so it has to stay on the page too.
+    """
+    out, = _mic("""
+      _voiceOn = true;
+      startThrows = new Error('nope');
+      startThrows.name = 'InvalidStateError';
+      startListening();
+      console.log(JSON.stringify([{
+        said: statuses[statuses.length - 1][0],
+        problem: statuses[statuses.length - 1][1],
+        alerted: alerts[0] || '',
+      }]));
+    """)
+    assert out["alerted"], "no alert at all"
+    assert out["said"] == out["alerted"], "the alert text was not left on screen"
+    assert out["problem"] is True
+
+
+def _meter(script: str) -> list:
+    """Drive startMeter() with getUserMedia stubbed to fail.
+
+    Only the failure paths are covered: success needs an AudioContext and a real
+    stream, and what matters here is that a refused microphone produces a sentence
+    naming what to change rather than silence.
+    """
+    harness = f"""
+      {_js_function("startMeter")}
+      let _voiceStream = null, _voiceRaf = 0;
+      function _vlog() {{}}
+      global.document = {{ getElementById: () => null }};
+      // defineProperty, not assignment: node ships its own read-only `navigator`,
+      // so `global.navigator = …` is silently ignored and the stub never lands.
+      Object.defineProperty(global, 'navigator', {{ configurable: true, value: {{
+        mediaDevices: {{ getUserMedia: async () => {{
+          const e = new Error('denied'); e.name = FAIL; throw e;
+        }} }},
+      }} }});
+      {script}
+    """
+    return _run(harness)
+
+
+def test_a_refused_microphone_names_the_two_places_to_fix_it():
+    """On macOS the site permission is only half of it.
+
+    The browser also needs the microphone at the OS level, and that prompt appears
+    once and is easy to miss — which leaves recognition failing with no visible
+    cause. A message that only says "denied" sends the reader to the wrong dialog.
+    """
+    out, = _meter("""
+      const FAIL = 'NotAllowedError';
+      startMeter().then(m => console.log(JSON.stringify([m])));
+    """)
+    assert "address bar" in out
+    assert "System Settings" in out
+    assert "NotAllowedError" in out, "the underlying error name was dropped"
+
+
+def test_no_microphone_at_all_is_a_different_message():
+    """"Allow it in the address bar" is useless advice when there's no device.
+
+    Distinguishing them is the difference between a fix and a wild goose chase.
+    """
+    out, = _meter("""
+      const FAIL = 'NotFoundError';
+      startMeter().then(m => console.log(JSON.stringify([m])));
+    """)
+    assert "No microphone" in out
+    assert "address bar" not in out
+
+
+def test_the_microphone_is_claimed_before_recognition_starts():
+    """Order matters, and it is the fix as much as the diagnostic.
+
+    getUserMedia draws the permission prompt and reports refusal by name.
+    SpeechRecognition on its own just goes quiet, which is the failure that made
+    this look like a dead button.
+    """
+    src = _js_function("toggleVoice")
+    assert src.index("startMeter") < src.index("startListening")
+    # And a refusal must stop there rather than arming a recogniser that cannot work.
+    assert "if (problem) { stopVoice(problem); return; }" in src
 
 
 def test_the_recogniser_ends_the_turn_on_a_pause_not_on_a_button():
