@@ -4978,8 +4978,24 @@ function startListening() {
   // nothing would call, so the turn never ends on its own.
   rec.continuous = false;
   const input = document.getElementById('chat-input');
+  // Some browsers ship the SpeechRecognition interface with no engine behind it.
+  // start() returns normally and then no event ever arrives — not onstart, not
+  // onerror, not onend. Nothing in the API reports that, so the only way to notice
+  // is to time it: if the recogniser hasn't opened by now, it never will.
+  let opened = false;
+  let watchdog = setTimeout(() => {
+    if (opened || _rec !== rec) return;
+    _vlog('no onstart within 5s', navigator.userAgent);
+    stopVoice('Speech recognition never started. The microphone works — the level '
+      + 'bar moves — but this browser accepted the request and then reported '
+      + 'nothing at all, which is what happens in builds that ship the API without '
+      + 'a speech engine (Brave and Vivaldi disable it; some Chromium builds omit '
+      + 'it). Try Chrome or Safari. Typing still works.');
+  }, 5000);
+  const engineAlive = () => { opened = true; clearTimeout(watchdog); };
   rec.onstart = () => {
     _vlog('recogniser open');
+    engineAlive();
     setVoiceButton('listening');
     setVoiceStatus('Listening — speak, then pause and it will send.');
   };
@@ -5006,6 +5022,7 @@ function startListening() {
   // must switch voice off, or the button lies about what is happening.
   rec.onerror = (e) => {
     _vlog('error', e.error);
+    engineAlive();   // an error is still proof something is listening
     _rec = null;
     if (e.error === 'no-speech' || e.error === 'aborted') {
       // Say it anyway. Silently re-arming is why a mic that hears nothing at all
@@ -5023,6 +5040,7 @@ function startListening() {
   };
   rec.onend = () => {
     _vlog('recogniser closed');
+    engineAlive();
     if (_rec === rec) _rec = null;
     // Unconditional re-attempt: whether it's allowed is startListening's own
     // decision (see its _voiceBusy guard), and keeping that judgement in one place
@@ -5037,6 +5055,7 @@ function startListening() {
   } catch (e) {
     // Swallowing this is what made the button lie: it kept saying "Listening…"
     // with no recogniser behind it and nothing that would ever restart one.
+    clearTimeout(watchdog);
     _rec = null;
     stopVoice(`The microphone could not be started (${e.name}: ${e.message}).`);
   }
@@ -5062,17 +5081,21 @@ async function toggleVoice() {
   _voiceOn = true;
   _voiceBusy = false;   // clicking on is always the start of a fresh turn
   setVoiceButton('starting');
-  setVoiceStatus('Asking for the microphone…');
+  // The user agent and which spelling of the API we got, because "no events ever
+  // arrive" is a per-browser fact and this is the only record of which browser.
+  _vlog('arming', window.SpeechRecognition ? 'standard' : 'webkit', navigator.userAgent);
   // getVoices() is empty until the list loads on some browsers; touching it here
   // means the first reply already has a good voice rather than the second.
   window.speechSynthesis.getVoices();
-  // Claim the microphone before recognition does. This is what draws the permission
-  // prompt and what reports refusal by name — recognition alone just goes quiet,
-  // which is the failure that made this look like a dead button.
-  const problem = await startMeter();
-  if (problem) { stopVoice(problem); return; }
-  if (!_voiceOn) return;   // toggled off while the prompt was up
+  // start() must run in the click's own task, before anything is awaited. User
+  // activation does not survive an await, and a recogniser started without it is
+  // ignored *silently* — no throw, no error event. Claiming the microphone first
+  // read better and was exactly that bug.
   startListening();
+  // The meter follows. It is a diagnostic, not a precondition: if the microphone is
+  // refused, recognition reports it too, with the same advice.
+  const problem = await startMeter();
+  if (problem) setVoiceStatus(problem, true);
 }
 
 // Escape stops the assistant mid-sentence and listens again — the interruption
