@@ -559,6 +559,17 @@
   }
   .chat-composer textarea:focus { outline: none; border-color: var(--accent); }
   .chat-composer-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+  /* Voice is the one control that keeps running after you click it, so unlike the
+     other ghost buttons it has to look switched-on at a glance — a hot microphone
+     the user has forgotten about is a privacy problem, not just a UI one. */
+  #btn-chat-voice.voice-active { color: var(--accent); border-color: var(--accent); }
+  #btn-chat-voice.voice-listening { animation: voice-pulse 1.4s ease-in-out infinite; }
+  @keyframes voice-pulse { 50% { opacity: 0.45; } }
+  /* Respect a reduced-motion preference: the pulse is decoration, and the colour
+     already carries the state. */
+  @media (prefers-reduced-motion: reduce) {
+    #btn-chat-voice.voice-listening { animation: none; }
+  }
   .chat-cap-note { font-size: 0.72rem; color: var(--warning); }
   .chat-agent-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; user-select: none; }
   .chat-agent-toggle input { cursor: pointer; accent-color: var(--accent); }
@@ -1345,6 +1356,12 @@
       <div class="chat-composer-actions">
         <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
         <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
+        <!-- Hands-free voice, done in the browser: the mic transcribes locally and
+             the reply is read aloud, so the router still only ever sees text and
+             voice works with whichever model it picks. Press Escape to cut the
+             assistant off mid-sentence and talk again. -->
+        <button class="btn btn-ghost btn-sm" id="btn-chat-voice" onclick="toggleVoice()"
+                title="Talk instead of typing. The reply is read back to you; Escape interrupts it. Needs HTTPS or localhost — browsers block the microphone on plain HTTP.">🎙 Voice</button>
         <!-- Export is a <select> that immediately acts and resets, so it reads as
              a menu of one-shot actions rather than a setting with a current
              value. PDF goes through the browser's own print dialog: it needs no
@@ -4112,6 +4129,7 @@ async function sendChat() {
 
   const bubbleWrap = renderChatMsg('assistant', '');
   const bubble = bubbleWrap.querySelector('.chat-bubble');
+  _spokenUpTo = 0;   // new reply, so nothing of it has been spoken yet
 
   // Tri-state agent flag: "auto" (classifier decides) / true (on) / false (off).
   const agentSel = document.getElementById('chat-agent').value;
@@ -4172,10 +4190,15 @@ async function sendChat() {
       bubbleWrap.classList.add('error');
       bubble.textContent = 'No response from the model. Nothing was added to this conversation — try again.';
       _chatMessages.pop();
+      if (_voiceOn) startListening();   // failed turn shouldn't end the loop
       return;
     }
 
     finalizeChatBubble(bubble, acc);
+    // Speak the tail and give the microphone back. Before persisting, so the
+    // spoken reply starts as soon as the text is complete rather than after two
+    // round trips to the store.
+    endVoiceTurn(acc);
     if (truncated) {
       appendTruncationNotice(bubbleWrap, res.headers.get('X-Output-Limit') || '');
     }
@@ -4200,6 +4223,9 @@ async function sendChat() {
     // An abort is a deliberate user action, not a failure to apologize for.
     bubble.textContent = e.name === 'AbortError' ? 'Stopped.' : e.message;
     _chatMessages.pop();
+    // Whatever went wrong, the mic has to come back or the hands-free loop is
+    // over and the button still says it's on.
+    if (_voiceOn) { window.speechSynthesis.cancel(); startListening(); }
   } finally {
     _chatAbort = null;
     setChatBusy(false);
@@ -4257,7 +4283,12 @@ async function streamChatInto(res, bubble) {
       if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; streamError = true; continue; }
       const choice = obj.choices && obj.choices[0];
       const delta = choice && choice.delta;
-      if (delta && delta.content) { acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight; }
+      if (delta && delta.content) {
+        acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight;
+        // Start speaking mid-stream. Waiting for the full reply would put the
+        // whole generation time in front of the first sound.
+        speakStreamed(acc);
+      }
       // "length" means the provider stopped at the output cap rather than
       // finishing its thought — the reply on screen is incomplete.
       if (choice && choice.finish_reason === 'length') truncated = true;
@@ -4698,6 +4729,201 @@ function renderInline(text) {
   s = s.replace(/(\d+)/g, (_, n) => `<code>${escapeHtml(codes[+n])}</code>`);
   return s;
 }
+
+// ── Voice: hands-free talk and listen, entirely in the browser ──────────────
+// The native Web Speech API — SpeechRecognition for the microphone,
+// speechSynthesis for the reply. Nothing about voice reaches the router: it
+// still sends and receives text. That is the whole reason to do it here rather
+// than server-side, because it means voice works with every model the router can
+// pick, including local Ollama ones, and costs nothing per turn.
+//
+// This is deliberately NOT model-native speech-to-speech, which is what makes
+// ChatGPT's voice mode sound the way it does. That would mean base64'ing
+// microphone audio through the proxy to one of the handful of audio-capable
+// models, at audio-token rates — giving up the cheapest-qualified routing this
+// service exists to do, in exchange for better prosody. The PR describes that
+// upgrade path; this is the version that works today, everywhere, for free.
+//
+// Half-duplex on purpose: the mic is off while the reply is being spoken.
+// Full-duplex needs echo cancellation, or the recogniser transcribes the
+// speakers and the assistant starts answering itself. Interruption is a click
+// (or Escape) rather than talking over it. Ceiling worth knowing; upgrade is
+// getUserMedia with echoCancellation plus a VAD, which is a real project.
+
+const _Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let _voiceOn = false;       // hands-free loop armed
+let _rec = null;            // live SpeechRecognition, or null between turns
+let _spokenUpTo = 0;        // chars of the current reply already queued to speak
+
+function voiceUnsupportedReason() {
+  // Order matters: name the fixable problem first. Speech recognition needs a
+  // secure context, so on a plain-HTTP LAN address (http://host.local:8001) the
+  // API object exists and simply never fires — which reads as a broken button
+  // rather than a missing padlock.
+  if (!_Rec || !window.speechSynthesis) {
+    return 'This browser has no speech support. Try Chrome, Edge, or Safari 14.1+.';
+  }
+  if (!window.isSecureContext) {
+    return 'Voice needs HTTPS or http://localhost — browsers block the microphone '
+         + 'on a plain-HTTP address, so this page cannot listen. Open the router at '
+         + 'localhost, or put it behind TLS.';
+  }
+  return '';
+}
+
+// Reduce Markdown to something worth hearing. Read aloud verbatim, a reply full
+// of fenced code and pipe tables is unlistenable, and the code is the part the
+// listener least wants dictated — it's on screen to read.
+function stripForSpeech(md) {
+  return (md || '')
+    .replace(/```[\s\S]*?(```|$)/g, ' (code omitted) ')
+    .replace(/^\s*\|.*\|\s*$/gm, ' ')            // table rows
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')       // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')     // keep link text, drop the URL
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/[*_~]{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Prefer a voice that doesn't sound like 1998. The good ones are per-platform and
+// there is no capability flag for "sounds human", so this is a name list with a
+// plain fallback — a missing preferred voice means the default speaks, never
+// silence.
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices() || [];
+  const preferred = /Samantha|Ava|Serena|Zoe|Allison|Google US English|Microsoft (Aria|Jenny|Guy)/i;
+  return voices.find(v => preferred.test(v.name) && v.lang.startsWith('en'))
+      || voices.find(v => v.lang.startsWith(navigator.language.slice(0, 2)))
+      || null;
+}
+
+// Speak whatever has arrived since the last call. Called per streamed delta so
+// the reply starts being spoken while it is still being written — waiting for the
+// full text would add the entire generation time to the pause before any sound,
+// which is most of what makes a voice assistant feel slow.
+function speakStreamed(acc, { flush = false } = {}) {
+  if (!_voiceOn) return;
+  const clean = stripForSpeech(acc);
+  if (clean.length <= _spokenUpTo) return;
+  const pending = clean.slice(_spokenUpTo);
+  // Only speak up to the last sentence end, so a phrase isn't cut in half by the
+  // chunk boundary — unless the stream is over, when whatever is left is all
+  // there will be.
+  const cut = flush ? pending.length : Math.max(
+    pending.lastIndexOf('. '), pending.lastIndexOf('! '),
+    pending.lastIndexOf('? '), pending.lastIndexOf('\n'),
+  ) + 1;
+  if (cut <= 0) return;
+  const say = pending.slice(0, cut).trim();
+  _spokenUpTo += cut;
+  if (!say) return;
+  const u = new SpeechSynthesisUtterance(say);
+  const v = pickVoice();
+  if (v) u.voice = v;
+  window.speechSynthesis.speak(u);
+}
+
+// The reply is finished: speak the tail, then hand the microphone back. Listening
+// resumes only after the last utterance ends, which is what keeps the assistant
+// from transcribing its own voice.
+function endVoiceTurn(acc) {
+  if (!_voiceOn) return;
+  speakStreamed(acc, { flush: true });
+  const resume = () => { if (_voiceOn) startListening(); };
+  // Poll rather than trust utterance.onend: cancel() and queued-utterance
+  // behaviour differ across browsers, and a missed onend would strand the loop
+  // with the mic off and no way back except clicking.
+  const t = setInterval(() => {
+    if (!_voiceOn) { clearInterval(t); return; }
+    if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+      clearInterval(t); resume();
+    }
+  }, 250);
+}
+
+function setVoiceButton(state) {
+  const b = document.getElementById('btn-chat-voice');
+  if (!b) return;
+  b.classList.toggle('voice-active', state !== 'off');
+  b.classList.toggle('voice-listening', state === 'listening');
+  b.textContent = state === 'listening' ? '🎙 Listening…'
+                : state === 'speaking'  ? '🔊 Speaking…'
+                : '🎙 Voice';
+}
+
+function startListening() {
+  if (!_voiceOn || _rec) return;
+  const rec = new _Rec();
+  rec.lang = navigator.language || 'en-US';
+  rec.interimResults = true;
+  rec.continuous = false;   // one utterance per turn; onend restarts the loop
+  const input = document.getElementById('chat-input');
+  rec.onresult = (e) => {
+    let text = '';
+    for (const r of e.results) text += r[0].transcript;
+    input.value = text;
+    // Send only on a final result. Acting on interim text sends half a sentence.
+    if (e.results[e.results.length - 1].isFinal && text.trim()) {
+      _rec = null; rec.stop();
+      setVoiceButton('speaking');
+      sendChat();
+    }
+  };
+  // A silent turn is not an error worth stopping the loop for — the listener
+  // paused, or the room was quiet. Anything else (denied permission, no service)
+  // must switch voice off, or the button lies about what is happening.
+  rec.onerror = (e) => {
+    _rec = null;
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    stopVoice(e.error === 'not-allowed'
+      ? 'Microphone permission was denied, so voice is off.'
+      : `Voice stopped: ${e.error}`);
+  };
+  rec.onend = () => {
+    // Fires after every utterance, including the silent ones. Re-arm unless a
+    // reply is being spoken (endVoiceTurn owns the mic then) or voice went off.
+    if (_rec === rec) _rec = null;
+    if (_voiceOn && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+      setTimeout(startListening, 150);
+    }
+  };
+  _rec = rec;
+  setVoiceButton('listening');
+  try { rec.start(); } catch (_) { _rec = null; }   // already-started races
+}
+
+function stopVoice(message) {
+  _voiceOn = false;
+  if (_rec) { try { _rec.abort(); } catch (_) {} _rec = null; }
+  window.speechSynthesis.cancel();
+  setVoiceButton('off');
+  if (message) alert(message);
+}
+
+function toggleVoice() {
+  if (_voiceOn) { stopVoice(); return; }
+  const why = voiceUnsupportedReason();
+  if (why) { alert(why); return; }
+  _voiceOn = true;
+  // getVoices() is empty until the list loads on some browsers; touching it here
+  // means the first reply already has a good voice rather than the second.
+  window.speechSynthesis.getVoices();
+  startListening();
+}
+
+// Escape stops the assistant mid-sentence and listens again — the interruption
+// affordance, given the mic can't do it in half-duplex. Registered separately
+// from the modal handler below so neither can swallow the other.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !_voiceOn) return;
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    window.speechSynthesis.cancel();
+    startListening();
+  }
+});
 
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
