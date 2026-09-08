@@ -4190,7 +4190,9 @@ async function sendChat() {
       bubbleWrap.classList.add('error');
       bubble.textContent = 'No response from the model. Nothing was added to this conversation — try again.';
       _chatMessages.pop();
-      if (_voiceOn) startListening();   // failed turn shouldn't end the loop
+      // The assistant's turn is over even though it produced nothing, so release
+      // the mic guard before re-arming — a failed turn shouldn't end the loop.
+      if (_voiceOn) { _voiceBusy = false; startListening(); }
       return;
     }
 
@@ -4225,7 +4227,7 @@ async function sendChat() {
     _chatMessages.pop();
     // Whatever went wrong, the mic has to come back or the hands-free loop is
     // over and the button still says it's on.
-    if (_voiceOn) { window.speechSynthesis.cancel(); startListening(); }
+    if (_voiceOn) { window.speechSynthesis.cancel(); _voiceBusy = false; startListening(); }
   } finally {
     _chatAbort = null;
     setChatBusy(false);
@@ -4754,6 +4756,16 @@ const _Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
 let _voiceOn = false;       // hands-free loop armed
 let _rec = null;            // live SpeechRecognition, or null between turns
 let _spokenUpTo = 0;        // chars of the current reply already queued to speak
+// The assistant's turn: from "question sent" until the last word is spoken. The
+// mic must stay shut for all of it, not just the speaking part — recognition ends
+// the moment the question does, and re-arming then leaves the mic open through
+// generation, so it hears the reply through the speakers and answers itself.
+let _voiceBusy = false;
+
+// Voice fails in ways the page cannot see (OS-level mic permission, a browser
+// that throws on start(), a recogniser that never opens). Logging the lifecycle
+// is what turns "the button does nothing" into something diagnosable.
+function _vlog(...a) { console.debug('[voice]', ...a); }
 
 function voiceUnsupportedReason() {
   // Order matters: name the fixable problem first. Speech recognition needs a
@@ -4839,7 +4851,7 @@ function endVoiceTurn(acc) {
   const t = setInterval(() => {
     if (!_voiceOn) { clearInterval(t); return; }
     if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
-      clearInterval(t); resume();
+      clearInterval(t); _voiceBusy = false; resume();
     }
   }, 250);
 }
@@ -4849,24 +4861,35 @@ function setVoiceButton(state) {
   if (!b) return;
   b.classList.toggle('voice-active', state !== 'off');
   b.classList.toggle('voice-listening', state === 'listening');
+  // "Starting…" is a separate state from "Listening…" on purpose. The label used
+  // to claim it was listening the instant start() was called, which is before the
+  // permission prompt is answered and before the recogniser actually opens — so a
+  // mic that never opened looked identical to one waiting for you to speak.
   b.textContent = state === 'listening' ? '🎙 Listening…'
+                : state === 'starting'  ? '🎙 Starting…'
                 : state === 'speaking'  ? '🔊 Speaking…'
                 : '🎙 Voice';
 }
 
 function startListening() {
-  if (!_voiceOn || _rec) return;
+  if (!_voiceOn || _rec || _voiceBusy) return;
   const rec = new _Rec();
   rec.lang = navigator.language || 'en-US';
   rec.interimResults = true;
-  rec.continuous = false;   // one utterance per turn; onend restarts the loop
+  // false, not true: ending the utterance on a pause IS how the end of a question
+  // is detected. With continuous = true the recogniser waits for a stop() that
+  // nothing would call, so the turn never ends on its own.
+  rec.continuous = false;
   const input = document.getElementById('chat-input');
+  rec.onstart = () => { _vlog('recogniser open'); setVoiceButton('listening'); };
   rec.onresult = (e) => {
     let text = '';
     for (const r of e.results) text += r[0].transcript;
     input.value = text;
     // Send only on a final result. Acting on interim text sends half a sentence.
     if (e.results[e.results.length - 1].isFinal && text.trim()) {
+      _vlog('heard', JSON.stringify(text));
+      _voiceBusy = true;          // set before stop(), because onend fires from it
       _rec = null; rec.stop();
       setVoiceButton('speaking');
       sendChat();
@@ -4876,31 +4899,42 @@ function startListening() {
   // paused, or the room was quiet. Anything else (denied permission, no service)
   // must switch voice off, or the button lies about what is happening.
   rec.onerror = (e) => {
+    _vlog('error', e.error);
     _rec = null;
     if (e.error === 'no-speech' || e.error === 'aborted') return;
-    stopVoice(e.error === 'not-allowed'
-      ? 'Microphone permission was denied, so voice is off.'
+    stopVoice(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'The microphone was refused. Check the site permission in the address bar, '
+        + 'and that this browser is allowed the microphone in System Settings › '
+        + 'Privacy & Security › Microphone.'
       : `Voice stopped: ${e.error}`);
   };
   rec.onend = () => {
-    // Fires after every utterance, including the silent ones. Re-arm unless a
-    // reply is being spoken (endVoiceTurn owns the mic then) or voice went off.
+    _vlog('recogniser closed');
     if (_rec === rec) _rec = null;
-    if (_voiceOn && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
-      setTimeout(startListening, 150);
-    }
+    // Unconditional re-attempt: whether it's allowed is startListening's own
+    // decision (see its _voiceBusy guard), and keeping that judgement in one place
+    // is why the mic can't reopen mid-reply from any of the paths that call it.
+    if (_voiceOn) setTimeout(startListening, 150);
   };
   _rec = rec;
-  setVoiceButton('listening');
-  try { rec.start(); } catch (_) { _rec = null; }   // already-started races
+  setVoiceButton('starting');
+  try {
+    rec.start();
+  } catch (e) {
+    // Swallowing this is what made the button lie: it kept saying "Listening…"
+    // with no recogniser behind it and nothing that would ever restart one.
+    _rec = null;
+    stopVoice(`The microphone could not be started (${e.name}: ${e.message}).`);
+  }
 }
 
 function stopVoice(message) {
   _voiceOn = false;
+  _voiceBusy = false;
   if (_rec) { try { _rec.abort(); } catch (_) {} _rec = null; }
   window.speechSynthesis.cancel();
   setVoiceButton('off');
-  if (message) alert(message);
+  if (message) { _vlog('stopped:', message); alert(message); }
 }
 
 function toggleVoice() {
@@ -4908,6 +4942,7 @@ function toggleVoice() {
   const why = voiceUnsupportedReason();
   if (why) { alert(why); return; }
   _voiceOn = true;
+  _voiceBusy = false;   // clicking on is always the start of a fresh turn
   // getVoices() is empty until the list loads on some browsers; touching it here
   // means the first reply already has a good voice rather than the second.
   window.speechSynthesis.getVoices();
@@ -4921,6 +4956,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !_voiceOn) return;
   if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
     window.speechSynthesis.cancel();
+    _voiceBusy = false;   // you interrupted; the assistant's turn is over
     startListening();
   }
 });
