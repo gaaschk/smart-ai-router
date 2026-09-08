@@ -564,3 +564,218 @@ def test_the_recogniser_ends_the_turn_on_a_pause_not_on_a_button():
     src = _js_function("startListening")
     assert "rec.continuous = false" in src
     assert "rec.interimResults = true" in src
+
+
+# ── Native voice: the wav the model is sent, and when the turn ends ─────────────
+#
+# The browser mode above hands the microphone to SpeechRecognition, which decides
+# on its own when a question has finished. Native voice has no such help: the audio
+# goes to the model as one recording, so the page has to encode the wav itself and
+# judge the end of the turn itself. Those two pieces are the whole reason this
+# section exists — both are silent when wrong. A malformed header is a 400 from the
+# provider with no hint which of fourteen little-endian fields was off, and a
+# broken silence timer either sends after every breath or never sends at all.
+
+
+def _wav_of(samples: list[float], rate: int = 24000) -> dict:
+    """Encode samples with the page's own encodeWav, and decode the result in JS."""
+    harness = _js_function("encodeWav") + f"""
+      const b64 = encodeWav([Float32Array.from({json.dumps(samples)})], {rate});
+      const buf = Buffer.from(b64, 'base64');
+      const tag = (o, n) => buf.slice(o, o + n).toString('latin1');
+      const pcm = [];
+      for (let o = 44; o + 1 < buf.length; o += 2) pcm.push(buf.readInt16LE(o));
+      console.log(JSON.stringify({{
+        bytes: buf.length,
+        riff: tag(0, 4), wave: tag(8, 4), fmt: tag(12, 4), data: tag(36, 4),
+        riffSize: buf.readUInt32LE(4),
+        fmtSize: buf.readUInt32LE(16),
+        format: buf.readUInt16LE(20),
+        channels: buf.readUInt16LE(22),
+        rate: buf.readUInt32LE(24),
+        byteRate: buf.readUInt32LE(28),
+        blockAlign: buf.readUInt16LE(32),
+        bits: buf.readUInt16LE(34),
+        dataSize: buf.readUInt32LE(40),
+        pcm,
+      }}));
+    """
+    return _run(harness)
+
+
+def test_the_wav_header_says_what_the_body_actually_is():
+    """Every field a provider reads to decode the audio, checked against the body.
+
+    Written out one field at a time on purpose. A wav whose header disagrees with
+    its payload is not rejected as invalid — it is decoded as whatever the header
+    claimed, so the model is sent noise, answers something unrelated, and there is
+    nothing anywhere that says the audio was malformed.
+    """
+    w = _wav_of([0.0, 0.5, -0.5, 1.0], rate=16000)
+    assert (w["riff"], w["wave"], w["fmt"], w["data"]) == ("RIFF", "WAVE", "fmt ", "data")
+    assert w["format"] == 1        # uncompressed PCM, not a codec id
+    assert w["channels"] == 1
+    assert w["bits"] == 16
+    assert w["rate"] == 16000
+    assert w["fmtSize"] == 16
+    # The three sizes that have to agree with each other and with the byte count.
+    assert w["dataSize"] == 4 * 2
+    assert w["bytes"] == 44 + 4 * 2
+    assert w["riffSize"] == w["bytes"] - 8
+    # Derived fields. A wrong byteRate plays the recording at the wrong speed
+    # rather than failing, which sounds like a bad model rather than a bad header.
+    assert w["byteRate"] == 16000 * 2
+    assert w["blockAlign"] == 2
+
+
+def test_the_declared_rate_follows_the_hardware():
+    """Whatever rate the AudioContext opened at is the rate written down.
+
+    The page does not resample. It asks the context what it is running at and says
+    so — a hardcoded 16000 in the header over 48kHz samples plays every recording
+    at a third speed, and the model hears a slowed-down voice it half-understands.
+    """
+    assert _wav_of([0.0], rate=48000)["rate"] == 48000
+    assert _wav_of([0.0], rate=44100)["byteRate"] == 44100 * 2
+
+
+def test_samples_survive_the_trip_and_full_scale_does_not_wrap():
+    """Round-trip, including the two ends of the range.
+
+    Positive full scale scales by 0x7fff and negative by 0x8000 because the ranges
+    are not symmetric. Using one factor for both makes +1.0 wrap to -32768: a
+    click on every loud syllable, which is exactly where a voice is loudest.
+    """
+    pcm = _wav_of([0.0, 1.0, -1.0, 0.5, -0.5])["pcm"]
+    assert pcm[0] == 0
+    assert pcm[1] == 32767
+    assert pcm[2] == -32768
+    # int(), not round(): setInt16 truncates toward zero, so 0.5 lands on 16383.
+    assert pcm[3] == int(0.5 * 32767)
+    assert pcm[4] == int(-0.5 * 32768)
+
+
+def test_a_sample_past_full_scale_is_clamped_not_wrapped():
+    """Applied gain can push a sample outside ±1. Clamping is what keeps it loud
+    instead of inverting it into the opposite rail."""
+    pcm = _wav_of([1.4, -1.4])["pcm"]
+    assert pcm == [32767, -32768]
+
+
+def _capture(frames: list[float], frame_len: int = 4096, rate: int = 16000) -> dict:
+    """Drive captureTurn with a scripted sequence of per-frame peak levels.
+
+    Each entry is the peak amplitude of one 4096-sample frame — which is what the
+    endpointing logic actually reads — so a turn can be written as "quiet, loud,
+    loud, quiet, quiet…" and the decision checked against it.
+    """
+    harness = _js_function("encodeWav") + _js_function("captureTurn") + f"""
+      const _TALK_SPEECH_PEAK = 0.02, _TALK_HANG_SECS = 1.1, _TALK_MAX_SECS = 25;
+      const FRAMES = {json.dumps(frames)}, LEN = {frame_len}, RATE = {rate};
+      let _talkNode = null;
+      const node = {{ connect: () => {{}}, disconnect: () => {{}}, onaudioprocess: null }};
+      const sink = {{ gain: {{ value: 1 }}, connect: () => {{}}, disconnect: () => {{}} }};
+      const _voiceCtx = {{
+        sampleRate: RATE,
+        createScriptProcessor: () => node,
+        createGain: () => sink,
+        createMediaStreamSource: () => ({{ connect: () => {{}} }}),
+        destination: {{}},
+      }};
+      const _voiceStream = {{}};
+      const p = captureTurn();
+      // Feed frames until the logic stops asking for them; if it never stops, the
+      // list runs out and `fed` shows how far it got.
+      let fed = 0;
+      for (const peak of FRAMES) {{
+        if (!node.onaudioprocess) break;
+        const data = new Float32Array(LEN);
+        // One nonzero sample carries the peak. The logic takes a max over the
+        // frame, so where in the frame it sits does not matter.
+        data[0] = peak;
+        fed++;
+        node.onaudioprocess({{ inputBuffer: {{ getChannelData: () => data }} }});
+      }}
+      // Report from a later tick rather than from .then(), because "the turn never
+      // ended" is a result worth asserting and a promise that never settles logs
+      // nothing at all. resolve() happens inside onaudioprocess, so its microtask
+      // has already run by the time setImmediate fires.
+      let out = null;
+      p.then((o) => {{ out = o; }});
+      setImmediate(() => {{
+        const bytes = out ? Buffer.from(out, 'base64').length : 0;
+        console.log(JSON.stringify({{
+          sent: !!out,
+          fed,
+          stillRecording: !!node.onaudioprocess,
+          // Samples kept, from the wav's own data chunk.
+          samples: bytes ? (bytes - 44) / 2 : 0,
+          frames: bytes ? (bytes - 44) / 2 / LEN : 0,
+        }}));
+      }});
+    """
+    return _run(harness)
+
+
+def test_a_pause_after_speech_ends_the_turn():
+    """1.1s of quiet after the first word is what sends the recording.
+
+    Nothing else ends a turn: there is no button, and the model is not consulted.
+    At 16kHz a 4096-sample frame is 0.256s, so the timer needs five quiet frames.
+    """
+    # loud, then eight quiet frames (2.05s) — well past the threshold.
+    r = _capture([0.5] * 2 + [0.001] * 8)
+    assert r["sent"] is True
+    assert r["stillRecording"] is False
+    # Stopped as soon as the timer expired rather than draining the whole list:
+    # 2 loud + 5 quiet frames reaches 1.28s ≥ 1.1s.
+    assert r["fed"] == 7
+
+
+def test_a_breath_mid_sentence_does_not_send_half_a_question():
+    """A gap shorter than the threshold must not end the turn.
+
+    This is the difference between conversation and being cut off constantly, and
+    it is why the timer resets on every frame above the noise floor rather than
+    counting total quiet.
+    """
+    # Four quiet frames (1.02s) is under 1.1s, so speech resuming resets it.
+    r = _capture([0.5] + [0.001] * 4 + [0.5] + [0.001] * 4)
+    assert r["sent"] is False, "sent mid-sentence"
+    assert r["stillRecording"] is True, "the turn was closed by a breath"
+
+
+def test_silence_alone_is_never_sent():
+    """A room that never spoke costs nothing.
+
+    Reached via the duration backstop, not the silence timer — the timer only ever
+    runs after the first word, so an empty room would otherwise record forever.
+    """
+    quiet_frames = int(25 * 16000 / 4096) + 2
+    r = _capture([0.001] * quiet_frames)
+    assert r["sent"] is False
+    assert r["stillRecording"] is False, "gave up on nothing, but kept the mic open"
+
+
+def test_a_microphone_that_reads_permanently_loud_still_ends_the_turn():
+    """The backstop. On hardware with a high noise floor the silence timer never
+    fires, and without a duration cap the recording grows until the server rejects
+    it — after the whole thing has been uploaded."""
+    loud_frames = int(25 * 16000 / 4096) + 2
+    r = _capture([0.5] * loud_frames)
+    assert r["sent"] is True
+    assert r["stillRecording"] is False
+    assert r["frames"] <= loud_frames
+
+
+def test_the_room_tone_before_the_first_word_is_not_billed():
+    """Recording starts at the first word, not at the button.
+
+    Leading silence is billed at audio-token rates like anything else, and on a
+    hands-free loop it is most of what the microphone hears.
+    """
+    r = _capture([0.001] * 10 + [0.5] * 3 + [0.001] * 6)
+    assert r["sent"] is True
+    # Three loud frames plus the quiet ones that ran the timer out — not the ten
+    # frames of nothing that preceded them.
+    assert r["frames"] == 3 + 5

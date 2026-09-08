@@ -547,6 +547,21 @@ SPECS: tuple[SettingSpec, ...] = (
         "fifty users, not five thousand'.",
         validate=_reject_negative,
     ),
+    SettingSpec(
+        key="voice_native_model",
+        env="SMART_ROUTER_VOICE_NATIVE_MODEL",
+        type="str",
+        default="openrouter/openai/gpt-audio-mini",
+        label="Native-voice model",
+        group="Voice",
+        help="The audio-in/audio-out model used by 🔊 Talk (admin only). Unlike "
+        "every other model choice here this one is NOT routed — barely any model "
+        "emits audio, so there is nothing to choose between on price. "
+        "openai/gpt-audio-mini is roughly $0.11 an hour of conversation; "
+        "openai/gpt-audio sounds better and is roughly $1.70. Both bill audio "
+        "tokens, which the usage page reads from the provider rather than from "
+        "the text rate.",
+    ),
 )
 
 _BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SPECS}

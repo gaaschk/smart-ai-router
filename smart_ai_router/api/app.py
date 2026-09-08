@@ -20,6 +20,7 @@ from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
 from smart_ai_router.api.anon_routes import anon_router
 from smart_ai_router.api.signup_routes import signup_router
+from smart_ai_router.api.voice_routes import voice_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -274,6 +275,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     app.include_router(anon_router, prefix="/api")
     app.include_router(signup_router, prefix="/api")
     app.include_router(proxy_router)
+    app.include_router(voice_router)
     app.include_router(files_router)
 
     _static_dir = _UI_DIR / "static"
