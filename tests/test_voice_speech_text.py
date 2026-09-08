@@ -509,8 +509,12 @@ def test_a_recogniser_that_never_opens_is_caught_by_the_clock():
     """)
     assert out["on"] is False, "the page waited forever"
     assert "never started" in out["said"]
-    # Names the class of cause, because "it didn't work" leaves nothing to try.
-    assert "Brave" in out["said"]
+    # Names the browsers, because "it didn't work" leaves nothing to try. Opera is
+    # the confirmed case — voice works in Safari and Opera never emits an event —
+    # and Chromium builds without a speech engine behave alike, so they're listed
+    # together. Naming where to go next is the whole value of the message.
+    for browser in ("Opera", "Brave", "Vivaldi", "Safari", "Chrome"):
+        assert browser in out["said"], f"{browser} not mentioned"
     assert out["shown"] == out["said"], "the reason vanished with the alert"
 
 
