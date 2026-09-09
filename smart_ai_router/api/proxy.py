@@ -190,6 +190,38 @@ def _output_budget(profile, spec=None) -> int:
         want = min(want, limit)
     return max(1, want)
 
+
+# Thinking knobs, in every spelling a client might use: OpenAI's
+# `reasoning_effort`, OpenRouter's `reasoning` config object and its legacy
+# `include_reasoning` bool, and Anthropic's `thinking` (which is what a
+# translation layer in front of the router forwards).
+_REASONING_PARAMS = ("reasoning", "reasoning_effort", "include_reasoning", "thinking")
+
+
+def _drop_unsupported(forward_body: dict, spec) -> list[str]:
+    """Remove params the *routed* model can't take. Returns what was removed.
+
+    The caller names a model class ("smart-worker") and never learns which model
+    answered, so every model-specific knob in its body is a guess about a pick it
+    can't see — and a wrong guess is not ignored, it is a provider 400 that turns
+    a routed request into no answer at all:
+
+        reasoning_effort + a coding prompt → ollama/qwen3-coder:30b
+        → 400 '"qwen3-coder:30b" does not support thinking'
+
+    Only the flags the catalog actually tracks can be filtered honestly, so this
+    is deliberately narrow — a knob we have no capability bit for is left alone
+    rather than guessed at. An unknown spec (`None`) is treated as incapable:
+    dropping a preference degrades the answer, a 400 removes it.
+    """
+    if getattr(spec, "reasoning", False):
+        return []
+    dropped = [p for p in _REASONING_PARAMS if p in forward_body]
+    for p in dropped:
+        forward_body.pop(p)
+    return dropped
+
+
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
 # many seconds during which the agent loop yields nothing; without a heartbeat
@@ -806,6 +838,14 @@ async def chat_completions(request: Request):
 
     # 2. Route
     needs_tools = bool(body.get("tools")) or agent_mode
+    # A caller asking for a json_schema reply needs a model that honors the
+    # *schema*, not merely one that emits JSON. This is a routing constraint and
+    # not a dropped param for the same reason vision is: a model that ignores the
+    # schema answers the prompt in prose, the caller's parse finds nothing, and
+    # nothing anywhere reports an error. Filtering the pick is the only place the
+    # requirement can be met — see ModelSpec.structured_outputs.
+    _rf = body.get("response_format")
+    needs_structured = isinstance(_rf, dict) and _rf.get("type") == "json_schema"
     est_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
 
     if is_orchestrator:
@@ -843,6 +883,7 @@ async def chat_completions(request: Request):
                 profile,
                 needs_tools=needs_tools,
                 needs_vision=needs_vision,
+                needs_structured=needs_structured,
                 est_tokens=est_tokens,
                 scope=scope,
                 agent_mode=agent_mode,
@@ -853,6 +894,7 @@ async def chat_completions(request: Request):
                 profile,
                 needs_tools=needs_tools,
                 needs_vision=needs_vision,
+                needs_structured=needs_structured,
                 est_tokens=est_tokens,
                 scope=scope,
                 agent_mode=agent_mode,
@@ -898,6 +940,13 @@ async def chat_completions(request: Request):
     print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
+    # The caller chose its params for a model it never saw; the pick may not take
+    # them. Done before anything else touches the body so nothing downstream has
+    # to reason about a param that isn't going to survive.
+    dropped_params = _drop_unsupported(forward_body, routed_spec)
+    if dropped_params:
+        print(f"[proxy] dropped for {routed_model}: {', '.join(dropped_params)}",
+              file=sys.stderr, flush=True)
     # Tell the model what the chat page can render — but only when the caller *is*
     # the chat page, and only after classification, so the note never influences
     # the routing profile it isn't part of. Prepended rather than merged into an
@@ -925,6 +974,21 @@ async def chat_completions(request: Request):
     # and a document-sized one when the profile says the answer is a document.
     if not forward_body.get("max_tokens"):
         forward_body["max_tokens"] = _output_budget(profile, routed_spec)
+    # A caller who *named* a max_tokens gets clamped to the pick's ceiling too:
+    # `_output_budget` only clamps the number it computed itself, so a client
+    # sizing its request for the model it thinks it's talking to could still ask
+    # for more than the routed model can emit — which several providers reject
+    # outright rather than truncate (see ModelSpec.max_output). 0 = the catalog
+    # didn't say, so send it unclamped.
+    model_ceiling = int(getattr(routed_spec, "max_output", 0) or 0)
+    try:
+        asked_output = int(forward_body["max_tokens"])
+    except (TypeError, ValueError):
+        # Not a number at all. Nothing to clamp, and inventing one would hide a
+        # malformed body — leave it for the provider to reject.
+        asked_output = 0
+    if model_ceiling and asked_output:
+        forward_body["max_tokens"] = min(asked_output, model_ceiling)
     # Callers the operator never vetted — anonymous visitors and self-issued keys
     # — get a hard output ceiling, applied after the default and over anything they
     # asked for. This is what bounds the damage while the spend cap is blind: a
@@ -958,6 +1022,10 @@ async def chat_completions(request: Request):
         # "answered from 2024 training data" read identically on screen, and the
         # reader's trust in a date-sensitive fact should differ between them.
         "X-Web-Search": "true" if search_plugin else "false",
+        # Params the pick couldn't take, so a client can see why the knob it set
+        # did nothing. Silence here is the whole failure mode being fixed: the
+        # caller tuned a model it never learns the name of.
+        "X-Dropped-Params": ",".join(dropped_params),
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"
@@ -1042,7 +1110,11 @@ async def chat_completions(request: Request):
                 yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': _ESCALATION_NOTE}, 'finish_reason': None}]})}\n\n".encode()
             async for chunk in run_agent_loop(
                 user=user,
-                body={**body, "model": real_model},
+                # forward_body, not the raw body: every round of the loop hits the
+                # same routed model, so it needs the same param filtering, output
+                # ceiling and system notes a single forwarded request gets. Seeding
+                # from `body` here meant a dropped param came straight back.
+                body=forward_body,
                 tool_schemas=_agent_tool_schemas(),
                 stream_model=_stream_model,
                 register_file=_register_file,

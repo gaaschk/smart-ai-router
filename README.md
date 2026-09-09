@@ -157,6 +157,7 @@ Response headers include routing metadata:
 - `X-Complexity` — classified complexity
 - `X-Escalated` — `true` if the task was escalated to a premium model
 - `X-User` — the authenticated user the request was attributed to (empty in open/no-auth mode)
+- `X-Dropped-Params` — request params the routed model couldn't take (see [Params vs. the pick](#params-vs-the-pick)); empty when nothing was dropped
 
 ### API keys (per-user auth)
 
@@ -675,6 +676,31 @@ the router's own calls above.
 If **nothing** qualifies, the pick is the *closest miss* — ranked by how far short it falls, with cost only as a tiebreak — and the response says so: `X-Qualified: false`, a `⚠ under-qualified` chip in the chat UI, and a caveat prepended to the answer telling the caller to treat specifics (citations, standards, figures) as unverified. This is the case the old single-bar router could not even detect; it returned a confident answer from an unqualified model with no indication anything was wrong.
 
 Every response carries `X-Prompt-Profile` (the profile in words), `X-Routing-Why` (the binding constraint), `X-Qualified`, and the legacy `X-Domain` / `X-Complexity` derived from the profile.
+
+### Params vs. the pick
+
+A caller names a model *class* (`smart-worker`, `auto`) and never learns which
+model answered, so every model-specific param in its body is a guess about a pick
+it can't see. A wrong guess isn't ignored — it's a provider 400, which turns a
+routed request into no answer at all:
+
+```
+reasoning_effort + a coding prompt → ollama/qwen3-coder:30b
+→ 400 '"qwen3-coder:30b" does not support thinking'
+```
+
+So the proxy reconciles the body with the model it chose, three different ways
+depending on what the param is:
+
+| Param | Treatment | Why |
+|---|---|---|
+| `reasoning_effort`, `reasoning`, `include_reasoning`, `thinking` | **dropped** when the pick has `reasoning: false`, and reported in `X-Dropped-Params` | A thinking budget is a preference; the answer survives without it, and the header keeps that visible rather than mysterious |
+| `max_tokens` | **clamped** to the pick's `max_output` | Several providers reject an over-limit request rather than truncating the reply |
+| `response_format: {"type": "json_schema"}` | **routed on** — the pick must have `structured_outputs` | Dropping it is the silent failure: the model answers in prose, the caller's parse finds nothing, and nothing anywhere errors. `json_object` is not a schema and imposes no requirement |
+
+Params the catalog tracks no capability flag for are left alone rather than
+guessed at. The agent loop is seeded with the same reconciled body, since every
+round of it hits the same model.
 
 ### Cost tiers
 
