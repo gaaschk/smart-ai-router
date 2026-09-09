@@ -65,6 +65,7 @@ def _client(monkeypatch, *specs: ModelSpec) -> TestClient:
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
     c.sent = sent       # forwarded bodies, for asserting what the provider saw
+    c.store = store     # for asserting what landed in the usage log
     return c
 
 

@@ -158,6 +158,7 @@ Response headers include routing metadata:
 - `X-Escalated` — `true` if the task was escalated to a premium model
 - `X-User` — the authenticated user the request was attributed to (empty in open/no-auth mode)
 - `X-Dropped-Params` — request params the routed model couldn't take (see [Params vs. the pick](#params-vs-the-pick)); empty when nothing was dropped
+- `X-Cache-Breakpoints` — how many prompt-cache markers this request was sent with (see [Prompt caching](#prompt-caching)); `0` for a local model, a first turn, or a short prompt
 
 ### API keys (per-user auth)
 
@@ -676,6 +677,51 @@ the router's own calls above.
 If **nothing** qualifies, the pick is the *closest miss* — ranked by how far short it falls, with cost only as a tiebreak — and the response says so: `X-Qualified: false`, a `⚠ under-qualified` chip in the chat UI, and a caveat prepended to the answer telling the caller to treat specifics (citations, standards, figures) as unverified. This is the case the old single-bar router could not even detect; it returned a confident answer from an unqualified model with no indication anything was wrong.
 
 Every response carries `X-Prompt-Profile` (the profile in words), `X-Routing-Why` (the binding constraint), `X-Qualified`, and the legacy `X-Domain` / `X-Complexity` derived from the profile.
+
+### Prompt caching
+
+Routing picks the cheapest capable model. Caching removes the tokens entirely,
+and on this router's real traffic it is worth far more:
+
+> **92% of lifetime spend was one five-minute coding session.** 52 requests,
+> median 69,571 prompt tokens each, re-sending the same growing prefix, with
+> `cached_tokens: 0` throughout. The router had already picked Haiku — the
+> cheapest Claude there is — so routing had nothing left to give. $3.43 of a
+> $3.71 lifetime bill, and at 80–95% prefix reuse that session costs $0.58–1.16.
+
+Anthropic caches only what you mark, and a client's own `cache_control`
+breakpoints don't survive an Anthropic→OpenAI translation layer (LiteLLM strips
+every one), so by the time a body reaches the router the intent is gone and no
+client can restore it. The router sets them itself — two, the standard shape for
+a growing conversation:
+
+1. **End of the system block.** Anthropic's cache prefix is ordered
+   tools → system → messages, so this covers the tool definitions too — which is
+   where the tokens actually are. (Measured on a real Claude Code request:
+   146,296 of 153,507 bytes were tool schemas, ~40k tokens, against ~1.9k tokens
+   of conversation.) A breakpoint on `tools` isn't expressible in the OpenAI wire
+   shape; this makes one unnecessary.
+2. **End of the history**, rolling. What this turn writes, the next turn reads.
+
+A cache write costs 1.25× and a read 0.10×, so a marker nobody reads back is a
+25% surcharge — which is what the guards are for. Breakpoints are set only:
+
+- on **Claude models via OpenRouter** — every other family either caches long
+  prefixes automatically (OpenAI, Grok, DeepSeek) or has no cache to mark
+  (Ollama). Bedrock is excluded: it caches through its own `cachePoint` shape and
+  whether our OpenAI-compatible path honors `cache_control` is unverified.
+- from the **second turn onward** — an assistant turn in the history is the proof
+  that the client re-sends its prefix. Agent mode is exempt: its tool loop
+  re-sends the prefix every round, so even a first turn reads back what it writes.
+- above **~2k tokens**, below which Anthropic ignores the marker anyway.
+- never over a **caller that set its own breakpoints** — it knows its prefix
+  better than this heuristic does.
+
+Cache reads are billed at 10% of the input rate, and the usage log prices them
+that way, so the Usage page shows the discount rather than a bill nobody was sent.
+A hit also logs one line to stderr (`[proxy] cache hit: 62000 of 69000 prompt
+tokens read at 10%`), which is how you confirm it's working. Turn the whole thing
+off from **Settings → Routing** if a provider ever errors on a breakpoint.
 
 ### Params vs. the pick
 

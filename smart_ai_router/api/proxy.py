@@ -222,6 +222,147 @@ def _drop_unsupported(forward_body: dict, spec) -> list[str]:
     return dropped
 
 
+# ── prompt caching ────────────────────────────────────────────────────────────
+# The single largest cost lever this router has, and for a long time the one it
+# wasn't pulling. Measured from the live usage log: 92% of lifetime spend was one
+# five-minute coding session — 52 requests, median 69,571 prompt tokens each,
+# every one of them re-sending the same growing prefix, `cached_tokens: 0`
+# throughout. Routing had nothing left to give there (the pick was already Haiku,
+# the cheapest Claude), so the money was never in *which* model answered. It was
+# in being billed full price for the same 60k tokens 52 times.
+#
+# Anthropic caches only what you mark; OpenRouter passes `cache_control` through
+# to it. A client that sets its own breakpoints loses them to the Anthropic→OpenAI
+# translation layer in front of the router (LiteLLM strips every one), so by the
+# time a body arrives here the intent is gone and no client can restore it. The
+# router is the last place that can.
+
+# Minimum prompt Anthropic will cache at all: 1024 tokens on Sonnet/Opus, 2048 on
+# Haiku. Below it a breakpoint is ignored rather than an error, so this guard is
+# about not writing pointless markers — and it takes the larger number because
+# cheapest-qualified-wins routes to Haiku often.
+_CACHE_MIN_TOKENS = 2048
+
+
+def _supports_cache_control(routed_model: str) -> bool:
+    """Whether an explicit cache breakpoint does anything for this model.
+
+    Claude is the family that *requires* one: OpenAI, Grok and DeepSeek cache long
+    prefixes automatically on OpenRouter, and Ollama has no prompt cache to mark.
+    So the set of models a breakpoint helps is exactly the Claude family — which
+    its id names precisely.
+
+    OpenRouter only. Bedrock also serves Claude and also has prompt caching, but
+    through its own `cachePoint` shape, and whether our OpenAI-compatible path to
+    it honors `cache_control` is unverified — same call as `structured_outputs` in
+    sync.py, where the safe direction is to not claim a capability rather than to
+    trust one.
+
+    ponytail: an id substring, not a stored capability. The honest signal is
+    OpenRouter's per-model `pricing.input_cache_read`, which sync doesn't keep —
+    add a column when a second family needs explicit breakpoints.
+    """
+    m = routed_model.lower()
+    return m.startswith("openrouter/") and "claude" in m
+
+
+def _cache_marked(msg: dict) -> dict | None:
+    """`msg` with a cache breakpoint on its last content block, or None if it has
+    no content to hang one on (an assistant turn that is nothing but tool_calls).
+
+    Copies rather than mutating: these dicts come straight from the request body
+    and are shared with it.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        if not content.strip():
+            return None
+        return {**msg, "content": [{
+            "type": "text", "text": content,
+            "cache_control": {"type": "ephemeral"},
+        }]}
+    if isinstance(content, list):
+        for i in range(len(content) - 1, -1, -1):
+            block = content[i]
+            if isinstance(block, dict) and block.get("type"):
+                blocks = list(content)
+                blocks[i] = {**block, "cache_control": {"type": "ephemeral"}}
+                return {**msg, "content": blocks}
+    return None
+
+
+def _inject_cache_breakpoints(
+    forward_body: dict, routed_model: str, est_tokens: int, *, loops: bool = False
+) -> int:
+    """Mark this request's stable prefix as cacheable. Returns breakpoints set.
+
+    Two of them, which is the standard shape for a growing conversation:
+
+    1. **End of the system block.** Anthropic's cache prefix is ordered
+       tools → system → messages, so a breakpoint here also covers the tool
+       definitions — which is where the tokens actually are. (Measured on a real
+       Claude Code request: 146,296 of 153,507 bytes were tool schemas, ~40k
+       tokens, against ~1.9k tokens of conversation.) That matters because a
+       breakpoint on `tools` itself isn't expressible in the OpenAI wire shape,
+       and this makes one unnecessary.
+    2. **End of the history.** Rolling: what this turn writes, the next turn
+       reads, since each turn's prefix contains the last one's.
+
+    Three guards, each of which is a way injecting could *cost* money or break:
+
+    - Second turn onward only. A cache write is billed at 1.25×, a read at 0.10×,
+      so a marker nobody comes back to read is a 25% surcharge. An assistant turn
+      in the history is proof the client re-sends its prefix, which is the thing
+      that makes a write pay for itself. `loops=True` is the same proof arrived at
+      differently: agent mode re-sends the whole prefix on every round of its tool
+      loop, so even a first turn is guaranteed to read back what it writes — and
+      that loop is precisely the traffic shape the burst was made of.
+    - Above `_CACHE_MIN_TOKENS`, below which Anthropic ignores the marker anyway.
+      `est_tokens` counts messages only, so tools are excluded and the estimate
+      errs low — the guard is conservative in the harmless direction.
+    - Never over a caller that set its own breakpoints. It knows its prefix better
+      than this heuristic does; the only reason to guess is that its intent
+      usually doesn't survive translation.
+    """
+    if not _settings.get_bool("prompt_caching"):
+        return 0
+    if not _supports_cache_control(routed_model) or est_tokens < _CACHE_MIN_TOKENS:
+        return 0
+    msgs = list(forward_body.get("messages") or [])
+    if not loops and not any(m.get("role") == "assistant" for m in msgs):
+        return 0
+    if any(
+        isinstance(b, dict) and "cache_control" in b
+        for m in msgs
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+    ):
+        return 0
+
+    marked: set[int] = set()
+    system_i = max(
+        (i for i, m in enumerate(msgs) if m.get("role") == "system"), default=-1
+    )
+    if system_i >= 0:
+        stamped = _cache_marked(msgs[system_i])
+        if stamped is not None:
+            msgs[system_i] = stamped
+            marked.add(system_i)
+    # Backwards, because the final message can be an assistant turn carrying only
+    # tool_calls — nothing to mark, but the turn before it will have content.
+    for i in range(len(msgs) - 1, -1, -1):
+        if i in marked:
+            break
+        stamped = _cache_marked(msgs[i])
+        if stamped is not None:
+            msgs[i] = stamped
+            marked.add(i)
+            break
+
+    if marked:
+        forward_body["messages"] = msgs
+    return len(marked)
+
+
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
 # many seconds during which the agent loop yields nothing; without a heartbeat
@@ -602,6 +743,39 @@ def _request_scope(request: Request) -> ModelScope | None:
     return scope if scope.is_restricted else None
 
 
+def _cached_tokens(usage: dict | None) -> int:
+    """Prompt tokens the provider served from its cache, 0 if it didn't say.
+
+    Two spellings: OpenAI's `prompt_tokens_details.cached_tokens`, which is what
+    OpenRouter normalizes to, and Anthropic's own `cache_read_input_tokens` in
+    case a provider leaks it through an OpenAI-shaped reply. Reading both is a
+    one-line hedge against the failure that would otherwise be silent — billing
+    a cache read at full price looks exactly like caching not working.
+    """
+    u = usage or {}
+    details = u.get("prompt_tokens_details")
+    if isinstance(details, dict) and details.get("cached_tokens"):
+        return int(details["cached_tokens"] or 0)
+    return int(u.get("cache_read_input_tokens", 0) or 0)
+
+
+def _billable_prompt(prompt_tokens: int, cached_tokens: int) -> int:
+    """Prompt tokens priced at the full input rate, cache reads discounted.
+
+    A cache read costs 10% of the input rate, so it can't be counted like a fresh
+    token or the Usage page reports a bill nobody was sent.
+
+    ponytail: a cache *write* costs 1.25× and the OpenAI usage shape doesn't
+    separate it out, so a turn that writes is under-counted by a quarter of the
+    written portion. Off in the harmless direction (the provider's own dashboard
+    remains the source of truth), and fixable only when a provider reports writes.
+    """
+    if cached_tokens <= 0:
+        return prompt_tokens
+    fresh = max(0, prompt_tokens - cached_tokens)
+    return fresh + int(cached_tokens * 0.1)
+
+
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                complexity: str, usage: dict | None, status: int,
                tokens_estimated: bool = False,
@@ -632,12 +806,22 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
         return
     prompt_tokens = int((usage or {}).get("prompt_tokens", 0) or 0)
     completion_tokens = int((usage or {}).get("completion_tokens", 0) or 0)
+    cached_tokens = _cached_tokens(usage)
     cost_usd = 0.0
     try:
         if prompt_tokens or completion_tokens:
-            cost_usd = cr.cost_for(routed_model, prompt_tokens, completion_tokens) or 0.0
+            cost_usd = cr.cost_for(
+                routed_model, _billable_prompt(prompt_tokens, cached_tokens),
+                completion_tokens,
+            ) or 0.0
     except Exception:  # noqa: BLE001 — pricing lookup must not break logging
         cost_usd = 0.0
+    if cached_tokens:
+        # The only visible proof that caching is working, since the count itself
+        # isn't persisted (that would be a column and a migration; the corrected
+        # cost is what the Usage page actually sums).
+        print(f"[proxy] cache hit: {cached_tokens} of {prompt_tokens} prompt "
+              f"tokens read at 10% on {routed_model}", file=sys.stderr, flush=True)
     try:
         cr.record_usage(UsageRecord(
             user=user, key_prefix=key_prefix, routed_model=routed_model,
@@ -1003,6 +1187,12 @@ async def chat_completions(request: Request):
         forward_body["max_tokens"] = min(
             int(forward_body["max_tokens"] or output_cap), output_cap
         )
+    # Last thing done to the body, because the breakpoints have to land on the
+    # messages actually sent — including the system notes prepended above, which
+    # sit at the front of the prefix and belong inside the cached region.
+    cache_breakpoints = _inject_cache_breakpoints(
+        forward_body, routed_model, est_tokens, loops=agent_mode
+    )
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
@@ -1026,6 +1216,11 @@ async def chat_completions(request: Request):
         # did nothing. Silence here is the whole failure mode being fixed: the
         # caller tuned a model it never learns the name of.
         "X-Dropped-Params": ",".join(dropped_params),
+        # How many cache breakpoints this request was marked with. 0 is the
+        # common, correct answer (a local model, a first turn, a short prompt) —
+        # it's the *always* 0 that was the bug, and only a per-request number
+        # distinguishes those.
+        "X-Cache-Breakpoints": str(cache_breakpoints),
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"
