@@ -28,6 +28,7 @@ Skipped when node isn't installed rather than failing: it's the only test here
 that needs a second runtime.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -70,10 +71,16 @@ def _js_function(name: str) -> str:
     return src[start:j + 1]
 
 
-def _run(harness: str) -> list:
-    """Run JS that console.logs one JSON array, and return it."""
+def _run(harness: str, env: dict | None = None) -> list:
+    """Run JS that console.logs one JSON array, and return it.
+
+    `env` is merged over the inherited environment rather than replacing it, so a
+    caller can pin one variable (TZ, for a test about local time) without having
+    to reconstruct enough of the environment for node to start.
+    """
     out = subprocess.run(
         ["node", "-e", harness], capture_output=True, text=True, timeout=30,
+        env={**os.environ, **env} if env else None,
     )
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
