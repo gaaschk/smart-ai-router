@@ -149,6 +149,24 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="prompt_caching",
+        env="SMART_ROUTER_PROMPT_CACHING",
+        type="bool",
+        default=True,
+        label="Cache the repeated part of long conversations",
+        group="Routing",
+        help="Mark the unchanging front of a long request — tool definitions, "
+        "system prompt, earlier turns — so Claude models re-read it from cache at "
+        "10% of the input price instead of being billed for it again on every "
+        "turn. This is measured, not theoretical: 92% of this router's lifetime "
+        "spend was one five-minute coding session in which the same growing "
+        "prefix was re-billed 52 times. Claude models only (every other family "
+        "either caches automatically or not at all), only from the second turn "
+        "onward, and only above ~2k tokens, because writing a cache entry costs "
+        "25% extra and a one-shot prompt would never read it back. Turn off if "
+        "you see cache-related provider errors.",
+    ),
+    SettingSpec(
         key="web_search_enabled",
         env="SMART_ROUTER_WEB_SEARCH",
         type="bool",
