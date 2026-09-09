@@ -736,10 +736,23 @@ async def chat_completions(request: Request):
     #                      would be surprising.
     #   explicit False   → never agent mode.
     #   "auto" / absent  → enter agent mode only if the prompt is *actionable*
-    #                      (wants a file produced / filesystem work) AND a
-    #                      tool-capable model is in scope. Otherwise fall back
-    #                      silently to plain chat — auto must never lock a user
-    #                      out or needlessly escalate a plain question.
+    #                      (wants a file produced / filesystem work), a
+    #                      tool-capable model is in scope, AND the caller sent no
+    #                      tools of its own. Otherwise fall back silently to
+    #                      plain chat — auto must never lock a user out or
+    #                      needlessly escalate a plain question.
+    #
+    # That last condition is the one that isn't obvious. A client that supplies
+    # `tools` runs its own tool loop by definition — a coding agent (Claude Code
+    # through claudish, Codex, anything speaking the OpenAI tool protocol) sends
+    # its editor, shell and search tools expecting `tool_calls` back to execute
+    # itself. Its prompts are maximally actionable, so "auto" fired on every one
+    # of them and the router answered with a server-side filesystem loop over
+    # *its own* workspace instead: the caller's tools were never called, its
+    # sandbox was never touched, and the reply described work done somewhere the
+    # user could not see. Nothing errored, which is what made it hard to spot.
+    # Only an explicit `agent: true` overrides this, because then the caller has
+    # asked for the router's loop by name.
     # Anonymous visitors never get agent mode, whatever they ask for. The tools
     # are read/write/bash over a workspace on the operator's own machine, so
     # this is the difference between a public chat page and a public shell. A
@@ -778,7 +791,12 @@ async def chat_completions(request: Request):
             )
         agent_mode = True
     elif agent_auto:
-        agent_mode = tools_available and is_actionable(prompt_text)
+        client_brought_tools = bool(body.get("tools"))
+        agent_mode = (
+            not client_brought_tools
+            and tools_available
+            and is_actionable(prompt_text)
+        )
     else:
         agent_mode = False
 

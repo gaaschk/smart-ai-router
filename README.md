@@ -435,6 +435,8 @@ curl -X POST http://localhost:8001/api/conversations/CID/messages \
 
 When agent mode is on (see the Configuration section), a tool-capable model can operate on the caller's private workspace via these tools: `list_dir`, `read_file`, `write_file`, `edit_file`, `create_document`, and (opt-in) `run_bash`. `create_document` renders a small Markdown subset (headings, bullets, pipe tables, bold) into **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, or **Markdown/plain-text**, then registers it as a downloadable file via the Files API above.
 
+The `agent` body flag is tri-state: `true` (always), `false` (never), and `"auto"` — the default when the key is absent — which enters agent mode only for an *actionable* prompt, when a tool-capable model is in scope, **and the caller sent no `tools` of its own**. That last condition means a client running its own tool loop is left alone: a coding agent (Claude Code through claudish, Codex, anything speaking the OpenAI tool protocol) sends its editor and shell tools expecting `tool_calls` back to execute locally, and its prompts are maximally actionable — so without the check, `"auto"` fired every turn and the router answered with its own filesystem loop over its own workspace. The caller's tools were never invoked and nothing errored. Send `agent: true` to ask for the router's loop even while advertising tools.
+
 ### Self-update
 
 ```bash
