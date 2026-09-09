@@ -413,6 +413,9 @@ Ceilings worth knowing, all of them the same one: OpenRouter exposes no realtime
 ### Chat history (conversations)
 
 Server-side conversation storage backs the web UI's chat, scoped per identity.
+Every turn is stamped when it is stored (`ts`, UTC) and the transcript shows that
+stamp under each bubble in the reader's own timezone — so reopening a thread says
+when it happened, not when the page was loaded.
 
 ```bash
 curl http://localhost:8001/api/conversations                       -H "Authorization: Bearer $KEY"  # list

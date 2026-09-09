@@ -3893,7 +3893,7 @@ function messageParts(content) {
 // array with text + file/image refs) back into a transcript bubble.
 function renderStoredMsg(role, content, meta = {}) {
   const { text, imgs, files } = messageParts(content);
-  const opts = {};
+  const opts = { ts: meta.ts };
   if (imgs) opts.images = Array(imgs).fill('image');
   if (files) opts.files = Array(files).fill('attachment');
   const wrap = renderChatMsg(role, text, opts);
@@ -3920,7 +3920,7 @@ async function selectConversation(id) {
       '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
     for (const m of (conv.messages || [])) {
       _chatMessages.push({ role: m.role, content: m.content });
-      renderStoredMsg(m.role, m.content, { truncated: !!m.truncated });
+      renderStoredMsg(m.role, m.content, { truncated: !!m.truncated, ts: m.ts });
     }
     renderConvList();
   } catch(e) { alert(e.message); }
@@ -4083,6 +4083,17 @@ function chatUserContent(text) {
   return parts;
 }
 
+// When a turn was sent, in the reader's own timezone. The store stamps `ts`
+// itself (always zone-qualified UTC — clients can't supply one), so Date()
+// reads it unambiguously. A live message has no stored ts yet and falls back to
+// now, which is the instant it is about to be persisted with. The raw string is
+// shown if it ever fails to parse: a visible oddity beats "Invalid Date".
+function fmtMsgTime(ts) {
+  if (!ts) return new Date().toLocaleString();
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleString();
+}
+
 function renderChatMsg(role, text, opts = {}) {
   const empty = document.getElementById('chat-empty');
   if (empty) empty.remove();
@@ -4099,6 +4110,7 @@ function renderChatMsg(role, text, opts = {}) {
       opts.files.map(n => `<span class="chat-chip">📄 ${escapeHtml(n)}</span>`).join('') + `</div>`;
   }
   inner += `<div class="chat-bubble">${escapeHtml(text)}</div>`;
+  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}</div>`;
   if (opts.meta) inner += `<div class="chat-meta">${escapeHtml(opts.meta)}</div>`;
   wrap.innerHTML = inner;
   t.appendChild(wrap);
