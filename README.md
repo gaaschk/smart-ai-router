@@ -433,6 +433,39 @@ curl -X POST http://localhost:8001/api/conversations/CID/messages \
   -d '{"role":"user","content":"Hi"}'                                                                # append a message
 ```
 
+### Bad-response reports
+
+A router that picks the model for you owns the bad answers, and the answer alone
+never says why one happened. So the ⚑ **Report** link under any reply in the chat
+opens a box that asks for the only thing the browser can't work out — what was
+wrong with it — and attaches the rest by itself: the whole conversation exactly as
+it was sent upstream, plus the routing decision behind the reply (routed model,
+prompt profile, classifier, the `why` string). None of that routing detail is
+stored per message anywhere else, so the report is the only place it survives.
+
+The transcript is a **snapshot**, not a pointer at the stored thread: the reporter
+can rename or delete their conversation the next minute, an anonymous visitor's
+chat may never have been saved at all, and evidence that can change after it is
+filed isn't evidence.
+
+Anyone may file one — anonymous visitors included, since they are the callers most
+likely to be handed a bad answer and least likely to have another way to say so.
+Reading and clearing them is admin-only (a report is someone else's chat), on the
+**Reports** tab or over the API. Oversized bodies are trimmed rather than refused:
+a single huge turn is shortened, and a transcript past the cap loses its *oldest*
+turns, because the reply being reported is the last one.
+
+```bash
+curl -X POST http://localhost:8001/api/reports \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"description":"It invented a function that does not exist.",
+       "conversation_id":"conv-abc",
+       "transcript":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}],
+       "meta":{"routed":"openrouter/anthropic/claude-haiku-4.5"}}'   # file (any caller)
+curl http://localhost:8001/api/reports          -H "Authorization: Bearer $ADMIN_KEY"  # list (admin)
+curl -X DELETE http://localhost:8001/api/reports/7 -H "Authorization: Bearer $ADMIN_KEY"  # clear one
+```
+
 ### Agent mode & document creation
 
 When agent mode is on (see the Configuration section), a tool-capable model can operate on the caller's private workspace via these tools: `list_dir`, `read_file`, `write_file`, `edit_file`, `create_document`, and (opt-in) `run_bash`. `create_document` renders a small Markdown subset (headings, bullets, pipe tables, bold) into **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, or **Markdown/plain-text**, then registers it as a downloadable file via the Files API above.

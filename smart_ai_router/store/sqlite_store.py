@@ -12,6 +12,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 from smart_ai_router.profiler import apply_ratings, baseline_profile
@@ -171,6 +172,20 @@ class SqliteStore(MatrixStore):
                 CREATE TABLE IF NOT EXISTS settings (
                     key   TEXT PRIMARY KEY,
                     value TEXT DEFAULT ''
+                )
+            """)
+            # Bad-response reports. `transcript_json` is a snapshot rather than a
+            # join back to chat_messages: the reporter can delete the thread the
+            # next minute, and an unsaved chat has no rows to join to.
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts              TEXT DEFAULT '',
+                    user            TEXT DEFAULT '',
+                    conversation_id TEXT DEFAULT '',
+                    description     TEXT DEFAULT '',
+                    transcript_json TEXT DEFAULT '[]',
+                    meta_json       TEXT DEFAULT '{}'
                 )
             """)
             # Additive migration: vision column added after initial release
@@ -998,6 +1013,50 @@ class SqliteStore(MatrixStore):
                 (conversation_id,),
             ).fetchall()
         return [self._row_to_chat_message(r) for r in rows]
+
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    def create_report(self, rec: Report) -> Report:
+        rec.ts = rec.ts or _utcnow_iso()
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO reports
+                   (ts, user, conversation_id, description, transcript_json, meta_json)
+                   VALUES (?,?,?,?,?,?)""",
+                (rec.ts, rec.user, rec.conversation_id, rec.description,
+                 rec.transcript_json, rec.meta_json),
+            )
+            self._conn.commit()
+            rec.id = cur.lastrowid
+        return rec
+
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        # ponytail: returns whole transcripts, so the operator's list view needs no
+        # second fetch. Split into a summary list + get_report(id) if the table ever
+        # grows past a page or two of reports.
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM reports ORDER BY id DESC LIMIT ?", (max(1, limit),)
+            ).fetchall()
+        return [self._row_to_report(r) for r in rows]
+
+    def delete_report(self, report_id: int) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM reports WHERE id=?", (report_id,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_report(row: sqlite3.Row) -> Report:
+        return Report(
+            id=row["id"],
+            ts=row["ts"] or "",
+            user=row["user"] or "",
+            conversation_id=row["conversation_id"] or "",
+            description=row["description"] or "",
+            transcript_json=row["transcript_json"] or "[]",
+            meta_json=row["meta_json"] or "{}",
+        )
 
     @staticmethod
     def _row_to_conversation(row: sqlite3.Row) -> Conversation:

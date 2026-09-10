@@ -186,6 +186,28 @@ class ChatMessage:
 
 
 @dataclass
+class Report:
+    """A user's account of a bad reply, filed with the conversation it happened in.
+
+    The transcript is a JSON *snapshot*, not a pointer at chat_messages rows: the
+    reported thread stays editable and deletable by its owner, and a chat that was
+    never saved (or an anonymous visitor's) has no rows to point at. Evidence that
+    can change after it is filed isn't evidence.
+
+    `meta_json` carries the routing decision for the reported turn — routed model,
+    prompt profile, classifier — because none of that is stored per message and the
+    report is the only place it would otherwise be lost.
+    """
+    description: str = ""            # what the user says went wrong
+    user: str = ""                   # reporter identity (may be an anon handle)
+    conversation_id: str = ""        # "" when the thread was never persisted
+    transcript_json: str = "[]"      # JSON array of {role, content} turns
+    meta_json: str = "{}"            # routing metadata from the reported turn
+    id: int = 0                      # autoincrement
+    ts: str = ""
+
+
+@dataclass
 class UsageRecord:
     """One billable LLM call, attributed to a user for logging/quota accounting.
 

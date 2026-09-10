@@ -495,6 +495,45 @@ class ConversationDeletedResponse(BaseModel):
     deleted: bool = True
 
 
+# ── Bad-response reports ───────────────────────────────────────────────────────
+
+class ReportCreateRequest(BaseModel):
+    """File a report about a bad reply. The transcript comes from the client because
+    it is the only party that has it in every case — an unsaved thread, an anonymous
+    visitor's chat, or an API caller with no conversation at all."""
+    description: str = Field(..., description="What was wrong with the interaction")
+    conversation_id: str = Field("", description="The thread it happened in, if saved")
+    transcript: list[object] = Field(
+        default_factory=list, description="The conversation, as {role, content} turns"
+    )
+    meta: dict[str, object] = Field(
+        default_factory=dict,
+        description="Routing metadata for the reported turn (routed model, profile, "
+                    "classifier) — not stored per message anywhere else",
+    )
+
+
+class ReportResponse(BaseModel):
+    id: int
+    ts: str = ""
+    user: str = ""
+    conversation_id: str = ""
+    description: str = ""
+    transcript: list[object] = Field(default_factory=list)
+    meta: dict[str, object] = Field(default_factory=dict)
+
+
+class ReportListResponse(BaseModel):
+    object: str = "list"
+    data: list[ReportResponse] = Field(default_factory=list)
+
+
+class ReportDeletedResponse(BaseModel):
+    id: int
+    object: str = "report"
+    deleted: bool = True
+
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 class UpdateStatusResponse(BaseModel):
