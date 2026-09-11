@@ -1,0 +1,8 @@
+# Inert until someone flips Settings → Pages → Deploy from a branch → main /docs.
+# Until then these files are just markdown that github.com renders, and the
+# relative .md links between them work either way: jekyll-relative-links and
+# jekyll-readme-index are default GitHub Pages plugins, so no front matter and
+# no index.html are needed here.
+title: smart-ai-router
+description: A vendor-agnostic LLM capability router
+theme: jekyll-theme-primer
