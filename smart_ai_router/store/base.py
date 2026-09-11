@@ -236,5 +236,9 @@ class MatrixStore(ABC):
         """Reports newest first, capped at `limit`. Each carries its transcript."""
 
     @abstractmethod
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        """Record where the report was mirrored to on GitHub, or why it wasn't."""
+
+    @abstractmethod
     def delete_report(self, report_id: int) -> bool:
         """Delete one report. False if nothing matched."""

@@ -185,9 +185,20 @@ class SqliteStore(MatrixStore):
                     conversation_id TEXT DEFAULT '',
                     description     TEXT DEFAULT '',
                     transcript_json TEXT DEFAULT '[]',
-                    meta_json       TEXT DEFAULT '{}'
+                    meta_json       TEXT DEFAULT '{}',
+                    issue_url       TEXT DEFAULT '',
+                    github_error    TEXT DEFAULT ''
                 )
             """)
+            # Additive migration: where the report was mirrored to, and why it
+            # wasn't, for DBs created before reports could become GitHub issues.
+            for column in ("issue_url", "github_error"):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE reports ADD COLUMN {column} TEXT DEFAULT ''"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # already exists
             # Additive migration: vision column added after initial release
             try:
                 self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
@@ -1040,6 +1051,14 @@ class SqliteStore(MatrixStore):
             ).fetchall()
         return [self._row_to_report(r) for r in rows]
 
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE reports SET issue_url=?, github_error=? WHERE id=?",
+                (issue_url, error, report_id),
+            )
+            self._conn.commit()
+
     def delete_report(self, report_id: int) -> bool:
         with self._lock:
             cur = self._conn.execute("DELETE FROM reports WHERE id=?", (report_id,))
@@ -1056,6 +1075,8 @@ class SqliteStore(MatrixStore):
             description=row["description"] or "",
             transcript_json=row["transcript_json"] or "[]",
             meta_json=row["meta_json"] or "{}",
+            issue_url=row["issue_url"] or "",
+            github_error=row["github_error"] or "",
         )
 
     @staticmethod

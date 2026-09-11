@@ -14,6 +14,11 @@ The transcript arrives from the client rather than being read back out of the
 store. That is deliberate: an unsaved thread, an anonymous visitor's chat, and an
 API caller with no conversation at all would each otherwise be unreportable.
 Sizes are capped here because that makes the body untrusted input.
+
+When the operator has configured it, a filed report is also mirrored into the
+repo's issue tracker — the place the fix actually gets made. The row is written
+first and the mirror can never fail the report; see github_issues.py for what
+does and doesn't reach a public issue.
 """
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from smart_ai_router import github_issues as _github
 from smart_ai_router.api.schemas import (
     ReportCreateRequest,
     ReportDeletedResponse,
@@ -93,6 +99,8 @@ def _to_response(rec: Report) -> ReportResponse:
         description=rec.description,
         transcript=_load(rec.transcript_json, []),
         meta=_load(rec.meta_json, {}),
+        issue_url=rec.issue_url,
+        github_error=rec.github_error,
     )
 
 
@@ -110,14 +118,28 @@ def create_report(request: Request, body: ReportCreateRequest):
     if len(meta_json) > _MAX_META_CHARS:
         raise HTTPException(status_code=422, detail="meta too large")
 
-    rec = Report(
-        description=description,
-        user=getattr(request.state, "user", "") or "",
-        conversation_id=(body.conversation_id or "").strip(),
-        transcript_json=_fit_transcript(body.transcript or []),
-        meta_json=meta_json,
+    transcript_json = _fit_transcript(body.transcript or [])
+    cr = _router_instance(request)
+    rec = cr.create_report(
+        Report(
+            description=description,
+            user=getattr(request.state, "user", "") or "",
+            conversation_id=(body.conversation_id or "").strip(),
+            transcript_json=transcript_json,
+            meta_json=meta_json,
+        )
     )
-    return _to_response(_router_instance(request).create_report(rec))
+
+    # Stored first, mirrored second, and the mirror can't fail the report: the
+    # user's words are safe the moment the row exists, and a dead token should
+    # cost the operator an issue rather than the feedback.
+    if _github.enabled():
+        rec.issue_url, rec.github_error = _github.create_issue(
+            rec.id, description, body.meta or {}, json.loads(transcript_json)
+        )
+        cr.set_report_issue(rec.id, rec.issue_url, rec.github_error)
+
+    return _to_response(rec)
 
 
 @reports_router.get("/reports", response_model=ReportListResponse)

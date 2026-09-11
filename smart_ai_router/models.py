@@ -203,6 +203,8 @@ class Report:
     conversation_id: str = ""        # "" when the thread was never persisted
     transcript_json: str = "[]"      # JSON array of {role, content} turns
     meta_json: str = "{}"            # routing metadata from the reported turn
+    issue_url: str = ""              # the GitHub issue it was mirrored to, if any
+    github_error: str = ""           # why it wasn't, so the failure isn't silent
     id: int = 0                      # autoincrement
     ts: str = ""
 

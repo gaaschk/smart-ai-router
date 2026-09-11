@@ -332,6 +332,11 @@ class WhoAmIResponse(BaseModel):
     # Reported so the UI can say the account is capped and, more importantly, that
     # nobody can recover it — there is no email on file to recover it *to*.
     self_serve: bool = False
+    # Feedback filed here becomes an issue on a public tracker, and whether the
+    # conversation rides along with it. Both are told to the user *before* they
+    # write anything, because "this is public" is not a thing to find out after.
+    reports_public: bool = False
+    reports_public_transcript: bool = False
 
 
 # ── Anonymous identity recovery ────────────────────────────────────────────────
@@ -521,6 +526,8 @@ class ReportResponse(BaseModel):
     description: str = ""
     transcript: list[object] = Field(default_factory=list)
     meta: dict[str, object] = Field(default_factory=dict)
+    issue_url: str = ""      # the public issue it was mirrored to, if enabled
+    github_error: str = ""   # why it wasn't — a token dies quietly otherwise
 
 
 class ReportListResponse(BaseModel):

@@ -81,6 +81,18 @@ def _reject_negative(value: str) -> None:
         raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
+def _expect_owner_slash_name(value: str) -> None:
+    """Refuse anything that isn't `owner/name`.
+
+    A URL pasted from the browser bar is the obvious thing to type here, and it
+    would fail as a 404 from GitHub recorded against each individual report —
+    days later, in a place nobody looks. Cheaper to refuse it on the way in.
+    """
+    repo = value.strip().strip("/")
+    if repo and (repo.count("/") != 1 or not all(repo.split("/"))):
+        raise ValueError("expects owner/name, e.g. gaaschk/smart-ai-router")
+
+
 # The registry. Order here is the order the UI renders. Keep keys stable — they
 # are the DB primary keys and the JSON field names in the settings API.
 SPECS: tuple[SettingSpec, ...] = (
@@ -579,6 +591,51 @@ SPECS: tuple[SettingSpec, ...] = (
         "openai/gpt-audio sounds better and is roughly $1.70. Both bill audio "
         "tokens, which the usage page reads from the provider rather than from "
         "the text rate.",
+    ),
+    SettingSpec(
+        key="github_issues_enabled",
+        env="SMART_ROUTER_GITHUB_ISSUES",
+        type="bool",
+        default=False,
+        label="File reports as GitHub issues",
+        group="Feedback",
+        help="Also open an issue on the repo below for every report filed from "
+        "the ⚑ Feedback button. Reports are always stored locally first, so a "
+        "bad token or a GitHub outage costs you the issue, never the report.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="github_repo",
+        env="SMART_ROUTER_GITHUB_REPO",
+        type="str",
+        default="",
+        label="GitHub repository",
+        group="Feedback",
+        help="owner/name of the repo that receives the issues.",
+        validate=_expect_owner_slash_name,
+    ),
+    SettingSpec(
+        key="github_token",
+        env="SMART_ROUTER_GITHUB_TOKEN",
+        type="str",
+        default="",
+        label="GitHub token",
+        group="Feedback",
+        help="A fine-grained token with Issues: write on that repo alone. It can "
+        "open issues as you, so give it nothing else.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="github_include_transcript",
+        env="SMART_ROUTER_GITHUB_TRANSCRIPT",
+        type="bool",
+        default=False,
+        label="Put the conversation in the issue",
+        group="Feedback",
+        help="Off by default, and think before turning it on: a report carries "
+        "the whole chat, and an issue is public. Left off, the issue cites the "
+        "local report id and the transcript stays on this machine.",
+        sensitive=True,
     ),
 )
 

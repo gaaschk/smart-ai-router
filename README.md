@@ -437,8 +437,9 @@ curl -X POST http://localhost:8001/api/conversations/CID/messages \
 
 A router that picks the model for you owns the bad answers, and the answer alone
 never says why one happened. So the ⚑ **Report** link under any reply in the chat
-opens a box that asks for the only thing the browser can't work out — what was
-wrong with it — and attaches the rest by itself: the whole conversation exactly as
+— and the ⚑ **Feedback** tab on the right edge of every page, for everything that
+isn't one particular reply — opens a box that asks for the only thing the browser
+can't work out (what was wrong) and attaches the rest by itself: the whole conversation exactly as
 it was sent upstream, plus the routing decision behind the reply (routed model,
 prompt profile, classifier, the `why` string). None of that routing detail is
 stored per message anywhere else, so the report is the only place it survives.
@@ -465,6 +466,26 @@ curl -X POST http://localhost:8001/api/reports \
 curl http://localhost:8001/api/reports          -H "Authorization: Bearer $ADMIN_KEY"  # list (admin)
 curl -X DELETE http://localhost:8001/api/reports/7 -H "Authorization: Bearer $ADMIN_KEY"  # clear one
 ```
+
+**Reports as GitHub issues.** A report is only useful where the fix happens, so
+the Settings page (**Feedback** group) can mirror each one into a repo's issue
+tracker: turn on *File reports as GitHub issues*, give it `owner/name` and a
+fine-grained token with **Issues: write** on that repo alone. Off until you do.
+
+An issue is public and a report carries somebody's chat, so two things are true by
+default: the **conversation is not published** (the issue cites the local report
+id, and the transcript stays on the router), and the **reporter is never named**
+in the issue at all — local reports keep the attribution. *Put the conversation in
+the issue* publishes the transcript too; think about who filled that transcript
+before you turn it on. Either way the modal tells the user it's going to a public
+tracker before they type anything.
+
+The report is stored first and mirrored second, and the mirror can never fail the
+report: a revoked token or a GitHub outage costs you the issue, not the feedback.
+The Reports tab shows the issue link, or the error in place of it — a token that
+quietly stopped working is otherwise invisible until you wonder where the issues
+went. Note that anonymous visitors can file, so an open router with this on lets
+strangers open issues on your repo; the anonymous rate limits are what bound that.
 
 ### Agent mode & document creation
 

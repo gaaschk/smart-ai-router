@@ -1104,6 +1104,25 @@
     font-size: 0.82rem; color: var(--text-secondary); white-space: pre-wrap;
   }
 
+  /* Feedback tab: a fixed pill on the right edge, on every page. It hugs the
+     right rather than the usual bottom-right corner because the chat composer's
+     Send button already lives there. Vertical text via writing-mode, so the tab
+     costs ~30px of width and never covers content. */
+  .fab-feedback {
+    position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    z-index: 900; writing-mode: vertical-rl; cursor: pointer;
+    padding: 0.85rem 0.45rem; font: inherit; font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-right: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+    transition: color var(--transition), border-color var(--transition);
+  }
+  .fab-feedback:hover { color: var(--accent-text); border-color: var(--accent); }
+  @media (max-width: 560px) {
+    .fab-feedback .fab-label { display: none; }   /* flag only, on a phone */
+  }
+
   /* ── Modal (one-time key reveal) ─────────────────────────────────── */
   .modal-backdrop {
     display: none;
@@ -3005,10 +3024,17 @@ function reportCard(rep) {
   const conv = rep.conversation_id
     ? `<div class="chat-meta">Thread ${escapeHtml(rep.conversation_id)}</div>`
     : `<div class="chat-meta">Unsaved thread — this snapshot is the only copy.</div>`;
+  // Where it went on GitHub, or why it didn't — a token that stopped working is
+  // otherwise invisible until someone wonders where the issues went.
+  const issue = rep.issue_url
+    ? `<div class="chat-meta">Issue: <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">${escapeHtml(rep.issue_url)}</a></div>`
+    : rep.github_error
+      ? `<div class="chat-meta" style="color:var(--warning)">Not filed on GitHub: ${escapeHtml(rep.github_error)}</div>`
+      : '';
   return `<div class="report-card">
     <div class="chat-meta">#${rep.id} · ${head}</div>
     <div class="report-desc">${escapeHtml(rep.description)}</div>
-    ${quoted}${why}${conv}
+    ${quoted}${why}${conv}${issue}
     <details><summary>Conversation (${(rep.transcript || []).length} messages)</summary>${turns}</details>
     <div style="margin-top:0.75rem">
       <button class="btn btn-sm btn-danger" onclick="deleteReport(${rep.id})">Delete</button>
@@ -4266,19 +4292,43 @@ function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity,
   return html;
 }
 
-// ── Reporting a bad reply ───────────────────────────────────────────────────
+// ── Reporting a bad reply, and feedback in general ──────────────────────────
 // The context is gathered for the user rather than asked of them: _chatMessages is
 // already the exact history that was sent upstream, and the routing metadata is
 // already in hand. All that's left to ask is the one thing only they know.
+//
+// btn = the ⚑ Report link on an assistant bubble, or null from the ⚑ Feedback
+// tab, which can be pressed on any page. The only difference is what it's about:
+// the tab still attaches the current conversation if there is one (that's what
+// makes a report diagnosable), and always says so before anything is typed.
 function openReportModal(btn) {
-  _reportTarget = btn.closest('.chat-msg');
+  _reportTarget = btn ? btn.closest('.chat-msg') : null;
   const n = _chatMessages.length;
-  document.getElementById('report-modal-context').textContent =
-    `Attaching this conversation — ${n} message${n === 1 ? '' : 's'}`
-    + (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '');
+  document.getElementById('report-modal-title').textContent =
+    _reportTarget ? 'Report a bad response' : 'Report a problem';
+  document.getElementById('report-modal-context').textContent = n
+    ? `Attaching this conversation — ${n} message${n === 1 ? '' : 's'}`
+      + (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '')
+    : 'Nothing is attached — no chat open in this tab.';
+  const note = document.getElementById('report-modal-note');
+  note.textContent = n
+    ? 'The conversation and the routing decision are attached automatically.'
+    : '';
+  // Whether this lands in a public tracker is the operator's setting, and the
+  // one thing the user must know *before* writing rather than after.
+  fetchWhoAmI().then(me => {
+    if (!me || !me.reports_public) return;
+    note.textContent += (note.textContent ? ' ' : '')
+      + (me.reports_public_transcript && n
+        ? 'It is filed as a public issue on the project’s GitHub — including the conversation.'
+        : 'It is filed as a public issue on the project’s GitHub; the conversation itself stays on this router.');
+  });
   const ta = document.getElementById('report-modal-text');
   ta.value = '';
-  document.getElementById('report-modal-status').textContent = '';
+  const status = document.getElementById('report-modal-status');
+  status.textContent = '';
+  status.style.color = '';               // may be the green receipt of a previous file
+  document.getElementById('btn-report-send').disabled = false;
   document.getElementById('report-modal').classList.add('open');
   ta.focus();
 }
@@ -4300,6 +4350,7 @@ async function submitReport() {
   // a failed turn leaves a bubble on screen and nothing in _chatMessages).
   const bubble = _reportTarget && _reportTarget.querySelector('.chat-bubble');
   const target = _reportTarget;
+  let sent = false;
   try {
     const r = await fetch(`${API}/reports`, {
       method: 'POST',
@@ -4316,15 +4367,25 @@ async function submitReport() {
       throw new Error(detail || `Failed to file the report (${r.status})`);
     }
     const rep = await r.json();
-    closeReportModal();
+    sent = true;
+    const issue = rep.issue_url
+      ? ` <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">Tracked publicly →</a>`
+      : '';
     if (target) {
+      closeReportModal();
       target.insertAdjacentHTML('beforeend',
-        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks, the operator can see the whole thread.</div>`);
+        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks, the operator can see the whole thread.${issue}</div>`);
+    } else {
+      // Filed from the ⚑ Feedback tab: there is no bubble to hang a receipt on,
+      // so the modal stays open and becomes the receipt.
+      status.style.color = 'var(--success)';
+      status.innerHTML = `Filed (#${rep.id}) — thanks.${issue}`;
+      document.getElementById('report-modal-text').value = '';
     }
   } catch(e) {
     status.textContent = e.message;
   } finally {
-    btn.disabled = false;
+    btn.disabled = sent && !target;   // no double-filing the same words
   }
 }
 
@@ -5735,6 +5796,11 @@ initDashboard();
   </div>
 </div>
 
+<!-- Feedback, from anywhere in the app. Same modal as the per-reply ⚑ Report,
+     with no bubble to pin it to — see openReportModal(). -->
+<button class="fab-feedback" onclick="openReportModal(null)"
+        title="Report a problem or send feedback">⚑<span class="fab-label"> Feedback</span></button>
+
 <!-- ── Report a bad reply (assistant bubble → ⚑ Report) ───────────────── -->
 <div class="modal-backdrop" id="report-modal" onclick="if(event.target===this)closeReportModal()">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
@@ -5744,8 +5810,7 @@ initDashboard();
       <textarea class="tags-modal-input" id="report-modal-text" rows="5"
                 style="resize:vertical"
                 placeholder="What was wrong? e.g. it invented a function that doesn't exist, ignored half the question, or answered in the wrong language."></textarea>
-      <div class="chat-meta">The whole conversation and the routing decision are
-      attached automatically — the operator can see them.</div>
+      <div class="chat-meta" id="report-modal-note"></div>
       <div class="modal-warn" id="report-modal-status" style="font-size:0.8rem"></div>
     </div>
     <div class="modal-actions">

@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from smart_ai_router import github_issues as _github
+from smart_ai_router import settings as _settings
 from smart_ai_router import public_access as _public
 from smart_ai_router import self_signup as _signup
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
@@ -170,6 +172,22 @@ def capabilities(request: Request):
     )
 
 
+def _whoami(**fields) -> WhoAmIResponse:
+    """One whoami answer, with the flags every branch shares filled in.
+
+    Whether feedback becomes a public issue is a property of the deployment, not
+    of who is asking, so it is added here rather than repeated in each branch.
+    """
+    public = _github.enabled()
+    return WhoAmIResponse(
+        reports_public=public,
+        reports_public_transcript=public and _settings.get_bool(
+            "github_include_transcript"
+        ),
+        **fields,
+    )
+
+
 @api_router.get("/whoami", response_model=WhoAmIResponse)
 def whoami(request: Request):
     """Who the current key authenticates as, for the UI to display.
@@ -188,7 +206,7 @@ def whoami(request: Request):
     # because the session id is not something to display.
     if getattr(request.state, "is_anon", False):
         cr = _router_instance(request)
-        return WhoAmIResponse(
+        return _whoami(
             authenticated=False,
             kind="anon",
             is_admin=False,
@@ -198,7 +216,7 @@ def whoami(request: Request):
         )
 
     if user == "admin":
-        return WhoAmIResponse(
+        return _whoami(
             authenticated=True, kind="admin", user="admin", is_admin=True
         )
     if _signup.is_signup_user(user):
@@ -206,14 +224,14 @@ def whoami(request: Request):
         # needs to know both: `degraded` so it can explain a sudden drop in answer
         # quality, `agent_available` so it doesn't offer a button that 403s.
         cr = _router_instance(request)
-        return WhoAmIResponse(
+        return _whoami(
             authenticated=True, kind="user", user=user, key_prefix=key_prefix,
             self_serve=True,
             degraded=_signup.budget_status(cr, user).degraded,
             agent_available=False,
         )
     if user:
-        return WhoAmIResponse(
+        return _whoami(
             authenticated=True, kind="user", user=user, key_prefix=key_prefix
         )
     # No identity: either open mode (no keys configured) or an unauthenticated
@@ -223,7 +241,7 @@ def whoami(request: Request):
         not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
         and not _router_instance(request).all_api_keys()
     )
-    return WhoAmIResponse(
+    return _whoami(
         authenticated=False, kind="open", is_admin=no_keys_configured
     )
 
@@ -323,7 +341,6 @@ async def _profile_new_models(
     unreachable, or broken must not turn a successful sync into a failed request.
     """
     from smart_ai_router import llm_profiler
-    from smart_ai_router import settings as _settings
 
     enabled = (
         override if override is not None
@@ -493,7 +510,6 @@ def _settings_with_advisories(request: Request) -> list[SettingResponse]:
     at runtime by design (profiling degrades, the request still succeeds), so the
     Settings page is the one place an operator can be told before it costs them.
     """
-    from smart_ai_router import settings as _settings
     from smart_ai_router.llm_classifier import classifier_advisory
 
     cr = _router_instance(request)
@@ -534,7 +550,6 @@ def update_settings(body: SettingsUpdateRequest, request: Request):
     value that doesn't fit its type is a 422.
     """
     _require_admin(request)
-    from smart_ai_router import settings as _settings
     try:
         _settings.apply(body.updates)
     except ValueError as exc:

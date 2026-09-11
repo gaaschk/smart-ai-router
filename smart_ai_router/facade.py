@@ -449,6 +449,9 @@ class CapabilityRouter:
     def list_reports(self, limit: int = 100) -> list[Report]:
         return self._store.list_reports(limit)
 
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        self._store.set_report_issue(report_id, issue_url, error)
+
     def delete_report(self, report_id: int) -> bool:
         return self._store.delete_report(report_id)
 
