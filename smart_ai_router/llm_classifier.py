@@ -27,6 +27,7 @@ Classification must never be the reason a request fails.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -139,12 +140,20 @@ _SYSTEM_PROMPT = (
     "  - quantitative: requires numeric derivation or estimation, not prose\n"
     "  - long_synthesis: must integrate many sources into one coherent artifact\n"
     "  - agentic: requires multi-step tool use to complete\n"
-    "  - current_info: the answer depends on the state of the world, so it can "
-    "have changed since you were trained — news, prices, standings, rosters, "
-    "who currently holds a post, how many of something there are now, anything "
-    "the user marks as current/latest/this year. Include it whenever a fact you "
-    "would answer from memory could have been superseded, even if the question "
-    "does not sound time-sensitive.\n"
+    "  - current_info: answering correctly would state at least one fact that "
+    "could be different now than it was when you were trained — a price, a rate, "
+    "a version, what is available to buy, who holds a post, a count, a standing, "
+    "a status, or which option is currently the best one.\n"
+    "    Apply that test to the answer you would write, NOT to the wording of "
+    "the question. 'Which GPU should I buy for local inference', 'is the 4090 "
+    "still worth it', 'what does an H100 go for', 'which vector database should "
+    "we use' and 'compare the options' all turn on the state of the world, and "
+    "none of them contains a word like current or latest. Conversely 'prove that "
+    "√2 is irrational' and 'what does GDPR stand for' would be answered the same "
+    "way in any year.\n"
+    "    The short version: if you would want to look something up before "
+    "answering, include current_info. A needless check is cheap; a confidently "
+    "stale answer is not.\n"
     "\n"
     "stakes: high if someone could act on this to their real harm (medical, "
     "legal, financial, safety-critical); medium for professional work that will "
@@ -155,6 +164,24 @@ _SYSTEM_PROMPT = (
     "text requires almost none. Do not inflate: most prompts are practitioner "
     "depth or below in a single field."
 )
+
+
+def _system_prompt() -> str:
+    """The rubric, plus today's date.
+
+    current_info asks the model whether a fact it holds could have been
+    superseded — a question nobody can answer without knowing how much time has
+    passed. A model has no clock: from the inside, the last day of training and
+    today are the same day, so "could this have changed since?" reads as "could
+    this have changed since now?", whose honest answer is no. The answering model
+    is already told the date for exactly this reason (see proxy._todays_date_note);
+    the classifier, which decides whether to *search*, was left guessing.
+    """
+    return (
+        f"{_SYSTEM_PROMPT}\n\nToday's date is {_dt.date.today().isoformat()}. "
+        "Your training data ends well before that — assume many months, possibly "
+        "years, of the world moving on. Judge current_info against that gap."
+    )
 
 # Appended for the second pass. The refine model is told what triage guessed
 # because the expensive errors are systematic — a small model reads topic words
@@ -288,7 +315,7 @@ async def classify_profile_llm(
     payload = {
         "model": mdl,
         "messages": [
-            {"role": "system", "content": system_prompt or _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or _system_prompt()},
             {"role": "user", "content": prompt},
         ],
         "stream": False,
@@ -396,7 +423,7 @@ async def classify_profile_two_speed(
         base_url=target.base_url,
         model=target.model,
         api_key=target.api_key,
-        system_prompt=_SYSTEM_PROMPT + _REFINE_SUFFIX.format(triage=profile.describe()),
+        system_prompt=_system_prompt() + _REFINE_SUFFIX.format(triage=profile.describe()),
         kind=_overhead.CLASSIFY_REFINE,
     )
     if refined is None:

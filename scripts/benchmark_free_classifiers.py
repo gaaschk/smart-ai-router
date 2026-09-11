@@ -28,8 +28,8 @@ from pathlib import Path
 
 from smart_ai_router.llm_classifier import (
     _RESPONSE_FORMAT,
-    _SYSTEM_PROMPT,
     _parse_profile,
+    _system_prompt,
 )
 
 import httpx
@@ -98,7 +98,7 @@ async def _classify(client: httpx.AsyncClient, key: str, model: str, prompt: str
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": prompt},
         ],
         "stream": False,
