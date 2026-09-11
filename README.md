@@ -160,6 +160,26 @@ Response headers include routing metadata:
 - `X-Dropped-Params` — request params the routed model couldn't take (see [Params vs. the pick](#params-vs-the-pick)); empty when nothing was dropped
 - `X-Cache-Breakpoints` — how many prompt-cache markers this request was sent with (see [Prompt caching](#prompt-caching)); `0` for a local model, a first turn, or a short prompt
 
+`GET /v1/models` lists those two names and nothing else. Editors that speak only
+OpenAI won't offer a model picker until that endpoint answers, and listing the
+catalog there would promise a choice that doesn't exist — the `model` you send is
+overwritten with the router's pick. `GET /api/models` is the real catalog, with
+capability flags and prices.
+
+### Using it from an editor
+
+Anything with an "OpenAI base URL" override works: point it at
+`https://your-host/v1`, use any key the router accepts, and name the model
+`smart-orchestrator` if the editor sends tool definitions — tool calls routed to
+a model that can't make them come back as a provider 400, not a graceful
+degrade.
+
+Cursor specifically: Settings → Models → *Override OpenAI Base URL*. Its
+requests go out through Cursor's own servers rather than from your machine, so
+`localhost` won't do — the endpoint has to be publicly reachable over HTTPS
+(which also means your repo context travels Cursor → your host). A custom
+OpenAI key drives Chat and Cmd-K; Tab and agent mode stay on Cursor's models.
+
 ### API keys (per-user auth)
 
 Authentication is optional until at least one key exists. There are two kinds of key:
