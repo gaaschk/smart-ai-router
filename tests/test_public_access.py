@@ -179,6 +179,28 @@ def test_anon_cannot_upload_files(client):
     assert r.status_code == 401
 
 
+def test_anon_can_report_a_bad_reply_but_not_read_the_reports(client):
+    """The one write surface opened to a visitor besides chat itself.
+
+    Someone with no account is the caller most likely to be handed a bad answer and
+    the least likely to have any other way to say so, so filing is allowed. Reading
+    is not: the list is full of other visitors' conversations.
+    """
+    r = client.post("/api/reports", headers=_BROWSER, json={
+        "description": "It answered in the wrong language.",
+        "transcript": [{"role": "user", "content": "hola"}],
+    })
+    assert r.status_code == 200
+    assert client.get("/api/reports", headers=_BROWSER).status_code == 403
+    assert client.delete("/api/reports/1", headers=_BROWSER).status_code == 401
+
+    # Filed under the visitor's own anonymous identity, not swallowed as "".
+    filed = client.get(
+        "/api/reports", headers={"Authorization": f"Bearer {_ADMIN}"}
+    ).json()["data"]
+    assert len(filed) == 1 and filed[0]["user"]
+
+
 def test_whoami_reports_agent_unavailable_for_anon(client):
     body = client.get("/api/whoami", headers=_BROWSER).json()
     assert body["anon"] is True

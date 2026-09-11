@@ -13,6 +13,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 from smart_ai_router.scope import ModelScope
@@ -439,6 +440,20 @@ class CapabilityRouter:
 
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         return self._store.list_chat_messages(conversation_id)
+
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    def create_report(self, rec: Report) -> Report:
+        return self._store.create_report(rec)
+
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        return self._store.list_reports(limit)
+
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        self._store.set_report_issue(report_id, issue_url, error)
+
+    def delete_report(self, report_id: int) -> bool:
+        return self._store.delete_report(report_id)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 

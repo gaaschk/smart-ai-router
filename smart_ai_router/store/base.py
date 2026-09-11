@@ -8,6 +8,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 
@@ -223,3 +224,21 @@ class MatrixStore(ABC):
     @abstractmethod
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         """All messages in a conversation, in send order (by ordinal)."""
+
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    @abstractmethod
+    def create_report(self, rec: Report) -> Report:
+        """File a report (fills ts if empty, assigns the id)."""
+
+    @abstractmethod
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        """Reports newest first, capped at `limit`. Each carries its transcript."""
+
+    @abstractmethod
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        """Record where the report was mirrored to on GitHub, or why it wasn't."""
+
+    @abstractmethod
+    def delete_report(self, report_id: int) -> bool:
+        """Delete one report. False if nothing matched."""

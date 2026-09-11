@@ -18,6 +18,7 @@ from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
+from smart_ai_router.api.reports_routes import reports_router
 from smart_ai_router.api.anon_routes import anon_router
 from smart_ai_router.api.signup_routes import signup_router
 from smart_ai_router.api.voice_routes import voice_router
@@ -39,6 +40,11 @@ _ANON_PATHS = frozenset({
     "/api/whoami",
     "/api/conversations",
     "/api/conversations/",
+    # Filing a report. Listed without a trailing slash, so /api/reports/{id} stays
+    # unreachable; reading the list is refused by the route itself, which is
+    # admin-only. The people most likely to be handed a bad answer are the ones
+    # with no other way to tell anyone about it.
+    "/api/reports",
     # Recovering an anonymous identity is something only an anonymous visitor
     # needs, so these have to be reachable without a key or the feature is
     # unusable by exactly the people it exists for.
@@ -272,6 +278,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
 
     app.include_router(api_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")
+    app.include_router(reports_router, prefix="/api")
     app.include_router(anon_router, prefix="/api")
     app.include_router(signup_router, prefix="/api")
     app.include_router(proxy_router)

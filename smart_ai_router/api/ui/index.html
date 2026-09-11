@@ -1092,6 +1092,37 @@
     opacity: 0.5;
   }
 
+  /* ── Reports (admin) ─────────────────────────────────────────────── */
+  .report-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem;
+  }
+  .report-card summary { cursor: pointer; font-size: 0.78rem; color: var(--text-muted); }
+  .report-desc { font-size: 0.9rem; margin: 0.5rem 0; white-space: pre-wrap; }
+  .report-turn {
+    border-left: 2px solid var(--border); padding-left: 0.6rem; margin: 0.6rem 0;
+    font-size: 0.82rem; color: var(--text-secondary); white-space: pre-wrap;
+  }
+
+  /* Feedback tab: a fixed pill on the right edge, on every page. It hugs the
+     right rather than the usual bottom-right corner because the chat composer's
+     Send button already lives there. Vertical text via writing-mode, so the tab
+     costs ~30px of width and never covers content. */
+  .fab-feedback {
+    position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    z-index: 900; writing-mode: vertical-rl; cursor: pointer;
+    padding: 0.85rem 0.45rem; font: inherit; font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-right: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+    transition: color var(--transition), border-color var(--transition);
+  }
+  .fab-feedback:hover { color: var(--accent-text); border-color: var(--accent); }
+  @media (max-width: 560px) {
+    .fab-feedback .fab-label { display: none; }   /* flag only, on a phone */
+  }
+
   /* ── Modal (one-time key reveal) ─────────────────────────────────── */
   .modal-backdrop {
     display: none;
@@ -1146,7 +1177,7 @@
     .chat-msg { max-width: 92%; }
   }
 
-  /* Phone. The topbar's fixed 56px row can't hold the logo text + 6 nav
+  /* Phone. The topbar's fixed 56px row can't hold the logo text + 7 nav
      buttons + status, so it wraps to a two-row auto-height bar, the nav
      scrolls horizontally, and non-essential chrome (logo text, status
      label, model count) is hidden. The chat drops its sidebar to a short
@@ -1217,6 +1248,7 @@
     <button id="nav-chat" onclick="showPage('chat')">Chat</button>
     <button data-admin onclick="showPage('models')">Models</button>
     <button data-admin onclick="showPage('usage')">Usage</button>
+    <button data-admin onclick="showPage('reports')">Reports</button>
     <button data-admin onclick="showPage('providers')">Providers</button>
     <button data-admin onclick="showPage('keys')">Keys</button>
     <button data-admin onclick="showPage('settings')">Settings</button>
@@ -1664,6 +1696,21 @@
 
   <div class="usage-empty" id="usage-empty" style="display:none">
     No usage recorded in this window yet. Send a chat message to start tracking.
+  </div>
+</div>
+
+<!-- ── Reports (bad responses users filed) ─────────────────────────── -->
+<div class="page" id="page-reports">
+  <h1 class="page-title">Reports</h1>
+  <p class="page-subtitle">Bad responses users reported, newest first. Each one carries
+  the whole conversation as it was sent upstream plus the routing decision behind the
+  reply — which model answered, on what profile, and why it was picked. Delete a report
+  once you've acted on it; nothing else clears it.</p>
+
+  <div id="reports-list"></div>
+  <div id="reports-empty" class="empty-state" style="display:none">
+    <div class="empty-icon">⚑</div>
+    No reports. Users can file one from the ⚑ Report link under any reply.
   </div>
 </div>
 
@@ -2280,6 +2327,7 @@ function showPage(name) {
   if (name === 'models' && _allModels.length === 0) fetchModels();
   if (name === 'chat') initChat();
   if (name === 'usage') fetchUsage();
+  if (name === 'reports') fetchReports();
   if (name === 'providers') fetchProviders();
   if (name === 'keys') fetchKeys();
   if (name === 'settings') { doCheckUpdates(); fetchRuntimeSettings(); }
@@ -2928,6 +2976,81 @@ async function doSync() {
   }
 }
 
+// ── Reports (admin: what users said was wrong) ───────────────────────────────
+// A report is only worth collecting if someone reads it, so this is the other
+// half of the ⚑ Report link in the chat. Whole transcripts come down with the
+// list — the counts here are small, and a second fetch per report to read the
+// thing it exists to show would be a round trip for nothing.
+async function fetchReports() {
+  const host = document.getElementById('reports-list');
+  const empty = document.getElementById('reports-empty');
+  host.innerHTML = '';
+  try {
+    const r = await fetch(`${API}/reports`);
+    if (!r.ok) {
+      let detail; try { detail = (await r.json()).detail; } catch(_) {}
+      throw new Error(detail || `GET /api/reports failed (${r.status})`);
+    }
+    const reports = (await r.json()).data || [];
+    empty.style.display = reports.length ? 'none' : 'block';
+    host.innerHTML = reports.map(reportCard).join('');
+  } catch(e) {
+    empty.style.display = 'none';
+    host.innerHTML = `<div class="empty-state" style="color:var(--error)">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function reportCard(rep) {
+  const meta = rep.meta || {};
+  const head = [
+    fmtMsgTime(rep.ts),
+    rep.user || 'anonymous',
+    meta.routed || 'model unknown',
+    meta.profile || '',
+  ].filter(Boolean).map(escapeHtml).join(' · ');
+  const turns = (rep.transcript || []).map(m => {
+    const { text, imgs, files } = messageParts(m && m.content);
+    const attached = [imgs ? `${imgs} image(s)` : '', files ? `${files} attachment(s)` : '']
+      .filter(Boolean).join(', ');
+    return `<div class="report-turn"><div class="chat-meta">${escapeHtml((m && m.role) || '?')}`
+      + `${attached ? ` · ${escapeHtml(attached)}` : ''}</div>${escapeHtml(text)}</div>`;
+  }).join('') || '<div class="chat-meta">No transcript was attached.</div>';
+  // The reply that was reported, quoted: in a long thread the description alone
+  // doesn't say which answer it is about.
+  const quoted = meta.reported_text
+    ? `<div class="report-turn" style="border-color:var(--warning)">${escapeHtml(meta.reported_text)}</div>`
+    : '';
+  const why = meta.why ? `<div class="chat-meta">Routing: ${escapeHtml(meta.why)}</div>` : '';
+  const conv = rep.conversation_id
+    ? `<div class="chat-meta">Thread ${escapeHtml(rep.conversation_id)}</div>`
+    : `<div class="chat-meta">Unsaved thread — this snapshot is the only copy.</div>`;
+  // Where it went on GitHub, or why it didn't — a token that stopped working is
+  // otherwise invisible until someone wonders where the issues went.
+  const issue = rep.issue_url
+    ? `<div class="chat-meta">Issue: <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">${escapeHtml(rep.issue_url)}</a></div>`
+    : rep.github_error
+      ? `<div class="chat-meta" style="color:var(--warning)">Not filed on GitHub: ${escapeHtml(rep.github_error)}</div>`
+      : '';
+  return `<div class="report-card">
+    <div class="chat-meta">#${rep.id} · ${head}</div>
+    <div class="report-desc">${escapeHtml(rep.description)}</div>
+    ${quoted}${why}${conv}${issue}
+    <details><summary>Conversation (${(rep.transcript || []).length} messages)</summary>${turns}</details>
+    <div style="margin-top:0.75rem">
+      <button class="btn btn-sm btn-danger" onclick="deleteReport(${rep.id})">Delete</button>
+    </div>
+  </div>`;
+}
+
+async function deleteReport(id) {
+  if (!confirm(`Delete report #${id}? The transcript goes with it.`)) return;
+  try {
+    const r = await fetch(`${API}/reports/${id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`Delete failed (${r.status})`);
+  } catch(e) { alert(e.message); }
+  fetchReports();
+}
+
 // ── Providers ───────────────────────────────────────────────────────────────
 async function fetchProviders() {
   try {
@@ -3546,6 +3669,11 @@ let _chatOwnerFilter = '';     // '' = all owners; server-side filter
 let _chatTagFilter = '';       // '' = all groups; filtered in the browser
 let _chatRenamingId = null;    // row whose title is being edited inline
 let _chatTagsEditId = null;    // row the groups modal is editing
+// The routing decision behind the most recent reply, kept for a report to attach.
+// It lives only in this turn's response headers — nothing persists routing per
+// message — so a report filed without it can't say which model actually answered.
+let _lastRouting = null;
+let _reportTarget = null;      // the assistant bubble a report is being filed on
 
 // Max messages replayed upstream per turn (see trimChatHistory). ~20 turns.
 const _CHAT_HISTORY_MAX = 40;
@@ -3914,6 +4042,7 @@ async function selectConversation(id) {
     _chatConvId = id;
     _chatMessages = [];
     _chatAttachments = [];
+    _lastRouting = null;   // belongs to the thread we just left, not this one
     renderAttachments();
     // Reset transcript to the empty placeholder, then replay stored turns.
     document.getElementById('chat-transcript').innerHTML =
@@ -3930,6 +4059,7 @@ function newChat() {
   _chatConvId = null;
   _chatMessages = [];
   _chatAttachments = [];
+  _lastRouting = null;
   renderAttachments();
   document.getElementById('chat-transcript').innerHTML =
     '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
@@ -4110,7 +4240,13 @@ function renderChatMsg(role, text, opts = {}) {
       opts.files.map(n => `<span class="chat-chip">📄 ${escapeHtml(n)}</span>`).join('') + `</div>`;
   }
   inner += `<div class="chat-bubble">${escapeHtml(text)}</div>`;
-  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}</div>`;
+  // A reply is the only thing worth reporting, so the affordance rides the
+  // assistant's timestamp row — one click from the answer that was wrong, on both
+  // a live reply and a reopened thread, since both render through here.
+  const report = role === 'assistant'
+    ? ` · <button class="chat-continue" onclick="openReportModal(this)" title="Report a bad answer. The whole conversation is attached automatically.">⚑ Report</button>`
+    : '';
+  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}${report}</div>`;
   if (opts.meta) inner += `<div class="chat-meta">${escapeHtml(opts.meta)}</div>`;
   wrap.innerHTML = inner;
   t.appendChild(wrap);
@@ -4154,6 +4290,103 @@ function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity,
   }
   html += `</div>`;
   return html;
+}
+
+// ── Reporting a bad reply, and feedback in general ──────────────────────────
+// The context is gathered for the user rather than asked of them: _chatMessages is
+// already the exact history that was sent upstream, and the routing metadata is
+// already in hand. All that's left to ask is the one thing only they know.
+//
+// btn = the ⚑ Report link on an assistant bubble, or null from the ⚑ Feedback
+// tab, which can be pressed on any page. The only difference is what it's about:
+// the tab still attaches the current conversation if there is one (that's what
+// makes a report diagnosable), and always says so before anything is typed.
+function openReportModal(btn) {
+  _reportTarget = btn ? btn.closest('.chat-msg') : null;
+  const n = _chatMessages.length;
+  document.getElementById('report-modal-title').textContent =
+    _reportTarget ? 'Report a bad response' : 'Report a problem';
+  document.getElementById('report-modal-context').textContent = n
+    ? `Attaching this conversation — ${n} message${n === 1 ? '' : 's'}`
+      + (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '')
+    : 'Nothing is attached — no chat open in this tab.';
+  const note = document.getElementById('report-modal-note');
+  note.textContent = n
+    ? 'The conversation and the routing decision are attached automatically.'
+    : '';
+  // Whether this lands in a public tracker is the operator's setting, and the
+  // one thing the user must know *before* writing rather than after.
+  fetchWhoAmI().then(me => {
+    if (!me || !me.reports_public) return;
+    note.textContent += (note.textContent ? ' ' : '')
+      + (me.reports_public_transcript && n
+        ? 'It is filed as a public issue on the project’s GitHub — including the conversation.'
+        : 'It is filed as a public issue on the project’s GitHub; the conversation itself stays on this router.');
+  });
+  const ta = document.getElementById('report-modal-text');
+  ta.value = '';
+  const status = document.getElementById('report-modal-status');
+  status.textContent = '';
+  status.style.color = '';               // may be the green receipt of a previous file
+  document.getElementById('btn-report-send').disabled = false;
+  document.getElementById('report-modal').classList.add('open');
+  ta.focus();
+}
+
+function closeReportModal() {
+  document.getElementById('report-modal').classList.remove('open');
+  _reportTarget = null;
+}
+
+async function submitReport() {
+  const description = document.getElementById('report-modal-text').value.trim();
+  const status = document.getElementById('report-modal-status');
+  if (!description) { status.textContent = 'Say what went wrong first.'; return; }
+  const btn = document.getElementById('btn-report-send');
+  btn.disabled = true;
+  status.textContent = 'Sending…';
+  // The bubble's own text, so the operator can find the reported reply inside a
+  // long transcript without the UI having to track message indexes (which drift:
+  // a failed turn leaves a bubble on screen and nothing in _chatMessages).
+  const bubble = _reportTarget && _reportTarget.querySelector('.chat-bubble');
+  const target = _reportTarget;
+  let sent = false;
+  try {
+    const r = await fetch(`${API}/reports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description,
+        conversation_id: _chatConvId || '',
+        transcript: _chatMessages,
+        meta: { ...(_lastRouting || {}), reported_text: (bubble ? bubble.textContent : '').slice(0, 2000) },
+      }),
+    });
+    if (!r.ok) {
+      let detail; try { const b = await r.json(); detail = b.detail || b.error; } catch(_) {}
+      throw new Error(detail || `Failed to file the report (${r.status})`);
+    }
+    const rep = await r.json();
+    sent = true;
+    const issue = rep.issue_url
+      ? ` <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">Tracked publicly →</a>`
+      : '';
+    if (target) {
+      closeReportModal();
+      target.insertAdjacentHTML('beforeend',
+        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks, the operator can see the whole thread.${issue}</div>`);
+    } else {
+      // Filed from the ⚑ Feedback tab: there is no bubble to hang a receipt on,
+      // so the modal stays open and becomes the receipt.
+      status.style.color = 'var(--success)';
+      status.innerHTML = `Filed (#${rep.id}) — thanks.${issue}`;
+      document.getElementById('report-modal-text').value = '';
+    }
+  } catch(e) {
+    status.textContent = e.message;
+  } finally {
+    btn.disabled = sent && !target;   // no double-filing the same words
+  }
 }
 
 async function sendChat() {
@@ -4225,6 +4458,9 @@ async function sendChat() {
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
     const webSearch = res.headers.get('X-Web-Search') === 'true';
+    // Held for a bug report to attach: after this function returns, the only place
+    // that says which model answered is the badge under the bubble.
+    _lastRouting = { routed, profile, why, qualified, classifier, agent: agentOn, escalated };
     const { text: acc, truncated, streamError } = await streamChatInto(res, bubble);
 
     // A reply with no text is a failed turn, not a valid empty answer. Show it
@@ -5477,6 +5713,7 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('key-modal').classList.contains('open')) closeKeyModal();
   if (document.getElementById('profile-modal').classList.contains('open')) closeProfileModal();
   if (document.getElementById('tags-modal').classList.contains('open')) closeTagsModal();
+  if (document.getElementById('report-modal').classList.contains('open')) closeReportModal();
 });
 initDashboard();
 </script>
@@ -5555,6 +5792,30 @@ initDashboard();
     <div class="modal-actions">
       <button class="btn btn-sm" onclick="closeTagsModal()">Cancel</button>
       <button class="btn btn-sm btn-primary" onclick="saveTagsModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Feedback, from anywhere in the app. Same modal as the per-reply ⚑ Report,
+     with no bubble to pin it to — see openReportModal(). -->
+<button class="fab-feedback" onclick="openReportModal(null)"
+        title="Report a problem or send feedback">⚑<span class="fab-label"> Feedback</span></button>
+
+<!-- ── Report a bad reply (assistant bubble → ⚑ Report) ───────────────── -->
+<div class="modal-backdrop" id="report-modal" onclick="if(event.target===this)closeReportModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+    <div class="modal-title" id="report-modal-title">Report a bad response</div>
+    <div class="modal-body">
+      <div class="chat-meta" id="report-modal-context"></div>
+      <textarea class="tags-modal-input" id="report-modal-text" rows="5"
+                style="resize:vertical"
+                placeholder="What was wrong? e.g. it invented a function that doesn't exist, ignored half the question, or answered in the wrong language."></textarea>
+      <div class="chat-meta" id="report-modal-note"></div>
+      <div class="modal-warn" id="report-modal-status" style="font-size:0.8rem"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeReportModal()">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="btn-report-send" onclick="submitReport()">Send report</button>
     </div>
   </div>
 </div>
