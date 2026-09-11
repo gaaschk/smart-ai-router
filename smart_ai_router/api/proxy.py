@@ -848,7 +848,32 @@ def _headers(api_key: str) -> dict[str, str]:
     return h
 
 
-# ── endpoint ──────────────────────────────────────────────────────────────────
+# ── endpoints ─────────────────────────────────────────────────────────────────
+
+@proxy_router.get("/v1/models")
+def list_models():
+    """The model names a client may send — which is the two routing modes, not
+    the catalog.
+
+    An editor that only speaks OpenAI (Cursor, Continue, Zed, aider) asks here
+    before it will let you pick anything, and a 404 reads as a broken endpoint.
+    But listing the catalog would be a lie: `model` in a completions body never
+    selects a model, it is overwritten with the router's pick, and the only part
+    of it that changes anything is whether it says "orchestrator". So this lists
+    exactly what a caller can decide. /api/models still serves the real catalog,
+    with the capability flags and prices this shape has nowhere to put.
+    """
+    return {
+        "object": "list",
+        "data": [
+            # created: a constant. OpenAI's typed clients require the field, and
+            # a real timestamp would be invented — the modes ship with the code.
+            {"id": name, "object": "model", "created": 0,
+             "owned_by": "smart-ai-router"}
+            for name in ("smart-worker", _ORCHESTRATOR_MARKERS[0])
+        ],
+    }
+
 
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
