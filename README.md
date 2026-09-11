@@ -4,10 +4,11 @@ A vendor-agnostic LLM capability router that classifies each prompt and routes i
 
 ## What it does
 
-1. **Classifies** each incoming prompt by domain (`coding`, `docs`, `reasoning`, `general`) and complexity (`trivial`, `moderate`, `hard`).
+1. **Profiles** each incoming prompt: which fields answering it needs (`software_engineering`, `law_regulatory`, `medicine_health`, …), how deep into each, what it demands (tool use, current facts, factual precision) and what's at stake. An LLM classifier does this, with a keyword classifier as the backstop — see [The prompt profile](#the-prompt-profile). `domain` and `complexity` still appear in the API and headers, derived from the profile for compatibility.
 2. **Routes** to the cheapest model whose competence score clears the threshold for that complexity tier — filtering by tool-calling support, vision, context length, and reliability.
 3. **Falls back** to the highest-competence model (typically Claude via Bedrock) only when no cheaper model qualifies — and surfaces an escalation notice when it does.
-4. **Streams** responses back in real-time via Server-Sent Events, with an immediate keepalive so the client knows the connection is alive while waiting for the provider's first token.
+4. **Searches the web** first when the profile says the answer turns on facts that could have moved since training — see [Web search](#web-search).
+5. **Streams** responses back in real-time via Server-Sent Events, with an immediate keepalive so the client knows the connection is alive while waiting for the provider's first token.
 
 The model matrix is populated by syncing live catalogs from your configured providers (OpenRouter, Ollama, Bedrock). Competence scores are inferred from model name patterns using benchmark-informed priors, so newly-released models get reasonable defaults without manual curation.
 
@@ -18,6 +19,7 @@ Beyond the routing proxy, the built-in web UI at `http://localhost:8001/` is a f
 - **Agent mode** — a tool-capable model can read, write, and edit files in your private, path-jailed workspace, and **create downloadable documents** (PDF, Word, PowerPoint, Excel, Markdown). Auto-enables when your request needs a file; can be forced on or off.
 - **Voice** — talk instead of typing and have the reply read back to you, using the browser's own speech engine so routing is unaffected. Needs Safari or Chrome, and HTTPS or localhost — see [Voice](#voice).
 - **Per-user API keys** — mint, scope, rate-limit, revoke, and rotate keys from the Keys page; a signed-in badge shows which identity you're using.
+- **Feedback** — ⚑ on any reply, or the ⚑ tab on the right edge, files a report with the conversation and the routing decision attached; the operator can mirror those into a repo's issue tracker — see [Bad-response reports](#bad-response-reports).
 
 ## Quick start
 
@@ -41,27 +43,178 @@ The setup wizard will:
 
 After setup, the router is available at `http://localhost:8001`.
 
-## Using with Claude Code (claudish)
+## Using it from a client
 
-`claudish-smart` wraps Claude Code so every request routes through the smart-ai-router:
+Three facts decide every client, so they're worth reading once instead of four
+times:
+
+**1. The endpoint is `http://your-host:8001/v1`, and it speaks OpenAI.**
+`/v1/chat/completions`, `/v1/models`, `/v1/files`. There is no Anthropic
+`/v1/messages` here, so a client that natively speaks Anthropic's protocol needs
+a translator in front of it — which is what `claudish-smart` is for.
+
+**2. Auth is off until the install has a key.** Once one exists, every client
+sends it the same way — `Authorization: Bearer <key>`, whatever the client calls
+that field (see [API keys](#api-keys-per-user-auth)). Before that, a client that
+insists on a non-empty key field will take `any-value`.
+
+**3. The model name picks a lane, not a model.** The name you send is replaced by
+the router's pick, and the only thing it decides is which pool the pick comes
+from:
+
+| Send this | Candidates |
+|---|---|
+| `smart-orchestrator` | Claude only — reliable tool-calling — then routed on the prompt *within* that pool, so a mechanical turn can still land on Haiku |
+| `smart-worker` (or anything else) | every model in scope, cheapest that clears the bar |
+
+Those two are exactly what `GET /v1/models` returns. **If the client sends tool
+definitions of its own, use `smart-orchestrator`**: a tool call routed to a model
+that can't make one comes back as a provider 400, not a graceful degrade. Sending
+your own `tools` also keeps the router's [agent mode](#agent-mode--document-creation)
+out of your way, which is what you want from a client that runs its own loop.
+
+And one thing to check before fighting a client's settings: **does it call the
+endpoint from your machine, or from its vendor's servers?** Locally-run clients
+(Claude Code, Codex, aider, Continue, Zed) reach `localhost:8001` fine. A hosted
+client (Cursor) calls out from its own backend, so the router has to be publicly
+reachable over HTTPS — and your prompts travel through that vendor either way.
+
+### Claude Code
+
+Claude Code speaks Anthropic's protocol; the router speaks OpenAI's. `claudish`
+(installed separately) is the translator, and `claudish-smart` — symlinked into
+`~/.local/bin` by the setup wizard — wires the two together:
 
 ```bash
-claudish-smart
+claudish-smart            # any claudish / Claude Code arguments pass through
 ```
 
-Under the hood it sets `LITELLM_BASE_URL` to point at the router and configures Claude Code's model slots:
+It health-checks the router first, exports `LITELLM_BASE_URL` and
+`LITELLM_API_KEY` so claudish's proxy forwards here, then writes a
+project-level `.claude/settings.local.json` naming the routed models — and
+restores or removes that file on exit, including on an early one.
 
-| Slot | Routed via | Purpose |
-|------|-----------|---------|
-| `--model-opus` | `smart-orchestrator` | Restricts the main loop to Claude (skill/workflow/tool-calling), then routes on the prompt within that pool |
-| `--model-sonnet` | `smart-orchestrator` | Same — orchestration needs Claude compliance |
-| `--model-haiku` | `smart-orchestrator` | Same |
-| `--model-subagent` | `smart-worker` | Classified + routed to cheapest capable model; Claude fallback only when needed |
+| Claude Code slot | Set via | Lane |
+|---|---|---|
+| main loop | `ANTHROPIC_MODEL` | `ll@smart-orchestrator` — the loop recognizes skills and emits tool calls, so it needs a Claude-compliant model |
+| small/fast | `ANTHROPIC_SMALL_FAST_MODEL` | `ll@smart-orchestrator` |
+| subagents | `CLAUDE_CODE_SUBAGENT_MODEL` | `ll@smart-worker` — fan-out work, routed to the cheapest capable model |
+
+The `--model-opus/sonnet/haiku/subagent` flags it also passes are a fallback for
+any request that still arrives under a Claude name. They can't carry the split on
+their own: claudish's proxy reads `modelMap.opus/sonnet/haiku` but never
+`modelMap.subagent`, so that mapping was always inert — hence the env vars.
 
 Environment overrides:
 - `SMART_ROUTER_URL=http://other-host:8001` — change the router address
 - `SMART_ROUTER_API_KEY=<key>` — API key for a router that requires auth (note: **singular**, the client-side variable; the server's admin key list is the plural `SMART_ROUTER_API_KEYS`). Sent as the health-check `Authorization` header and exported to LiteLLM so the proxy authenticates.
 - `SMART_ROUTER_OPTIONAL=1` — fall back to plain `claudish` if the router is unreachable
+
+**If it fails with `[Route] No credentialed providers in chain`:** you have a
+`modelOverrides` map in `~/.claude/settings.json` rewriting model names (e.g.
+`claude-opus-5` → a Bedrock inference-profile ARN). claudish then sees the ARN,
+matches no role, and gives up. `claudish-smart` avoids it by naming models
+through `ANTHROPIC_MODEL`, which matches no override key —
+`CLAUDE_CODE_USE_BEDROCK=0` does *not* help, because it disables the transport
+and leaves the rewrite in place, and an empty `"modelOverrides": {}` can't clear
+inherited entries either (settings merge key-wise).
+
+### Cursor
+
+Settings → Models → *Override OpenAI Base URL*. Set the base URL to
+`https://your-host/v1`, put a router key in the OpenAI API key field, and add
+`smart-orchestrator` to the model list by hand.
+
+Cursor sends its requests from Cursor's own servers, not from your machine, so
+`localhost:8001` will not work — this is the one client that needs the router
+publicly reachable over HTTPS, and it means your repo context travels Cursor →
+your host. A custom OpenAI key drives Chat and Cmd-K; Tab and agent mode stay on
+Cursor's own models regardless.
+
+### Codex CLI
+
+In `~/.codex/config.toml`:
+
+```toml
+model = "smart-orchestrator"
+model_provider = "smart-router"
+
+[model_providers.smart-router]
+name = "smart-ai-router"
+base_url = "http://localhost:8001/v1"
+env_key = "SMART_ROUTER_API_KEY"
+wire_api = "chat"
+```
+
+`wire_api = "chat"` is not optional: Codex prefers OpenAI's Responses API, and
+this router implements chat completions only. Codex runs its own tool loop, which
+is why the model is the orchestrator lane.
+
+### Anything with an OpenAI base-URL field
+
+Continue, Zed, LibreChat, Open WebUI (Settings → Connections → OpenAI API), and
+most of the long tail need the same three values:
+
+| The field | The value |
+|---|---|
+| Base URL / API base / endpoint | `http://localhost:8001/v1` — if requests 404, try it without the `/v1`; clients disagree about which half they append |
+| API key | a router key, or `any-value` on a keyless install |
+| Model | `smart-orchestrator`, or `smart-worker` for plain chat |
+
+aider wants the provider prefix, since it names models the LiteLLM way:
+
+```bash
+export OPENAI_API_BASE=http://localhost:8001/v1
+export OPENAI_API_KEY=any-value
+aider --model openai/smart-orchestrator
+```
+
+### The OpenAI SDKs
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8001/v1", api_key="any-value")
+r = client.chat.completions.create(
+    model="smart-worker",
+    messages=[{"role": "user", "content": "Fix this Python bug"}],
+)
+print(r.model)          # the model that actually answered, not what you sent
+```
+
+The response body comes back from the provider untouched, so `r.model` is the
+real pick. For the routing metadata, read the headers via
+`client.chat.completions.with_raw_response.create(...)`.
+
+### Claude Desktop
+
+Not supported, and not for want of a feature here: Claude Desktop has no
+base-URL or custom-model setting, so there is nowhere to point it. Its extension
+point is MCP, and an MCP server supplies *tools* to the model Anthropic is
+running — it can't replace that model, which is the whole job of a router.
+(Nothing stops someone exposing the router as an MCP tool so Claude can consult
+it as a sub-model; nothing here ships that.)
+
+The nearest things that do work: the router's own web UI at
+`http://localhost:8001/` is a full chat client — history, uploads, voice, agent
+mode — and `claudish-smart` gives you the Claude-agent experience on the
+terminal.
+
+### Checking that it actually routed
+
+```bash
+# What names the endpoint will accept
+curl -s http://localhost:8001/v1/models
+
+# Which model answered, and why
+curl -sD - -o /dev/null -X POST http://localhost:8001/v1/chat/completions \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer any-value' \
+  -d '{"model":"smart-worker","messages":[{"role":"user","content":"hi"}]}' \
+  | grep -i '^x-'
+```
+
+For a client that hides its traffic, the UI's Usage page lists every request with
+the model it landed on and what it cost.
 
 ## Architecture
 
@@ -98,7 +251,10 @@ claudish-smart
 
 | File | Purpose |
 |------|---------|
-| `smart_ai_router/classifier.py` | Keyword-based domain/complexity classification |
+| `smart_ai_router/taxonomy.py` | The prompt profile: field/depth vocabulary, demands, stakes |
+| `smart_ai_router/llm_classifier.py` | Two-speed LLM profiler (triage → refine), the primary classifier |
+| `smart_ai_router/classifier.py` | Keyword-based domain/complexity classification — the backstop when the LLM path is off or fails |
+| `smart_ai_router/settings.py` | UI-managed settings registry (DB → env → default) |
 | `smart_ai_router/router.py` | Core routing: filter eligible models, pick cheapest above competence bar |
 | `smart_ai_router/competence.py` | Infer competence scores from model name patterns |
 | `smart_ai_router/sync.py` | Fetch live model catalogs from providers |
@@ -118,6 +274,9 @@ claudish-smart
 | `smart_ai_router/tools.py` | Agent filesystem tools (read/write/edit/list, create_document, run_bash) against a per-user workspace |
 | `smart_ai_router/api/files_routes.py` | OpenAI-compatible Files API (`/v1/files`) |
 | `smart_ai_router/api/conversations_routes.py` | Chat history API (`/api/conversations`) |
+| `smart_ai_router/api/reports_routes.py` | Bad-response reports (`/api/reports`) |
+| `smart_ai_router/github_issues.py` | Mirroring a report to the repo's issue tracker |
+| `smart_ai_router/overhead.py` | Attributing the router's own helper calls to the request that caused them |
 
 ## API
 
@@ -159,6 +318,8 @@ Response headers include routing metadata:
 - `X-User` — the authenticated user the request was attributed to (empty in open/no-auth mode)
 - `X-Dropped-Params` — request params the routed model couldn't take (see [Params vs. the pick](#params-vs-the-pick)); empty when nothing was dropped
 - `X-Cache-Breakpoints` — how many prompt-cache markers this request was sent with (see [Prompt caching](#prompt-caching)); `0` for a local model, a first turn, or a short prompt
+- `X-Web-Search` — whether the answer was searched (see [Web search](#web-search)); `false` covers "the prompt didn't need it" and "the routed model can't search", which is why it's reported at all
+- `X-Classifier` — which classifier produced the profile: `llm`, `llm-free`, `llm-refined`, `keyword`, or `default`
 
 `GET /v1/models` lists those two names and nothing else. Editors that speak only
 OpenAI won't offer a model picker until that endpoint answers, and listing the
@@ -166,19 +327,7 @@ catalog there would promise a choice that doesn't exist — the `model` you send
 overwritten with the router's pick. `GET /api/models` is the real catalog, with
 capability flags and prices.
 
-### Using it from an editor
-
-Anything with an "OpenAI base URL" override works: point it at
-`https://your-host/v1`, use any key the router accepts, and name the model
-`smart-orchestrator` if the editor sends tool definitions — tool calls routed to
-a model that can't make them come back as a provider 400, not a graceful
-degrade.
-
-Cursor specifically: Settings → Models → *Override OpenAI Base URL*. Its
-requests go out through Cursor's own servers rather than from your machine, so
-`localhost` won't do — the endpoint has to be publicly reachable over HTTPS
-(which also means your repo context travels Cursor → your host). A custom
-OpenAI key drives Chat and Cmd-K; Tab and agent mode stay on Cursor's models.
+Per-client setup lives in [Using it from a client](#using-it-from-a-client).
 
 ### API keys (per-user auth)
 
@@ -403,6 +552,36 @@ curl -X DELETE http://localhost:8001/v1/files/file-XXXX -H "Authorization: Beare
 ```
 
 Extractable-to-text types: **PDF**, **Word (.docx)**, **PowerPoint (.pptx)**, **Excel (.xlsx)**, and plain-text/code files (`text/*`, JSON, XML, YAML, TOML, JS, shell, Python). Legacy `.doc`/`.ppt`/`.xls` are not supported — save as the modern OpenXML format. Images aren't extracted here; they're inlined as base64 for vision-capable models at request time. Uploads over the size ceiling return `413`; unsupported types return `415`. See `SMART_ROUTER_MAX_FILE_MB` and `SMART_ROUTER_FILES_DIR` below.
+
+### Web search
+
+When the profile says a prompt depends on facts that move — a price, a version, a
+count, a standing, which option is currently best — the request is forwarded with
+OpenRouter's `web` plugin, so the retrieval happens provider-side and the model
+sees results before it answers. About **$0.007 per searched request**, billed per
+search rather than per token, with up to 10 results included in that price.
+
+Two gates, and the second one is the one that surprises people:
+
+- **Settings → Routing → "Search the web for time-sensitive prompts"** (on by default), and
+- **the routed model has to be an OpenRouter model.** A local Ollama model and Bedrock's OpenAI-compatible endpoint both ignore `plugins` silently, so those answer unsearched.
+
+`X-Web-Search: true|false` reports which happened on every response, and the chat
+UI shows a `🌐 web` badge. Answering unsearched is the right fallback — better
+than refusing a question the model can partly answer — but it's only honest if
+the caller can tell.
+
+**Whether a prompt needs search is the classifier's judgment, deliberately.** The
+rubric asks it about the answer it would write rather than the wording of the
+question, because the volatile prompts mostly don't announce themselves: "which
+GPU should I buy", "what does an H100 go for", "which vector DB should we use"
+contain no word like *current* or *latest*. It's also told today's date and that
+its training data predates it — without that, "could this have changed since my
+training" and "since now" are the same instant from the inside. Any keyword list
+written for this has holes, so the durability comes from measuring instead:
+`scripts/bakeoff_classifier.py` scores a candidate triage model on exactly this
+judgment, reporting missed searches separately from false ones (a missed search
+is a confidently stale answer; a false one costs $0.007).
 
 ### Voice
 
@@ -868,6 +1047,8 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_MODEL_PROFILER_MODEL` ⚙ | `auto` | Model asked to rate each *model's* per-field shape (see [Refining model profiles](#refining-model-profiles-with-an-llm)). Off the request path — only runs when Refine is triggered. `auto` routes it, a model name pins it, empty string disables refinement. |
 | `SMART_ROUTER_MODEL_PROFILER_LIMIT` ⚙ | `40` | Default ceiling on models rated per Refine run, cheapest first. Also caps the pass that runs after a sync. |
 | `SMART_ROUTER_MODEL_PROFILER_ON_SYNC` ⚙ | `1` | Profile the models each sync adds (and any whose description was rewritten), so a new model doesn't route on a cue-table guess. Never re-profiles a model that only changed price or benchmark scores. |
+| `SMART_ROUTER_WEB_SEARCH` ⚙ | `1` | Search the web when the profile says the prompt turns on current facts (see [Web search](#web-search)). ~$0.007 per searched request, OpenRouter models only. |
+| `SMART_ROUTER_WEB_SEARCH_MAX_RESULTS` ⚙ | `5` | Results put in front of the model. Up to 10 are in the per-search price; past 10 costs $0.001 each. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |
