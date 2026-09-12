@@ -12,6 +12,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 from smart_ai_router.profiler import apply_ratings, baseline_profile
@@ -130,7 +131,8 @@ class SqliteStore(MatrixStore):
                     user       TEXT DEFAULT '',
                     title      TEXT DEFAULT 'New chat',
                     created_at TEXT DEFAULT '',
-                    updated_at TEXT DEFAULT ''
+                    updated_at TEXT DEFAULT '',
+                    shared     INTEGER DEFAULT 1
                 )
             """)
             self._conn.execute(
@@ -152,12 +154,51 @@ class SqliteStore(MatrixStore):
                 "CREATE INDEX IF NOT EXISTS idx_chat_messages_conv "
                 "ON chat_messages (conversation_id, ordinal)"
             )
+            # A conversation's grouping labels. Many-to-many on purpose: a thread
+            # can sit in more than one group, so this is a join table rather than
+            # a column on conversations.
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_tags (
+                    conversation_id TEXT NOT NULL,
+                    tag             TEXT NOT NULL,
+                    PRIMARY KEY (conversation_id, tag)
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversation_tags_tag "
+                "ON conversation_tags (tag)"
+            )
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key   TEXT PRIMARY KEY,
                     value TEXT DEFAULT ''
                 )
             """)
+            # Bad-response reports. `transcript_json` is a snapshot rather than a
+            # join back to chat_messages: the reporter can delete the thread the
+            # next minute, and an unsaved chat has no rows to join to.
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts              TEXT DEFAULT '',
+                    user            TEXT DEFAULT '',
+                    conversation_id TEXT DEFAULT '',
+                    description     TEXT DEFAULT '',
+                    transcript_json TEXT DEFAULT '[]',
+                    meta_json       TEXT DEFAULT '{}',
+                    issue_url       TEXT DEFAULT '',
+                    github_error    TEXT DEFAULT ''
+                )
+            """)
+            # Additive migration: where the report was mirrored to, and why it
+            # wasn't, for DBs created before reports could become GitHub issues.
+            for column in ("issue_url", "github_error"):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE reports ADD COLUMN {column} TEXT DEFAULT ''"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # already exists
             # Additive migration: vision column added after initial release
             try:
                 self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
@@ -203,6 +244,12 @@ class SqliteStore(MatrixStore):
                 ("agentic", "REAL DEFAULT 0.0"),
                 ("structured_outputs", "INTEGER DEFAULT 0"),
                 ("reasoning", "INTEGER DEFAULT 0"),
+                # Output ceiling the *model* imposes (ModelSpec.max_output).
+                # DEFAULT 0 reads as "unknown", which is what a pre-migration row
+                # honestly is, and is the safe direction: unknown means we send
+                # the configured budget rather than a number derived from a guess
+                # at the model's limit.
+                ("max_output", "INTEGER DEFAULT 0"),
             ):
                 try:
                     self._conn.execute(
@@ -245,6 +292,31 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: whether the admin identity may see this thread.
+            # DEFAULT 1 backfills every existing chat as shared, which is both the
+            # product default and the only honest read of history written before the
+            # choice existed — nobody who created those threads asked for privacy, so
+            # silently hiding them would misreport what the admin used to be able to
+            # see rather than protect anything.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE conversations ADD COLUMN shared INTEGER DEFAULT 1"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
+            # Additive migration: this reply was cut off at the output ceiling.
+            # DEFAULT 0 backfills history as untruncated, which is a claim we
+            # can't verify — the flag wasn't recorded, so some old replies really
+            # were cut off and will keep looking merely terse. Guessing from the
+            # text would be worse: a reply that legitimately ends without
+            # punctuation would get a warning it doesn't deserve, and a warning
+            # that is sometimes wrong is worth less than no warning at all.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN truncated INTEGER DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -262,8 +334,8 @@ class SqliteStore(MatrixStore):
                     competence_reasoning, competence_general,
                     profile_json, description,
                     profile_ratings_json, profile_note, agentic,
-                    structured_outputs, reasoning
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    structured_outputs, reasoning, max_output
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(value) DO UPDATE SET
                     provider=excluded.provider,
                     cost=excluded.cost,
@@ -283,7 +355,8 @@ class SqliteStore(MatrixStore):
                     profile_note=excluded.profile_note,
                     agentic=excluded.agentic,
                     structured_outputs=excluded.structured_outputs,
-                    reasoning=excluded.reasoning
+                    reasoning=excluded.reasoning,
+                    max_output=excluded.max_output
                 """,
                 (
                     spec.value, spec.provider, spec.cost, spec.ctx_k,
@@ -307,6 +380,7 @@ class SqliteStore(MatrixStore):
                     float(max(0.0, min(1.0, spec.agentic))),
                     1 if spec.structured_outputs else 0,
                     1 if spec.reasoning else 0,
+                    max(0, int(spec.max_output or 0)),
                 ),
             )
             self._conn.commit()
@@ -531,6 +605,22 @@ class SqliteStore(MatrixStore):
             ).fetchone()
         return float(row["spend"] or 0.0)
 
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        """Sum cost_usd for one exact user, counting overhead rows.
+
+        Equality rather than LIKE: see MatrixStore.spend_for_user for why a
+        per-account cap can't be a prefix match.
+        """
+        if not user:
+            return 0.0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS spend FROM usage_log "
+                "WHERE user=? AND ts>=?",
+                (user, since_ts),
+            ).fetchone()
+        return float(row["spend"] or 0.0)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:
@@ -731,10 +821,14 @@ class SqliteStore(MatrixStore):
             conv.updated_at = conv.created_at
         with self._lock:
             self._conn.execute(
-                """INSERT INTO conversations (id, user, title, created_at, updated_at)
-                   VALUES (?,?,?,?,?)""",
-                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at),
+                """INSERT INTO conversations
+                       (id, user, title, created_at, updated_at, shared)
+                   VALUES (?,?,?,?,?,?)""",
+                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at,
+                 int(conv.shared)),
             )
+            if conv.tags:
+                self._write_tags_locked(conv.id, conv.tags)
             self._conn.commit()
         return conv
 
@@ -743,40 +837,156 @@ class SqliteStore(MatrixStore):
             row = self._conn.execute(
                 "SELECT * FROM conversations WHERE id=?", (conversation_id,)
             ).fetchone()
-        return self._row_to_conversation(row) if row else None
+            if row is None:
+                return None
+            conv = self._row_to_conversation(row)
+            conv.tags = self._tags_locked([conv.id]).get(conv.id, [])
+        return conv
 
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
+    def list_conversations(
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
+    ) -> list[Conversation]:
+        """Conversations for a scope, newest first.
+
+        `caller` is the identity doing the asking, and it governs privacy: a thread
+        with shared=0 is returned only to its own owner. Passing caller=None means
+        "shared threads only", which is the fail-safe direction — a caller that
+        forgets to identify itself loses rows rather than leaking them.
+        """
         with self._lock:
-            if user is None:
-                rows = self._conn.execute(
-                    "SELECT * FROM conversations ORDER BY updated_at DESC"
-                ).fetchall()
+            where, params = [], []
+            if user is not None:
+                where.append("user=?")
+                params.append(user)
+            if caller is None:
+                where.append("shared=1")
+            else:
+                where.append("(shared=1 OR user=?)")
+                params.append(caller)
+            if tag:
+                where.append(
+                    "id IN (SELECT conversation_id FROM conversation_tags WHERE tag=?)"
+                )
+                params.append(tag)
+            sql = "SELECT * FROM conversations"
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            rows = self._conn.execute(sql + " ORDER BY updated_at DESC", params).fetchall()
+            convs = [self._row_to_conversation(r) for r in rows]
+            # One batched lookup for the whole page rather than a query per row.
+            tags = self._tags_locked([c.id for c in convs])
+            for c in convs:
+                c.tags = tags.get(c.id, [])
+        return convs
+
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        """Owners with at least one conversation the caller may see.
+
+        Private threads don't count: an owner whose every thread is private must not
+        surface here, or the picker itself would report that they exist.
+        """
+        with self._lock:
+            sql = "SELECT DISTINCT user FROM conversations WHERE "
+            if caller is None:
+                rows = self._conn.execute(sql + "shared=1 ORDER BY user").fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT * FROM conversations WHERE user=? ORDER BY updated_at DESC",
-                    (user,),
+                    sql + "(shared=1 OR user=?) ORDER BY user", (caller,)
                 ).fetchall()
-        return [self._row_to_conversation(r) for r in rows]
+        return [r["user"] or "" for r in rows]
 
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+        shared: bool | None = None,
+    ) -> bool:
+        with self._lock:
+            exists = self._conn.execute(
+                "SELECT 1 FROM conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if exists is None:
+                return False
+            if title is not None:
+                self._conn.execute(
+                    "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                    (title, _utcnow_iso(), conversation_id),
+                )
+            if shared is not None:
+                # Like retagging, changing who can see a thread is not activity on
+                # it, so `updated_at` stays put.
+                self._conn.execute(
+                    "UPDATE conversations SET shared=? WHERE id=?",
+                    (int(shared), conversation_id),
+                )
+            if tags is not None:
+                # Filing a thread under a label isn't activity, so `updated_at`
+                # stays put — retagging must not reshuffle the sidebar's order.
+                self._conn.execute(
+                    "DELETE FROM conversation_tags WHERE conversation_id=?",
+                    (conversation_id,),
+                )
+                self._write_tags_locked(conversation_id, tags)
+            self._conn.commit()
+        return True
+
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        """Hand one owner's threads to another. Messages and tags follow for free —
+        both hang off the conversation id, which does not change."""
+        if not from_user or not to_user or from_user == to_user:
+            return 0
         with self._lock:
             cur = self._conn.execute(
-                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
-                (title, _utcnow_iso(), conversation_id),
+                "UPDATE conversations SET user=? WHERE user=?", (to_user, from_user)
             )
             self._conn.commit()
-        return cur.rowcount > 0
+        return cur.rowcount or 0
 
     def delete_conversation(self, conversation_id: str) -> bool:
         with self._lock:
             self._conn.execute(
                 "DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,)
             )
+            self._conn.execute(
+                "DELETE FROM conversation_tags WHERE conversation_id=?", (conversation_id,)
+            )
             cur = self._conn.execute(
                 "DELETE FROM conversations WHERE id=?", (conversation_id,)
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    # Both tag helpers assume self._lock is already held (it is a plain Lock, so
+    # re-acquiring it from a nested call would deadlock).
+
+    def _write_tags_locked(self, conversation_id: str, tags: list[str]) -> None:
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO conversation_tags (conversation_id, tag) VALUES (?,?)",
+            [(conversation_id, t) for t in tags],
+        )
+
+    def _tags_locked(self, ids: list[str]) -> dict[str, list[str]]:
+        """Tags for many conversations at once, keyed by conversation id."""
+        out: dict[str, list[str]] = {}
+        # Chunked to stay well under SQLite's bound-parameter limit (999 on the
+        # oldest builds we might run against).
+        for start in range(0, len(ids), 500):
+            batch = ids[start:start + 500]
+            marks = ",".join("?" * len(batch))
+            rows = self._conn.execute(
+                "SELECT conversation_id, tag FROM conversation_tags "
+                f"WHERE conversation_id IN ({marks}) ORDER BY tag",
+                batch,
+            ).fetchall()
+            for r in rows:
+                out.setdefault(r["conversation_id"], []).append(r["tag"])
+        return out
 
     def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
         ts = msg.ts or _utcnow_iso()
@@ -790,10 +1000,11 @@ class SqliteStore(MatrixStore):
             ordinal = row["n"] if msg.ordinal == 0 else msg.ordinal
             cur = self._conn.execute(
                 """INSERT INTO chat_messages
-                   (conversation_id, ordinal, role, content, content_json, ts)
-                   VALUES (?,?,?,?,?,?)""",
+                   (conversation_id, ordinal, role, content, content_json, ts,
+                    truncated)
+                   VALUES (?,?,?,?,?,?,?)""",
                 (msg.conversation_id, ordinal, msg.role, msg.content,
-                 1 if msg.content_json else 0, ts),
+                 1 if msg.content_json else 0, ts, 1 if msg.truncated else 0),
             )
             # Appending a message bumps the conversation's recency.
             self._conn.execute(
@@ -814,6 +1025,60 @@ class SqliteStore(MatrixStore):
             ).fetchall()
         return [self._row_to_chat_message(r) for r in rows]
 
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    def create_report(self, rec: Report) -> Report:
+        rec.ts = rec.ts or _utcnow_iso()
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO reports
+                   (ts, user, conversation_id, description, transcript_json, meta_json)
+                   VALUES (?,?,?,?,?,?)""",
+                (rec.ts, rec.user, rec.conversation_id, rec.description,
+                 rec.transcript_json, rec.meta_json),
+            )
+            self._conn.commit()
+            rec.id = cur.lastrowid
+        return rec
+
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        # ponytail: returns whole transcripts, so the operator's list view needs no
+        # second fetch. Split into a summary list + get_report(id) if the table ever
+        # grows past a page or two of reports.
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM reports ORDER BY id DESC LIMIT ?", (max(1, limit),)
+            ).fetchall()
+        return [self._row_to_report(r) for r in rows]
+
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE reports SET issue_url=?, github_error=? WHERE id=?",
+                (issue_url, error, report_id),
+            )
+            self._conn.commit()
+
+    def delete_report(self, report_id: int) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM reports WHERE id=?", (report_id,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_report(row: sqlite3.Row) -> Report:
+        return Report(
+            id=row["id"],
+            ts=row["ts"] or "",
+            user=row["user"] or "",
+            conversation_id=row["conversation_id"] or "",
+            description=row["description"] or "",
+            transcript_json=row["transcript_json"] or "[]",
+            meta_json=row["meta_json"] or "{}",
+            issue_url=row["issue_url"] or "",
+            github_error=row["github_error"] or "",
+        )
+
     @staticmethod
     def _row_to_conversation(row: sqlite3.Row) -> Conversation:
         return Conversation(
@@ -822,6 +1087,7 @@ class SqliteStore(MatrixStore):
             title=row["title"] or "New chat",
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"] or "",
+            shared=bool(row["shared"]),
         )
 
     @staticmethod
@@ -834,6 +1100,7 @@ class SqliteStore(MatrixStore):
             content=row["content"] or "",
             content_json=bool(row["content_json"]),
             ts=row["ts"] or "",
+            truncated=bool(row["truncated"]),
         )
 
     @staticmethod
@@ -1004,6 +1271,7 @@ class SqliteStore(MatrixStore):
             provider=row["provider"] or "",
             cost=row["cost"] or 0,
             ctx_k=row["ctx_k"] or 0,
+            max_output=int(cls._num_column(row, "max_output")),
             tools=bool(row["tools"]),
             vision=bool(row["vision"]) if row["vision"] is not None else False,
             reliability=row["reliability"] if row["reliability"] is not None else 1.0,

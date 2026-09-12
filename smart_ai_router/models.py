@@ -25,6 +25,16 @@ class ModelSpec:
     provider: str = ""                  # "openrouter" | "ollama" | "bedrock" | ...
     cost: int = 0                       # relative tier for router sorting (0=local, 1=free-tier, 2+=paid)
     ctx_k: int = 0                      # context window in K tokens
+    max_output: int = 0
+    # Most tokens this model can emit in one reply, 0 = unknown. Distinct from
+    # ctx_k: the catalog's output limits range from 2048 to 1.8M while context
+    # windows are uniformly large, so context tells you nothing about whether a
+    # story will fit. Stored because it is the only ceiling we cannot raise — and
+    # because asking for more than it allows is not harmless: several providers
+    # reject the request outright, turning a long answer into no answer.
+    # OpenRouter reports it (top_provider.max_completion_tokens) for 411 of 417
+    # models; local models leave it unknown, which is safe, since Ollama treats
+    # max_tokens as num_predict and simply stops there.
     tools: bool = False                 # supports tool/function calling
     vision: bool = False                # supports image inputs
     structured_outputs: bool = False
@@ -134,12 +144,23 @@ class Conversation:
     `title` is a short human label (auto-derived from the first user message,
     editable). `created_at`/`updated_at` are ISO-8601 UTC; `updated_at` bumps
     whenever a message is appended, so the conversation list can sort by recency.
+
+    `tags` are the owner's own labels for grouping threads in the sidebar. A
+    thread can carry several (they live in a conversation_tags join table), so
+    grouping is a filter rather than a folder a chat can only be in one of.
+
+    `shared` is whether the admin identity may see this thread. It defaults to
+    True — the admin runs the service and pays for it — but the owner can turn it
+    off per thread, and a thread with shared=False is invisible to everyone but
+    its owner: absent from admin's list, from the owner picker, and a 404 by id.
     """
     id: str                          # "conv-<token>" — opaque identifier
     user: str = ""                   # owner identity (per-user scoping)
     title: str = "New chat"          # short display label
     created_at: str = ""
     updated_at: str = ""
+    tags: list[str] = field(default_factory=list)  # lowercase, deduped labels
+    shared: bool = True              # visible to admin? owner-controlled
 
 
 @dataclass
@@ -155,6 +176,36 @@ class ChatMessage:
     content_json: bool = False       # True → `content` is a JSON-encoded parts array
     id: int = 0                      # autoincrement
     ordinal: int = 0                 # per-conversation sequence (stable ordering)
+    ts: str = ""
+    # The provider stopped this reply at the output ceiling (finish_reason
+    # "length") rather than finishing its thought. Stored, not just shown live,
+    # because otherwise reopening the thread turns "we cut this off" into "the
+    # model wrote one paragraph" — the reader is left diagnosing the wrong
+    # problem, and the text on screen gives them no way to tell.
+    truncated: bool = False
+
+
+@dataclass
+class Report:
+    """A user's account of a bad reply, filed with the conversation it happened in.
+
+    The transcript is a JSON *snapshot*, not a pointer at chat_messages rows: the
+    reported thread stays editable and deletable by its owner, and a chat that was
+    never saved (or an anonymous visitor's) has no rows to point at. Evidence that
+    can change after it is filed isn't evidence.
+
+    `meta_json` carries the routing decision for the reported turn — routed model,
+    prompt profile, classifier — because none of that is stored per message and the
+    report is the only place it would otherwise be lost.
+    """
+    description: str = ""            # what the user says went wrong
+    user: str = ""                   # reporter identity (may be an anon handle)
+    conversation_id: str = ""        # "" when the thread was never persisted
+    transcript_json: str = "[]"      # JSON array of {role, content} turns
+    meta_json: str = "{}"            # routing metadata from the reported turn
+    issue_url: str = ""              # the GitHub issue it was mirrored to, if any
+    github_error: str = ""           # why it wasn't, so the failure isn't silent
+    id: int = 0                      # autoincrement
     ts: str = ""
 
 

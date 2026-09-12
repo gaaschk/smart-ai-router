@@ -4,6 +4,7 @@ No network: every call either short-circuits before HTTP or goes through an
 httpx MockTransport.
 """
 import asyncio
+import datetime as dt
 import json
 
 import httpx
@@ -12,6 +13,7 @@ from smart_ai_router import settings as _settings
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     _parse_profile,
+    _system_prompt,
     classifier_advisory,
     classifier_fallback_model,
     classifier_model,
@@ -221,6 +223,60 @@ def test_system_prompt_override_is_sent(monkeypatch):
         "role": "system",
         "content": "CUSTOM RUBRIC",
     }
+
+
+def test_the_classifier_is_told_what_day_it_is(monkeypatch):
+    # current_info asks "could this fact have been superseded since training?",
+    # which is unanswerable without knowing how much time has passed. A model has
+    # no clock, so the date has to be in the rubric it actually receives — the
+    # answering model already gets one (proxy._todays_date_note); the classifier,
+    # which decides whether to search at all, was the one left guessing.
+    captured: dict = {}
+    _mock_reply(
+        monkeypatch,
+        '{"domains":[{"field":"general_knowledge","depth":"surface"}],'
+        '"demands":["current_info"],"stakes":"low"}',
+        captured,
+    )
+    asyncio.run(classify_profile_llm("what does an H100 cost?",
+                                     base_url="http://x/v1", model="m"))
+    sent = captured["body"]["messages"][0]["content"]
+    assert dt.date.today().isoformat() in sent
+    # And that the gap is described, not just the date: "today is 2026-09-10"
+    # means nothing to a model with no sense of when its own training stopped.
+    assert "training data ends" in sent
+
+
+def test_the_search_rule_is_about_the_answer_not_the_wording():
+    # The whole point of leaving this to the model: the prompts that need live
+    # facts mostly don't say so. A rubric that lists time words would just be a
+    # regex with extra steps — so it has to say, in words, judge the answer.
+    rubric = _system_prompt()
+    assert "NOT to the wording" in rubric
+    for volatile_example_without_a_time_word in ("Which GPU should I buy", "go for"):
+        assert volatile_example_without_a_time_word in rubric
+    # …and the asymmetry, so the model knows which way to err.
+    assert "look something up before" in rubric
+
+
+def test_the_refine_pass_keeps_the_date_too(monkeypatch):
+    # Refinement re-profiles from scratch; it needs the same clock as triage.
+    import smart_ai_router.llm_classifier as lc
+
+    seen: list[str] = []
+
+    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None, kind=""):
+        seen.append(system_prompt or "")
+        return _profile(("law_regulatory", "frontier"), stakes="high")
+
+    monkeypatch.setattr(lc, "classify_profile_llm", fake)
+    asyncio.run(classify_profile_two_speed(
+        "does this violate the AI Act?",
+        [ClassifierTarget(model="triage", base_url="http://x/v1")],
+        lambda: ClassifierTarget(model="refine", base_url="http://y/v1"),
+    ))
+    assert len(seen) == 2                      # triage escalated to refine
+    assert dt.date.today().isoformat() in seen[1]
 
 
 def test_http_error_returns_none(monkeypatch):

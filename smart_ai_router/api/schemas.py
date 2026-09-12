@@ -328,6 +328,74 @@ class WhoAmIResponse(BaseModel):
     anon: bool = False
     degraded: bool = False
     agent_available: bool = True  # False for anon: filesystem tools are off
+    # A key the holder minted for themselves rather than one the operator issued.
+    # Reported so the UI can say the account is capped and, more importantly, that
+    # nobody can recover it — there is no email on file to recover it *to*.
+    self_serve: bool = False
+    # Feedback filed here becomes an issue on a public tracker, and whether the
+    # conversation rides along with it. Both are told to the user *before* they
+    # write anything, because "this is public" is not a thing to find out after.
+    reports_public: bool = False
+    reports_public_transcript: bool = False
+
+
+# ── Anonymous identity recovery ────────────────────────────────────────────────
+
+class AnonSessionResponse(BaseModel):
+    """The signed token behind an anonymous visitor's own session cookie.
+
+    A bearer credential for that visitor's chat history — see anon_routes.py for
+    why handing it to the page is nonetheless the right call.
+    """
+    token: str = Field(..., description="Signed cookie value; treat as a secret")
+    session_id: str = Field(..., description="Identity behind it, without the anon: prefix")
+
+
+class AnonClaimRequest(BaseModel):
+    token: str = Field(..., description="A token from GET /api/anon/session")
+
+
+class AnonClaimResponse(BaseModel):
+    """Confirmation of whose history the caller now holds.
+
+    `token` is the re-stamped cookie value, so a client mirroring it can store the
+    fresh one rather than the expiring copy it presented.
+    """
+    ok: bool = True
+    user: str = ""
+    session_id: str = ""
+    token: str = ""
+
+
+# ── Self-serve accounts ────────────────────────────────────────────────────────
+
+class SignupResponse(BaseModel):
+    """A freshly minted self-issued key. Returned once and never recoverable.
+
+    There is no request body to go with this: the whole point is that nothing is
+    collected. `user` is a random handle, not a name the caller chose — see
+    self_signup.py.
+    """
+    key: str = Field(..., description="Plaintext key — shown once; store it now")
+    user: str = Field(..., description="Generated account handle, e.g. u:9f3a2b17")
+    key_prefix: str = Field("", description="Short non-secret prefix for display")
+    carried_over: int = Field(
+        0,
+        description=(
+            "conversations moved from the caller's anonymous session onto the new "
+            "account, so signing up doesn't discard the chats that led to it"
+        ),
+    )
+
+
+class SignupStatusResponse(BaseModel):
+    """Whether the UI should offer a 'create an account' button, and why not.
+
+    `reason` is safe to show: it says the deployment is full or misconfigured, not
+    anything about its budget or its other users.
+    """
+    available: bool = False
+    reason: str = ""
 
 
 # ── Files (uploads) ────────────────────────────────────────────────────────────
@@ -366,19 +434,39 @@ class ConversationResponse(BaseModel):
     title: str = "New chat"
     created_at: str = ""
     updated_at: str = ""
+    tags: list[str] = Field(default_factory=list, description="Grouping labels")
+    # The owner, so the admin's list can say whose thread each one is. A per-user
+    # key only ever sees its own conversations, so this tells it nothing new.
+    user: str = ""
+    shared: bool = Field(True, description="Whether the admin identity may see this thread")
 
 
 class ConversationListResponse(BaseModel):
     object: str = "list"
     data: list[ConversationResponse] = Field(default_factory=list)
+    # Every owner with chat history, for the admin's owner filter. Empty for a
+    # per-user key — it has nobody else to filter by.
+    users: list[str] = Field(default_factory=list)
 
 
 class ConversationCreateRequest(BaseModel):
     title: str = "New chat"
+    tags: list[str] = Field(default_factory=list)
+    # Defaults to shared: the admin runs and pays for the service, so visibility is
+    # the norm and privacy is the deliberate choice, not the reverse.
+    shared: bool = True
 
 
 class ConversationUpdateRequest(BaseModel):
-    title: str = Field(..., description="New title for the conversation")
+    """Rename, regroup, and/or change admin visibility. Every field is optional, but
+    at least one must be present; `tags: []` clears a thread's labels."""
+    title: str | None = Field(None, description="New title for the conversation")
+    tags: list[str] | None = Field(
+        None, description="Replacement tag set (order and case are normalized)"
+    )
+    shared: bool | None = Field(
+        None, description="Let the admin see this thread (owner only)"
+    )
 
 
 class ChatMessageResponse(BaseModel):
@@ -387,12 +475,18 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: object = ""
     ts: str = ""
+    truncated: bool = Field(False, description=(
+        "this reply was stopped at the output-token ceiling, so the text is "
+        "incomplete — reopening a thread would otherwise show it as merely short"))
 
 
 class ChatMessageCreateRequest(BaseModel):
     role: str = Field(..., description="user | assistant | system")
     # A plain string, or an OpenAI content-parts array (text + file/image refs).
     content: object = ""
+    truncated: bool = Field(False, description=(
+        "set when the reply hit finish_reason=length, so the incompleteness "
+        "survives a reload rather than living only in the tab that saw it"))
 
 
 class ConversationDetailResponse(ConversationResponse):
@@ -403,6 +497,47 @@ class ConversationDetailResponse(ConversationResponse):
 class ConversationDeletedResponse(BaseModel):
     id: str
     object: str = "conversation"
+    deleted: bool = True
+
+
+# ── Bad-response reports ───────────────────────────────────────────────────────
+
+class ReportCreateRequest(BaseModel):
+    """File a report about a bad reply. The transcript comes from the client because
+    it is the only party that has it in every case — an unsaved thread, an anonymous
+    visitor's chat, or an API caller with no conversation at all."""
+    description: str = Field(..., description="What was wrong with the interaction")
+    conversation_id: str = Field("", description="The thread it happened in, if saved")
+    transcript: list[object] = Field(
+        default_factory=list, description="The conversation, as {role, content} turns"
+    )
+    meta: dict[str, object] = Field(
+        default_factory=dict,
+        description="Routing metadata for the reported turn (routed model, profile, "
+                    "classifier) — not stored per message anywhere else",
+    )
+
+
+class ReportResponse(BaseModel):
+    id: int
+    ts: str = ""
+    user: str = ""
+    conversation_id: str = ""
+    description: str = ""
+    transcript: list[object] = Field(default_factory=list)
+    meta: dict[str, object] = Field(default_factory=dict)
+    issue_url: str = ""      # the public issue it was mirrored to, if enabled
+    github_error: str = ""   # why it wasn't — a token dies quietly otherwise
+
+
+class ReportListResponse(BaseModel):
+    object: str = "list"
+    data: list[ReportResponse] = Field(default_factory=list)
+
+
+class ReportDeletedResponse(BaseModel):
+    id: int
+    object: str = "report"
     deleted: bool = True
 
 

@@ -19,6 +19,7 @@ Supported provider prefixes in the routed model value:
 from __future__ import annotations
 
 import asyncio
+import datetime as _dt
 import json
 import re
 import sys
@@ -31,6 +32,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from smart_ai_router import helper_models as _helpers
 from smart_ai_router import overhead as _overhead
 from smart_ai_router import public_access as _public
+from smart_ai_router import self_signup as _signup
 from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
@@ -76,6 +78,290 @@ def _default_max_tokens() -> int:
     fallback, so a deployment hitting truncation can raise it without a deploy.
     """
     return max(1, _settings.get_int("default_max_tokens"))
+
+
+# Header the chat page sends on its own requests. The distinction matters because
+# the two kinds of caller want opposite things from us: a browser wants a rendered
+# document, while a program driving `/v1` wants exactly the messages it sent and
+# nothing else — an injected system turn changes its output, and because the turn
+# becomes conversation history it keeps changing it for the rest of the session.
+# So the capability note below is browser-only, and this is how we can tell.
+_UI_CLIENT_HEADER = "x-smart-router-client"
+_UI_CLIENT_VALUE = "ui"
+
+
+def _is_ui_client(request) -> bool:
+    return (request.headers.get(_UI_CLIENT_HEADER) or "").strip().lower() \
+        == _UI_CLIENT_VALUE
+
+
+def _rich_output_preamble() -> str:
+    """A system turn telling the model what the chat page can actually render.
+
+    Without it a model has no way to know, and defaults to plain prose — which is
+    why asking for something visual produced no visuals. Nothing here asks for
+    decoration: it says what the surface supports and leaves the judgement of
+    whether a diagram helps to the model, because a mandatory chart on a prompt
+    that didn't want one is worse than no chart.
+
+    UI-managed so the wording is tunable without a deploy, and blankable — an
+    operator who wants the model unprompted sets it to empty.
+    """
+    return (_settings.get("chat_rich_output_prompt") or "").strip()
+
+
+def _todays_date_note() -> str:
+    """A system turn stating today's date.
+
+    A model has no clock. Asked what is current it answers from training and calls
+    a 2024 season "current" in 2026, with no way to notice — the reported bug, and
+    half of it is fixed by this one line, no search required. Knowing the date is
+    also what lets a model say "my information may be out of date" instead of
+    asserting a stale fact, and what makes "this year" resolvable at all.
+
+    Server-side rather than in the tunable preamble because it has to be computed
+    per request, and unconditional because a wrong date is never the better input.
+    """
+    return (
+        f"Today's date is {_dt.date.today().isoformat()}. Your training data has a "
+        "cutoff before this. For anything that can change over time — who holds a "
+        "position, prices, counts, standings, what is 'current' or 'latest' — say "
+        "plainly that your information may be out of date, and give the date your "
+        "figure refers to rather than calling it current."
+    )
+
+
+def _web_search_plugin(profile, model_value: str) -> list[dict] | None:
+    """OpenRouter's web plugin, when the prompt needs facts newer than the model.
+
+    Search runs provider-side: OpenRouter does the retrieval, puts the results in
+    front of the model, and returns citations as message annotations. That is the
+    reason this is a body field and not a tool in tools.py — a `web_search` tool
+    would mean an agent loop, several round trips, and a search API key of our own,
+    to arrive at the same place.
+
+    Returns None when it can't or shouldn't run, and the caller reports which:
+    OpenRouter-only, since a local Ollama model and Bedrock's OpenAI-compatible
+    endpoint both ignore `plugins`. Answering unsearched is the right fallback —
+    the alternative is refusing a question the model can still partly answer — but
+    it is only honest if the caller can tell, hence X-Web-Search.
+    """
+    if not _settings.get_bool("web_search_enabled"):
+        return None
+    if profile is None or not profile.needs_current_info():
+        return None
+    if not model_value.startswith("openrouter/"):
+        return None
+    return [{
+        "id": "web",
+        "max_results": max(1, _settings.get_int("web_search_max_results")),
+    }]
+
+
+def _output_budget(profile, spec=None) -> int:
+    """Output ceiling for a caller who didn't name one, given what they asked for.
+
+    One number cannot serve both "what's the capital of France" and "write me a
+    short story". Sized for the first, the second comes back a paragraph long and
+    cut mid-sentence; sized for the second, every trivial question carries a
+    budget it will never use — which costs nothing directly, since billing follows
+    the tokens actually written, but on a reasoning model an oversized budget is an
+    invitation to think for a while.
+
+    So the prompt profile decides. It already knows the answer is a document (see
+    `PromptProfile.is_long_form`), and it knew it *before* this function existed —
+    the information was there and simply wasn't being used. Never lowers the
+    ordinary default: an operator who raised that meant it.
+
+    Then the model's own ceiling clamps whatever we arrived at, because asking for
+    more than a model can emit is not a harmless overshoot — several providers
+    reject the call, which turns a long answer into no answer at all. Output limits
+    on the live catalog run from 2048 to 1.8M, so this is the difference between a
+    generous setting and a broken one. `max_output == 0` means the catalog didn't
+    say; we send the budget unclamped, which is right for local models (Ollama
+    treats max_tokens as num_predict and just stops).
+    """
+    base = _default_max_tokens()
+    want = base
+    if profile is not None and profile.is_long_form():
+        want = max(base, _settings.get_int("long_form_max_tokens"))
+    limit = int(getattr(spec, "max_output", 0) or 0)
+    if limit > 0:
+        want = min(want, limit)
+    return max(1, want)
+
+
+# Thinking knobs, in every spelling a client might use: OpenAI's
+# `reasoning_effort`, OpenRouter's `reasoning` config object and its legacy
+# `include_reasoning` bool, and Anthropic's `thinking` (which is what a
+# translation layer in front of the router forwards).
+_REASONING_PARAMS = ("reasoning", "reasoning_effort", "include_reasoning", "thinking")
+
+
+def _drop_unsupported(forward_body: dict, spec) -> list[str]:
+    """Remove params the *routed* model can't take. Returns what was removed.
+
+    The caller names a model class ("smart-worker") and never learns which model
+    answered, so every model-specific knob in its body is a guess about a pick it
+    can't see — and a wrong guess is not ignored, it is a provider 400 that turns
+    a routed request into no answer at all:
+
+        reasoning_effort + a coding prompt → ollama/qwen3-coder:30b
+        → 400 '"qwen3-coder:30b" does not support thinking'
+
+    Only the flags the catalog actually tracks can be filtered honestly, so this
+    is deliberately narrow — a knob we have no capability bit for is left alone
+    rather than guessed at. An unknown spec (`None`) is treated as incapable:
+    dropping a preference degrades the answer, a 400 removes it.
+    """
+    if getattr(spec, "reasoning", False):
+        return []
+    dropped = [p for p in _REASONING_PARAMS if p in forward_body]
+    for p in dropped:
+        forward_body.pop(p)
+    return dropped
+
+
+# ── prompt caching ────────────────────────────────────────────────────────────
+# The single largest cost lever this router has, and for a long time the one it
+# wasn't pulling. Measured from the live usage log: 92% of lifetime spend was one
+# five-minute coding session — 52 requests, median 69,571 prompt tokens each,
+# every one of them re-sending the same growing prefix, `cached_tokens: 0`
+# throughout. Routing had nothing left to give there (the pick was already Haiku,
+# the cheapest Claude), so the money was never in *which* model answered. It was
+# in being billed full price for the same 60k tokens 52 times.
+#
+# Anthropic caches only what you mark; OpenRouter passes `cache_control` through
+# to it. A client that sets its own breakpoints loses them to the Anthropic→OpenAI
+# translation layer in front of the router (LiteLLM strips every one), so by the
+# time a body arrives here the intent is gone and no client can restore it. The
+# router is the last place that can.
+
+# Minimum prompt Anthropic will cache at all: 1024 tokens on Sonnet/Opus, 2048 on
+# Haiku. Below it a breakpoint is ignored rather than an error, so this guard is
+# about not writing pointless markers — and it takes the larger number because
+# cheapest-qualified-wins routes to Haiku often.
+_CACHE_MIN_TOKENS = 2048
+
+
+def _supports_cache_control(routed_model: str) -> bool:
+    """Whether an explicit cache breakpoint does anything for this model.
+
+    Claude is the family that *requires* one: OpenAI, Grok and DeepSeek cache long
+    prefixes automatically on OpenRouter, and Ollama has no prompt cache to mark.
+    So the set of models a breakpoint helps is exactly the Claude family — which
+    its id names precisely.
+
+    OpenRouter only. Bedrock also serves Claude and also has prompt caching, but
+    through its own `cachePoint` shape, and whether our OpenAI-compatible path to
+    it honors `cache_control` is unverified — same call as `structured_outputs` in
+    sync.py, where the safe direction is to not claim a capability rather than to
+    trust one.
+
+    ponytail: an id substring, not a stored capability. The honest signal is
+    OpenRouter's per-model `pricing.input_cache_read`, which sync doesn't keep —
+    add a column when a second family needs explicit breakpoints.
+    """
+    m = routed_model.lower()
+    return m.startswith("openrouter/") and "claude" in m
+
+
+def _cache_marked(msg: dict) -> dict | None:
+    """`msg` with a cache breakpoint on its last content block, or None if it has
+    no content to hang one on (an assistant turn that is nothing but tool_calls).
+
+    Copies rather than mutating: these dicts come straight from the request body
+    and are shared with it.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        if not content.strip():
+            return None
+        return {**msg, "content": [{
+            "type": "text", "text": content,
+            "cache_control": {"type": "ephemeral"},
+        }]}
+    if isinstance(content, list):
+        for i in range(len(content) - 1, -1, -1):
+            block = content[i]
+            if isinstance(block, dict) and block.get("type"):
+                blocks = list(content)
+                blocks[i] = {**block, "cache_control": {"type": "ephemeral"}}
+                return {**msg, "content": blocks}
+    return None
+
+
+def _inject_cache_breakpoints(
+    forward_body: dict, routed_model: str, est_tokens: int, *, loops: bool = False
+) -> int:
+    """Mark this request's stable prefix as cacheable. Returns breakpoints set.
+
+    Two of them, which is the standard shape for a growing conversation:
+
+    1. **End of the system block.** Anthropic's cache prefix is ordered
+       tools → system → messages, so a breakpoint here also covers the tool
+       definitions — which is where the tokens actually are. (Measured on a real
+       Claude Code request: 146,296 of 153,507 bytes were tool schemas, ~40k
+       tokens, against ~1.9k tokens of conversation.) That matters because a
+       breakpoint on `tools` itself isn't expressible in the OpenAI wire shape,
+       and this makes one unnecessary.
+    2. **End of the history.** Rolling: what this turn writes, the next turn
+       reads, since each turn's prefix contains the last one's.
+
+    Three guards, each of which is a way injecting could *cost* money or break:
+
+    - Second turn onward only. A cache write is billed at 1.25×, a read at 0.10×,
+      so a marker nobody comes back to read is a 25% surcharge. An assistant turn
+      in the history is proof the client re-sends its prefix, which is the thing
+      that makes a write pay for itself. `loops=True` is the same proof arrived at
+      differently: agent mode re-sends the whole prefix on every round of its tool
+      loop, so even a first turn is guaranteed to read back what it writes — and
+      that loop is precisely the traffic shape the burst was made of.
+    - Above `_CACHE_MIN_TOKENS`, below which Anthropic ignores the marker anyway.
+      `est_tokens` counts messages only, so tools are excluded and the estimate
+      errs low — the guard is conservative in the harmless direction.
+    - Never over a caller that set its own breakpoints. It knows its prefix better
+      than this heuristic does; the only reason to guess is that its intent
+      usually doesn't survive translation.
+    """
+    if not _settings.get_bool("prompt_caching"):
+        return 0
+    if not _supports_cache_control(routed_model) or est_tokens < _CACHE_MIN_TOKENS:
+        return 0
+    msgs = list(forward_body.get("messages") or [])
+    if not loops and not any(m.get("role") == "assistant" for m in msgs):
+        return 0
+    if any(
+        isinstance(b, dict) and "cache_control" in b
+        for m in msgs
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+    ):
+        return 0
+
+    marked: set[int] = set()
+    system_i = max(
+        (i for i, m in enumerate(msgs) if m.get("role") == "system"), default=-1
+    )
+    if system_i >= 0:
+        stamped = _cache_marked(msgs[system_i])
+        if stamped is not None:
+            msgs[system_i] = stamped
+            marked.add(system_i)
+    # Backwards, because the final message can be an assistant turn carrying only
+    # tool_calls — nothing to mark, but the turn before it will have content.
+    for i in range(len(msgs) - 1, -1, -1):
+        if i in marked:
+            break
+        stamped = _cache_marked(msgs[i])
+        if stamped is not None:
+            msgs[i] = stamped
+            marked.add(i)
+            break
+
+    if marked:
+        forward_body["messages"] = msgs
+    return len(marked)
+
 
 # Seconds of silence in an SSE stream before we emit a keepalive comment. A
 # model round (especially the first token of a slow reasoning model) can take
@@ -439,6 +725,10 @@ def _request_scope(request: Request) -> ModelScope | None:
     Anonymous visitors are the exception: their ceiling comes from the public
     access settings and the day's spend, not from a stored key, and it is never
     None — an anonymous request is always scoped.
+
+    Self-issued keys are the same exception wearing a key. Their ceiling also has
+    to move with the day's spend, so it can't live in the row; it is read live and
+    *tightened onto* whatever the row already said, never loosening it.
     """
     if getattr(request.state, "is_anon", False):
         return _public.anon_scope(request.app.state.capability_router)
@@ -446,7 +736,44 @@ def _request_scope(request: Request) -> ModelScope | None:
     if record is None:
         return None
     scope = parse_scope(record.scope_models, record.max_tier)
+    if _signup.is_signup_user(record.user):
+        scope = scope.capped_at(
+            _signup.tier_ceiling(request.app.state.capability_router, record.user)
+        )
     return scope if scope.is_restricted else None
+
+
+def _cached_tokens(usage: dict | None) -> int:
+    """Prompt tokens the provider served from its cache, 0 if it didn't say.
+
+    Two spellings: OpenAI's `prompt_tokens_details.cached_tokens`, which is what
+    OpenRouter normalizes to, and Anthropic's own `cache_read_input_tokens` in
+    case a provider leaks it through an OpenAI-shaped reply. Reading both is a
+    one-line hedge against the failure that would otherwise be silent — billing
+    a cache read at full price looks exactly like caching not working.
+    """
+    u = usage or {}
+    details = u.get("prompt_tokens_details")
+    if isinstance(details, dict) and details.get("cached_tokens"):
+        return int(details["cached_tokens"] or 0)
+    return int(u.get("cache_read_input_tokens", 0) or 0)
+
+
+def _billable_prompt(prompt_tokens: int, cached_tokens: int) -> int:
+    """Prompt tokens priced at the full input rate, cache reads discounted.
+
+    A cache read costs 10% of the input rate, so it can't be counted like a fresh
+    token or the Usage page reports a bill nobody was sent.
+
+    ponytail: a cache *write* costs 1.25× and the OpenAI usage shape doesn't
+    separate it out, so a turn that writes is under-counted by a quarter of the
+    written portion. Off in the harmless direction (the provider's own dashboard
+    remains the source of truth), and fixable only when a provider reports writes.
+    """
+    if cached_tokens <= 0:
+        return prompt_tokens
+    fresh = max(0, prompt_tokens - cached_tokens)
+    return fresh + int(cached_tokens * 0.1)
 
 
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
@@ -479,12 +806,22 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
         return
     prompt_tokens = int((usage or {}).get("prompt_tokens", 0) or 0)
     completion_tokens = int((usage or {}).get("completion_tokens", 0) or 0)
+    cached_tokens = _cached_tokens(usage)
     cost_usd = 0.0
     try:
         if prompt_tokens or completion_tokens:
-            cost_usd = cr.cost_for(routed_model, prompt_tokens, completion_tokens) or 0.0
+            cost_usd = cr.cost_for(
+                routed_model, _billable_prompt(prompt_tokens, cached_tokens),
+                completion_tokens,
+            ) or 0.0
     except Exception:  # noqa: BLE001 — pricing lookup must not break logging
         cost_usd = 0.0
+    if cached_tokens:
+        # The only visible proof that caching is working, since the count itself
+        # isn't persisted (that would be a column and a migration; the corrected
+        # cost is what the Usage page actually sums).
+        print(f"[proxy] cache hit: {cached_tokens} of {prompt_tokens} prompt "
+              f"tokens read at 10% on {routed_model}", file=sys.stderr, flush=True)
     try:
         cr.record_usage(UsageRecord(
             user=user, key_prefix=key_prefix, routed_model=routed_model,
@@ -511,7 +848,32 @@ def _headers(api_key: str) -> dict[str, str]:
     return h
 
 
-# ── endpoint ──────────────────────────────────────────────────────────────────
+# ── endpoints ─────────────────────────────────────────────────────────────────
+
+@proxy_router.get("/v1/models")
+def list_models():
+    """The model names a client may send — which is the two routing modes, not
+    the catalog.
+
+    An editor that only speaks OpenAI (Cursor, Continue, Zed, aider) asks here
+    before it will let you pick anything, and a 404 reads as a broken endpoint.
+    But listing the catalog would be a lie: `model` in a completions body never
+    selects a model, it is overwritten with the router's pick, and the only part
+    of it that changes anything is whether it says "orchestrator". So this lists
+    exactly what a caller can decide. /api/models still serves the real catalog,
+    with the capability flags and prices this shape has nowhere to put.
+    """
+    return {
+        "object": "list",
+        "data": [
+            # created: a constant. OpenAI's typed clients require the field, and
+            # a real timestamp would be invented — the modes ship with the code.
+            {"id": name, "object": "model", "created": 0,
+             "owned_by": "smart-ai-router"}
+            for name in ("smart-worker", _ORCHESTRATOR_MARKERS[0])
+        ],
+    }
+
 
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
@@ -615,26 +977,50 @@ async def chat_completions(request: Request):
     #                      would be surprising.
     #   explicit False   → never agent mode.
     #   "auto" / absent  → enter agent mode only if the prompt is *actionable*
-    #                      (wants a file produced / filesystem work) AND a
-    #                      tool-capable model is in scope. Otherwise fall back
-    #                      silently to plain chat — auto must never lock a user
-    #                      out or needlessly escalate a plain question.
+    #                      (wants a file produced / filesystem work), a
+    #                      tool-capable model is in scope, AND the caller sent no
+    #                      tools of its own. Otherwise fall back silently to
+    #                      plain chat — auto must never lock a user out or
+    #                      needlessly escalate a plain question.
+    #
+    # That last condition is the one that isn't obvious. A client that supplies
+    # `tools` runs its own tool loop by definition — a coding agent (Claude Code
+    # through claudish, Codex, anything speaking the OpenAI tool protocol) sends
+    # its editor, shell and search tools expecting `tool_calls` back to execute
+    # itself. Its prompts are maximally actionable, so "auto" fired on every one
+    # of them and the router answered with a server-side filesystem loop over
+    # *its own* workspace instead: the caller's tools were never called, its
+    # sandbox was never touched, and the reply described work done somewhere the
+    # user could not see. Nothing errored, which is what made it hard to spot.
+    # Only an explicit `agent: true` overrides this, because then the caller has
+    # asked for the router's loop by name.
     # Anonymous visitors never get agent mode, whatever they ask for. The tools
     # are read/write/bash over a workspace on the operator's own machine, so
     # this is the difference between a public chat page and a public shell. A
     # flat refusal (not a silent downgrade) so an explicit `agent: true` from a
     # stranger is never quietly answered as if it had worked.
     is_anon = getattr(request.state, "is_anon", False)
-    if is_anon and agent_flag is True:
+    # A self-issued key is a stranger who clicked a button, not someone the
+    # operator decided to trust, so the same refusal applies — and here it is the
+    # load-bearing one. Handing a public shell to anyone who can complete a POST
+    # would be worse than anonymous chat, not better, because the key also works
+    # from outside the browser.
+    is_self_serve = _signup.is_signup_user(getattr(request.state, "user", "") or "")
+    if (is_anon or is_self_serve) and agent_flag is True:
         raise HTTPException(
             status_code=403,
-            detail="Agent (filesystem) mode is not available for anonymous use. "
-                   "Sign in with an API key to use it.",
+            detail=(
+                "Agent (filesystem) mode is not available for anonymous use. "
+                "Sign in with an API key to use it."
+                if is_anon else
+                "Agent (filesystem) mode is not available on a self-serve account. "
+                "It needs an API key issued by this deployment's operator."
+            ),
         )
 
     tools_available = cr.capabilities(scope=scope).tools
     agent_auto = isinstance(agent_flag, str) and agent_flag.lower() == "auto"
-    if is_anon:
+    if is_anon or is_self_serve:
         agent_mode = False          # settled above; auto must not re-enable it
     elif agent_flag is True:
         if not tools_available:
@@ -646,7 +1032,12 @@ async def chat_completions(request: Request):
             )
         agent_mode = True
     elif agent_auto:
-        agent_mode = tools_available and is_actionable(prompt_text)
+        client_brought_tools = bool(body.get("tools"))
+        agent_mode = (
+            not client_brought_tools
+            and tools_available
+            and is_actionable(prompt_text)
+        )
     else:
         agent_mode = False
 
@@ -656,6 +1047,14 @@ async def chat_completions(request: Request):
 
     # 2. Route
     needs_tools = bool(body.get("tools")) or agent_mode
+    # A caller asking for a json_schema reply needs a model that honors the
+    # *schema*, not merely one that emits JSON. This is a routing constraint and
+    # not a dropped param for the same reason vision is: a model that ignores the
+    # schema answers the prompt in prose, the caller's parse finds nothing, and
+    # nothing anywhere reports an error. Filtering the pick is the only place the
+    # requirement can be met — see ModelSpec.structured_outputs.
+    _rf = body.get("response_format")
+    needs_structured = isinstance(_rf, dict) and _rf.get("type") == "json_schema"
     est_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
 
     if is_orchestrator:
@@ -693,6 +1092,7 @@ async def chat_completions(request: Request):
                 profile,
                 needs_tools=needs_tools,
                 needs_vision=needs_vision,
+                needs_structured=needs_structured,
                 est_tokens=est_tokens,
                 scope=scope,
                 agent_mode=agent_mode,
@@ -703,6 +1103,7 @@ async def chat_completions(request: Request):
                 profile,
                 needs_tools=needs_tools,
                 needs_vision=needs_vision,
+                needs_structured=needs_structured,
                 est_tokens=est_tokens,
                 scope=scope,
                 agent_mode=agent_mode,
@@ -736,6 +1137,9 @@ async def chat_completions(request: Request):
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
+    # The chosen model's spec, for its output ceiling. One store read, and only
+    # this: everything else about the decision is already in `decision`.
+    routed_spec = cr.get_model(routed_model)
 
     mode = "orchestrator" if is_orchestrator else profile.describe()
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
@@ -745,20 +1149,75 @@ async def chat_completions(request: Request):
     print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
+    # The caller chose its params for a model it never saw; the pick may not take
+    # them. Done before anything else touches the body so nothing downstream has
+    # to reason about a param that isn't going to survive.
+    dropped_params = _drop_unsupported(forward_body, routed_spec)
+    if dropped_params:
+        print(f"[proxy] dropped for {routed_model}: {', '.join(dropped_params)}",
+              file=sys.stderr, flush=True)
+    # Tell the model what the chat page can render — but only when the caller *is*
+    # the chat page, and only after classification, so the note never influences
+    # the routing profile it isn't part of. Prepended rather than merged into an
+    # existing system turn: the caller's own instructions stay verbatim, and a
+    # later turn wins any disagreement, which is the right precedence for a note
+    # about the display surface.
+    # The date comes first and is not conditional on `tools`: an agent loop needs to
+    # know what day it is as much as a chat reply does, and unlike the rendering note
+    # it is a fact rather than a suggestion, so it is never noise.
+    if _is_ui_client(request):
+        notes = [_todays_date_note()]
+        if not forward_body.get("tools"):
+            notes.append(_rich_output_preamble())
+        forward_body["messages"] = (
+            [{"role": "system", "content": n} for n in notes if n]
+            + list(forward_body.get("messages") or [])
+        )
+    # Search the web when the prompt turns on facts that move. Set on forward_body
+    # before the agent branch reads it, so an agent round searches too.
+    search_plugin = _web_search_plugin(profile, routed_model)
+    if search_plugin:
+        forward_body["plugins"] = search_plugin
     # Apply a generous output-token default when the caller omits one, so
-    # reasoning models have budget for thinking + answer instead of truncating.
+    # reasoning models have budget for thinking + answer instead of truncating —
+    # and a document-sized one when the profile says the answer is a document.
     if not forward_body.get("max_tokens"):
-        forward_body["max_tokens"] = _default_max_tokens()
-    # Anonymous callers get a hard output ceiling, applied after the default and
-    # over anything they asked for. This is what bounds the damage while the
-    # spend cap is blind: a call's cost isn't known until it returns, so the
-    # protection has to be a limit on how expensive one call can possibly be.
+        forward_body["max_tokens"] = _output_budget(profile, routed_spec)
+    # A caller who *named* a max_tokens gets clamped to the pick's ceiling too:
+    # `_output_budget` only clamps the number it computed itself, so a client
+    # sizing its request for the model it thinks it's talking to could still ask
+    # for more than the routed model can emit — which several providers reject
+    # outright rather than truncate (see ModelSpec.max_output). 0 = the catalog
+    # didn't say, so send it unclamped.
+    model_ceiling = int(getattr(routed_spec, "max_output", 0) or 0)
+    try:
+        asked_output = int(forward_body["max_tokens"])
+    except (TypeError, ValueError):
+        # Not a number at all. Nothing to clamp, and inventing one would hide a
+        # malformed body — leave it for the provider to reject.
+        asked_output = 0
+    if model_ceiling and asked_output:
+        forward_body["max_tokens"] = min(asked_output, model_ceiling)
+    # Callers the operator never vetted — anonymous visitors and self-issued keys
+    # — get a hard output ceiling, applied after the default and over anything they
+    # asked for. This is what bounds the damage while the spend cap is blind: a
+    # call's cost isn't known until it returns, so the protection has to be a limit
+    # on how expensive one call can possibly be.
+    output_cap = 0
     if is_anon:
-        anon_cap = _public.max_output_tokens()
-        if anon_cap:
-            forward_body["max_tokens"] = min(
-                int(forward_body["max_tokens"] or anon_cap), anon_cap
-            )
+        output_cap = _public.max_output_tokens()
+    elif is_self_serve:
+        output_cap = _signup.max_output_tokens()
+    if output_cap:
+        forward_body["max_tokens"] = min(
+            int(forward_body["max_tokens"] or output_cap), output_cap
+        )
+    # Last thing done to the body, because the breakpoints have to land on the
+    # messages actually sent — including the system notes prepended above, which
+    # sit at the front of the prefix and belong inside the cached region.
+    cache_breakpoints = _inject_cache_breakpoints(
+        forward_body, routed_model, est_tokens, loops=agent_mode
+    )
     url = f"{base_url}/chat/completions"
     routing_headers = {
         "X-Routed-Model": routed_model,
@@ -768,6 +1227,25 @@ async def chat_completions(request: Request):
         "X-Classifier": classifier_used,
         "X-User": getattr(request.state, "user", "") or "",
         "X-Prompt-Profile": _header_safe(profile.describe()),
+        # The ceiling this reply had to fit in. Reported so a truncated answer can
+        # say *what* cut it off: "the model was terse" and "the model was stopped
+        # at 1024 tokens" look identical on screen, and only one of them is
+        # something the reader can do anything about.
+        "X-Output-Limit": str(forward_body.get("max_tokens") or 0),
+        # Whether this answer was checked against the live web. Reported for every
+        # request, not just searched ones: "searched and found nothing newer" and
+        # "answered from 2024 training data" read identically on screen, and the
+        # reader's trust in a date-sensitive fact should differ between them.
+        "X-Web-Search": "true" if search_plugin else "false",
+        # Params the pick couldn't take, so a client can see why the knob it set
+        # did nothing. Silence here is the whole failure mode being fixed: the
+        # caller tuned a model it never learns the name of.
+        "X-Dropped-Params": ",".join(dropped_params),
+        # How many cache breakpoints this request was marked with. 0 is the
+        # common, correct answer (a local model, a first turn, a short prompt) —
+        # it's the *always* 0 that was the bug, and only a per-request number
+        # distinguishes those.
+        "X-Cache-Breakpoints": str(cache_breakpoints),
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"
@@ -803,7 +1281,10 @@ async def chat_completions(request: Request):
             and reassembles tool calls from the fragments."""
             fwd = {**req_body, "model": real_model, "stream": True}
             if not fwd.get("max_tokens"):
-                fwd["max_tokens"] = _default_max_tokens()
+                # Per *round*, not per request — the loop may take several. The
+                # profile-aware budget still applies: an agent writing a document
+                # to a file needs room for the document.
+                fwd["max_tokens"] = _output_budget(profile, routed_spec)
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 async with client.stream(
                     "POST", url, headers=_headers(api_key), json=fwd,
@@ -849,7 +1330,11 @@ async def chat_completions(request: Request):
                 yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': _ESCALATION_NOTE}, 'finish_reason': None}]})}\n\n".encode()
             async for chunk in run_agent_loop(
                 user=user,
-                body={**body, "model": real_model},
+                # forward_body, not the raw body: every round of the loop hits the
+                # same routed model, so it needs the same param filtering, output
+                # ceiling and system notes a single forwarded request gets. Seeding
+                # from `body` here meant a dropped param came straight back.
+                body=forward_body,
                 tool_schemas=_agent_tool_schemas(),
                 stream_model=_stream_model,
                 register_file=_register_file,

@@ -13,6 +13,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 from smart_ai_router.scope import ModelScope
@@ -105,6 +106,7 @@ class CapabilityRouter:
         *,
         needs_tools: bool = False,
         needs_vision: bool = False,
+        needs_structured: bool = False,
         est_tokens: int = 0,
         exclude: set[str] | None = None,
         scope: ModelScope | None = None,
@@ -123,6 +125,7 @@ class CapabilityRouter:
             profile=profile,
             needs_tools=needs_tools,
             needs_vision=needs_vision,
+            needs_structured=needs_structured,
             est_tokens=est_tokens,
             exclude=exclude,
             scope=scope,
@@ -315,6 +318,9 @@ class CapabilityRouter:
     def spend_since(self, *, user_prefix: str, since_ts: str) -> float:
         return self._store.spend_since(user_prefix=user_prefix, since_ts=since_ts)
 
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        return self._store.spend_for_user(user=user, since_ts=since_ts)
+
     def usage_profiles(
         self, *, since_ts: str = "", limit: int = 200
     ) -> list[dict]:
@@ -399,11 +405,32 @@ class CapabilityRouter:
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         return self._store.get_conversation(conversation_id)
 
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
-        return self._store.list_conversations(user)
+    def list_conversations(
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
+    ) -> list[Conversation]:
+        return self._store.list_conversations(user, tag=tag, caller=caller)
 
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
-        return self._store.update_conversation(conversation_id, title=title)
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        return self._store.list_conversation_users(caller=caller)
+
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+        shared: bool | None = None,
+    ) -> bool:
+        return self._store.update_conversation(
+            conversation_id, title=title, tags=tags, shared=shared
+        )
+
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        return self._store.reassign_conversations(from_user=from_user, to_user=to_user)
 
     def delete_conversation(self, conversation_id: str) -> bool:
         return self._store.delete_conversation(conversation_id)
@@ -413,6 +440,20 @@ class CapabilityRouter:
 
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         return self._store.list_chat_messages(conversation_id)
+
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    def create_report(self, rec: Report) -> Report:
+        return self._store.create_report(rec)
+
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        return self._store.list_reports(limit)
+
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        self._store.set_report_issue(report_id, issue_url, error)
+
+    def delete_report(self, report_id: int) -> bool:
+        return self._store.delete_report(report_id)
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 

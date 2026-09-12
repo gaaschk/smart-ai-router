@@ -210,6 +210,59 @@ _FIELD_CUES: dict[str, tuple[str, ...]] = {
         r"theorem\w*", r"lemma\w*", r"proof", r"prove that", r"integral\w*",
         r"differential equation\w*", r"topolog\w*", r"eigen\w*",
     ),
+    # Unlike the fields above, these cues aren't here to raise a competence bar —
+    # a story does not need a specialist. They're here so the field gets *named*,
+    # because naming it is what earns the request a document-sized output budget
+    # (LONG_FORM_FIELDS in taxonomy.py). Without them, "write me a short story"
+    # profiles as general_knowledge, gets a reply-sized ceiling, and comes back
+    # as one paragraph cut off mid-sentence — which is the bug these fix.
+    "creative_writing": (
+        r"short stor\w*", r"\bstory\b", r"\bstories\b", r"\bnovel\b",
+        r"\bfiction\b", r"screenplay", r"\bscript for\b", r"\bpoem\b",
+        r"\bpoetry\b", r"\bsonnet\b", r"\blyrics\b", r"\bnarrative\b",
+        r"\bprose\b", r"\bmonologue\b", r"\bdialogue between\b",
+        r"\bchapter\b", r"\bworldbuild\w*", r"\bcharacter arc\b",
+    ),
+    # Same purpose as creative_writing: name the field so the output budget is
+    # document-sized. The legacy domain heuristic needs *two* keyword hits before
+    # it will say "docs", so "write the API guide for this service" lands on
+    # general_knowledge — one "guide" hit for docs, one "api" hit for coding,
+    # neither wins. These cues are phrases rather than bare words for that same
+    # reason: "documentation" alone appears in "add documentation to this
+    # function", which is a code change, not a document.
+    "technical_writing": (
+        r"api (?:guide|reference|docs?|documentation)",
+        r"(?:user|developer|integration|migration|style|onboarding) guide",
+        r"how-to guide", r"\breadme\b", r"\btutorial\b", r"\brunbook\b",
+        r"release notes", r"\bchangelog\b", r"\bwhitepaper\b",
+        r"write (?:me )?(?:the |a |an )?(?:guide|documentation|tutorial|manual)",
+        r"\bdocument(?:ation)? for\b",
+    ),
+    # "Explain X" on its own is usually a one-paragraph answer, so the cues here
+    # are the ones that ask for teaching *material* — an audience to pitch to, or
+    # a named artifact (lesson, curriculum, worksheet). Those are documents.
+    "education_explanation": (
+        r"explain \w+(?: \w+)? (?:to|for) (?:a |an |my )?"
+        r"(?:\d+(?:st|nd|rd|th)[- ]grader|child|kid|beginner|five[- ]year"
+        r"|5[- ]year|layperson|non-technical)",
+        r"like i'?m five", r"\beli5\b",
+        r"lesson plan", r"\bcurriculum\b", r"\bsyllabus\b",
+        r"study guide", r"\bworksheet\b", r"teach me\b",
+        r"\bwalk me through\b",
+    ),
+    # Named so translation gets an output budget scaled to the *input*: a ceiling
+    # sized for a chat reply truncates a translated page halfway down.
+    "translation_multilingual": (
+        r"translat\w+ (?:this|the|it|into|to|from)",
+        r"\btranslation of\b",
+        # "into <language>" only, never "in <language>": "how do you say hello in
+        # Spanish" is a one-line answer, while "put this into Spanish" is as long
+        # as whatever "this" was.
+        r"into (?:spanish|french|german|japanese|chinese|mandarin"
+        r"|korean|portuguese|italian|russian|arabic|hindi|dutch|polish"
+        r"|swedish|turkish|vietnamese|thai|hebrew|greek)\b",
+        r"\blocaliz\w+ (?:this|the|it)\b",
+    ),
 }
 
 _FIELD_RES: dict[str, re.Pattern[str]] = {
@@ -236,6 +289,34 @@ _PRECISION_RE = re.compile(
 _QUANTITATIVE_RE = re.compile(
     r"\b(?:calculat\w*|comput\w*|estimat\w*|how many|how much|"
     r"derive|derivation|percentage|probabilit\w*)",
+    re.IGNORECASE,
+)
+
+# The answer depends on the state of the world rather than on knowledge, so a
+# training cutoff makes it wrong rather than incomplete. Two kinds of cue:
+# explicit recency words, and the counting/roster/price/standings questions whose
+# answer silently changed at some point after the model stopped learning — "how
+# many teams are in the WNBA" is the reported case, and nothing in the wording
+# marks it as time-sensitive.
+#
+# A bare four-digit year is included because a prompt that names one is asking
+# about a specific moment, and the model's sense of which moment is "now" is the
+# thing that cannot be trusted. Deliberately broader than the long-form cues: a
+# false positive here costs one search (about $0.007), a false negative is a
+# confidently wrong answer, and those are not the same size of mistake.
+_CURRENT_INFO_RE = re.compile(
+    r"\b(?:current\w*|currently|latest|most recent|recent\w*|today|todays|"
+    r"tonight|yesterday|this (?:year|month|week|season)|"
+    r"right now|as of|up[- ]to[- ]date|so far|"
+    r"news|headline\w*|breaking|announce\w*|release\w*|launch\w*|"
+    r"who won|standing\w*|score\w*|schedule\w*|roster\w*|lineup\w*|"
+    r"price|prices|cost of|stock|share price|exchange rate|"
+    # "still" only in the shapes that ask whether something has since changed —
+    # not bare, which would catch "I still don't understand this function".
+    r"still (?:the|in|a|an|called|named|true|valid|active|available|"
+    r"supported|maintained|around|working)\b|"
+    r"how many (?:teams|players|members|states|countries|models)|"
+    r"\b20[2-9]\d)\b",
     re.IGNORECASE,
 )
 
@@ -281,6 +362,8 @@ def classify_profile(prompt: str) -> PromptProfile:
         demands.add("factual_precision")
     if _QUANTITATIVE_RE.search(lower):
         demands.add("quantitative")
+    if _CURRENT_INFO_RE.search(lower):
+        demands.add("current_info")
     if len(prompt) >= _LEN_HARD:
         demands.add("long_synthesis")
 

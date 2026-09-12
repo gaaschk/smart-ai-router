@@ -176,6 +176,27 @@
   }
   body.guest .guest-banner { display: block; }
   .guest-banner b { color: var(--text); font-weight: 600; }
+  /* The recovery link is a bearer credential for every chat in this session, so
+     it stays behind a click rather than sitting on screen where a screenshot or a
+     glance over the shoulder hands someone else the history. */
+  .guest-recovery { margin-top: 0.5rem; }
+  .guest-recovery-toggle {
+    color: var(--accent); cursor: pointer; font-weight: 600;
+    background: none; border: 0; padding: 0; font-size: inherit; font-family: inherit;
+  }
+  .guest-recovery-toggle:hover { text-decoration: underline; }
+  .guest-recovery-box {
+    margin-top: 0.5rem; padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  }
+  .guest-recovery-box p { margin: 0 0 0.4rem; }
+  .guest-recovery-row { display: flex; gap: 0.4rem; align-items: center; }
+  .guest-recovery-row input {
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem;
+    padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface); color: var(--text-secondary);
+  }
+  .guest-recovery-copied { color: var(--success); font-size: 0.72rem; }
 
   /* ── Page sections ───────────────────────────────────────────────── */
   .page { display: none; padding: 2rem; max-width: 1200px; margin: 0 auto; }
@@ -304,19 +325,70 @@
   .chat-conv-list { flex: 1; overflow-y: auto; padding: 0.4rem; }
   .chat-conv-empty { color: var(--text-muted); font-size: 0.78rem; padding: 0.6rem; text-align: center; }
   .chat-conv {
-    display: flex; align-items: center; gap: 0.3rem;
+    display: flex; flex-direction: column; gap: 0.2rem;
     padding: 0.45rem 0.5rem; border-radius: var(--radius-sm);
     cursor: pointer; font-size: 0.82rem; color: var(--text-secondary);
   }
   .chat-conv:hover { background: var(--surface-raised); }
   .chat-conv.active { background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent); }
+  .chat-conv-main { display: flex; align-items: center; gap: 0.3rem; position: relative; }
   .chat-conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-conv-x {
-    opacity: 0; color: var(--text-muted); font-weight: 700;
-    padding: 0 0.2rem; border-radius: 4px; flex-shrink: 0;
+  /* The action cluster floats over the title's tail instead of sitting in the
+     flow: three buttons' worth of reserved width would cost every title an
+     ellipsis in a sidebar this narrow. Hidden until hover, so the list reads as
+     titles rather than toolbars, and opaque so the covered tail doesn't show. */
+  .chat-conv-acts {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    display: flex; align-items: center; gap: 0.3rem;
+    opacity: 0; padding-left: 0.5rem; background: var(--surface-raised);
   }
-  .chat-conv:hover .chat-conv-x { opacity: 1; }
+  .chat-conv:hover .chat-conv-acts { opacity: 1; }
+  .chat-conv.active .chat-conv-acts { background: var(--accent-soft); }
+  .chat-conv-act { color: var(--text-muted); font-size: 0.78rem; padding: 0 0.15rem; border-radius: 4px; }
+  .chat-conv-act:hover { color: var(--accent); }
+  .chat-conv-x { color: var(--text-muted); font-weight: 700; padding: 0 0.2rem; border-radius: 4px; }
   .chat-conv-x:hover { color: var(--error); }
+  .chat-conv-rename {
+    flex: 1; min-width: 0; font-size: 0.82rem; font-family: inherit;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 0.1rem 0.3rem;
+  }
+  /* Second line of a row: the thread's own tags, plus its owner in the admin's
+     all-users view (which is the only place two rows can belong to two people). */
+  .chat-conv-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; }
+  .chat-conv-tag {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .chat-conv-owner {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--accent-soft); color: var(--accent-text); font-weight: 600;
+  }
+  .chat-conv-private {
+    font-size: 0.62rem; padding: 0.05rem 0.3rem; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--warning); color: var(--warning);
+  }
+
+  /* ── Sidebar filters (tag chips, and the admin's owner picker) ───────── */
+  .chat-filters { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .chat-filter-label {
+    display: block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem;
+  }
+  .chat-owner-select {
+    width: 100%; margin-bottom: 0.5rem;
+    background: var(--surface-raised); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 2px 4px; font-size: 0.78rem; cursor: pointer;
+  }
+  .chat-tag-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .chat-tag-chips .chip { padding: 0.15rem 0.45rem; font-size: 0.66rem; }
+  .tags-modal-input {
+    width: 100%; margin: 0.5rem 0; font-family: inherit; font-size: 0.85rem;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.45rem 0.6rem;
+  }
+  .tags-modal-input:focus { border-color: var(--accent); outline: none; }
 
   .chat-shell {
     flex: 1;
@@ -418,6 +490,45 @@
   }
   .chat-bubble.md th { background: var(--bg); font-weight: 600; }
 
+  /* Rendered HTML/SVG the model produced. A card rather than inline output so
+     it reads as an artifact with its own actions, and so a full-page layout
+     can't be mistaken for part of the reply's prose. */
+  .artifact {
+    margin: 0.7rem 0; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden; background: #fff;
+  }
+  .artifact-bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.5rem; background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+  .artifact-kind {
+    font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600;
+  }
+  .artifact-actions { margin-left: auto; display: flex; gap: 0.3rem; }
+  .artifact-actions button {
+    background: none; border: 1px solid var(--border); color: var(--text-secondary);
+    border-radius: var(--radius-sm); padding: 0.15rem 0.45rem;
+    font-size: 0.72rem; cursor: pointer; font-family: inherit;
+  }
+  .artifact-actions button:hover { color: var(--text); border-color: var(--accent); }
+  /* White background and a fixed height: model markup usually assumes a page,
+     and an auto-height iframe can't be measured without same-origin access —
+     which is exactly the access the sandbox is there to withhold. */
+  .artifact-frame {
+    display: block; width: 100%; height: 420px; border: 0; background: #fff;
+  }
+  .artifact-frame.tall { height: 70vh; }
+  .artifact-code { margin: 0 !important; border-radius: 0 !important; }
+
+  /* The one action offered on a cut-off reply. Styled as a link, not a button:
+     it sits inside a sentence of running text. */
+  .chat-continue {
+    background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+    color: var(--accent); text-decoration: underline;
+  }
+
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 
@@ -448,6 +559,33 @@
   }
   .chat-composer textarea:focus { outline: none; border-color: var(--accent); }
   .chat-composer-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+  /* Voice is the one control that keeps running after you click it, so unlike the
+     other ghost buttons it has to look switched-on at a glance — a hot microphone
+     the user has forgotten about is a privacy problem, not just a UI one. */
+  #btn-chat-voice.voice-active,
+  #btn-chat-talk.voice-active { color: var(--accent); border-color: var(--accent); }
+  #btn-chat-voice.voice-listening,
+  #btn-chat-talk.voice-listening { animation: voice-pulse 1.4s ease-in-out infinite; }
+  @keyframes voice-pulse { 50% { opacity: 0.45; } }
+  /* Respect a reduced-motion preference: the pulse is decoration, and the colour
+     already carries the state. */
+  @media (prefers-reduced-motion: reduce) {
+    #btn-chat-voice.voice-listening,
+    #btn-chat-talk.voice-listening { animation: none; }
+  }
+  .voice-status {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: var(--text-dim); margin: 0.4rem 0 0.1rem;
+  }
+  /* A level bar, not a waveform: the only question it has to answer is "is any
+     sound reaching the microphone", and the answer needs to be readable out of the
+     corner of an eye while you're talking. */
+  .voice-meter {
+    flex: 0 0 64px; height: 4px; border-radius: 2px;
+    background: var(--border); overflow: hidden;
+  }
+  .voice-meter i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .voice-status.voice-problem { color: var(--warning); }
   .chat-cap-note { font-size: 0.72rem; color: var(--warning); }
   .chat-agent-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer; user-select: none; }
   .chat-agent-toggle input { cursor: pointer; accent-color: var(--accent); }
@@ -954,6 +1092,37 @@
     opacity: 0.5;
   }
 
+  /* ── Reports (admin) ─────────────────────────────────────────────── */
+  .report-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem;
+  }
+  .report-card summary { cursor: pointer; font-size: 0.78rem; color: var(--text-muted); }
+  .report-desc { font-size: 0.9rem; margin: 0.5rem 0; white-space: pre-wrap; }
+  .report-turn {
+    border-left: 2px solid var(--border); padding-left: 0.6rem; margin: 0.6rem 0;
+    font-size: 0.82rem; color: var(--text-secondary); white-space: pre-wrap;
+  }
+
+  /* Feedback tab: a fixed pill on the right edge, on every page. It hugs the
+     right rather than the usual bottom-right corner because the chat composer's
+     Send button already lives there. Vertical text via writing-mode, so the tab
+     costs ~30px of width and never covers content. */
+  .fab-feedback {
+    position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    z-index: 900; writing-mode: vertical-rl; cursor: pointer;
+    padding: 0.85rem 0.45rem; font: inherit; font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-right: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+    transition: color var(--transition), border-color var(--transition);
+  }
+  .fab-feedback:hover { color: var(--accent-text); border-color: var(--accent); }
+  @media (max-width: 560px) {
+    .fab-feedback .fab-label { display: none; }   /* flag only, on a phone */
+  }
+
   /* ── Modal (one-time key reveal) ─────────────────────────────────── */
   .modal-backdrop {
     display: none;
@@ -1008,7 +1177,7 @@
     .chat-msg { max-width: 92%; }
   }
 
-  /* Phone. The topbar's fixed 56px row can't hold the logo text + 6 nav
+  /* Phone. The topbar's fixed 56px row can't hold the logo text + 7 nav
      buttons + status, so it wraps to a two-row auto-height bar, the nav
      scrolls horizontally, and non-essential chrome (logo text, status
      label, model count) is hidden. The chat drops its sidebar to a short
@@ -1079,6 +1248,7 @@
     <button id="nav-chat" onclick="showPage('chat')">Chat</button>
     <button data-admin onclick="showPage('models')">Models</button>
     <button data-admin onclick="showPage('usage')">Usage</button>
+    <button data-admin onclick="showPage('reports')">Reports</button>
     <button data-admin onclick="showPage('providers')">Providers</button>
     <button data-admin onclick="showPage('keys')">Keys</button>
     <button data-admin onclick="showPage('settings')">Settings</button>
@@ -1143,11 +1313,30 @@
 <div class="page" id="page-chat">
   <h1 class="page-title">Chat</h1>
   <p class="page-subtitle" data-admin>Talk to the router. It classifies each message, picks a model, and streams the reply. Attach files — PDF, Word, PowerPoint, and Excel are read as text; images need a vision-capable model. Agent mode (Auto by default) turns on when you ask for a file or filesystem work, and can create documents (PDF, Word, PowerPoint, Excel, Markdown) for you to download.</p>
+  <!-- Privacy is worth stating rather than leaving to be discovered on hover, so
+       this line is shown to anyone an admin could otherwise read (_chatCanShare).
+       No data-admin: a guest needs it more than an admin does. -->
+  <p class="page-subtitle" id="chat-privacy-hint" style="display:none">
+    Your chats are visible to the admin who runs this router. Use the 🔓 on a chat in
+    the list to make that one private — then only you can see it.
+  </p>
 
   <div class="chat-layout">
    <aside class="chat-sidebar">
      <div class="chat-sidebar-head">
        <button class="btn btn-primary btn-sm chat-new-btn" onclick="newChat()">＋ New chat</button>
+     </div>
+     <!-- Filters render themselves: the owner picker only for an admin key, the
+          tag chips only once some thread carries a tag. -->
+     <div class="chat-filters" id="chat-filters" style="display:none">
+       <div id="chat-owner-filter" style="display:none">
+         <span class="chat-filter-label">Owner</span>
+         <select class="chat-owner-select" id="chat-owner-select" onchange="onOwnerFilterChange(this.value)"></select>
+       </div>
+       <div id="chat-tag-filter" style="display:none">
+         <span class="chat-filter-label">Groups</span>
+         <div class="chat-tag-chips" id="chat-tag-chips"></div>
+       </div>
      </div>
      <div class="chat-conv-list" id="chat-conv-list">
        <div class="chat-conv-empty">No conversations yet.</div>
@@ -1161,10 +1350,47 @@
     <div class="guest-banner" id="guest-banner">
       <b>You're chatting as a guest.</b> No account needed — the router picks a
       model for each message and streams the reply. Your conversations are private
-      to this browser and disappear if you clear its cookies. File uploads and
-      agent mode need an API key.
+      to this browser. File uploads and agent mode need an API key.
       <span id="guest-degraded" style="display:none"><br>Today's free usage is
       running high, so replies are coming from free and local models right now.</span>
+      <div class="guest-recovery" id="guest-recovery" style="display:none">
+        <button class="guest-recovery-toggle" onclick="showRecoveryLink()">
+          Keep these chats if this browser forgets you →
+        </button>
+        <div class="guest-recovery-box" id="guest-recovery-box" style="display:none">
+          <p>Save this link. Opening it restores these chats — in another browser,
+          or here after clearing your cookies. <b>Anyone who has the link can read
+          them</b>, so keep it to yourself.</p>
+          <div class="guest-recovery-row">
+            <input type="text" id="guest-recovery-url" readonly onclick="this.select()">
+            <button class="btn btn-sm" onclick="copyRecoveryLink()">Copy</button>
+            <span class="guest-recovery-copied" id="guest-recovery-copied"
+                  style="display:none">Copied</span>
+          </div>
+        </div>
+      </div>
+      <!-- Shown only when the operator has turned self-serve accounts on. Sits
+           below the recovery link because it is the stronger version of the same
+           offer: a link keeps these chats reachable, a key makes them portable. -->
+      <div class="guest-recovery" id="guest-signup" style="display:none">
+        <button class="guest-recovery-toggle" id="guest-signup-btn"
+                onclick="startSignup(this)">
+          Get a free API key so these chats work on your other devices →
+        </button>
+      </div>
+    </div>
+
+    <!-- Shown to a self-issued key, and it says the two things its holder cannot
+         find out any other way: the key *is* the account, so nobody can recover
+         it for them, and the account is capped. -->
+    <div class="guest-banner" id="selfserve-banner" style="display:none">
+      <b>You're using a self-serve account.</b> <span id="selfserve-user"></span>
+      Keep your API key somewhere safe — it <b>is</b> the account. Nobody can
+      recover it for you, including whoever runs this site, because nothing about
+      you was collected. Agent mode needs a key issued by the operator.
+      <span id="selfserve-degraded" style="display:none"><br>This account has used
+      today's allowance, so replies are coming from free and local models until
+      tomorrow.</span>
     </div>
 
     <div class="chat-transcript" id="chat-transcript">
@@ -1173,11 +1399,48 @@
 
     <div class="chat-attachments" id="chat-attachments"></div>
 
+    <!-- Voice runs with your eyes free, which is exactly when a silent failure is
+         worst: a mic that never opened and a mic waiting for you to speak look
+         identical. This strip is the only place the page can say which. The level
+         bar is fed straight from the microphone, so it answers "can it hear me"
+         even when speech recognition itself is the thing that's broken. -->
+    <div class="voice-status" id="voice-status" style="display:none">
+      <span class="voice-meter"><i id="voice-level"></i></span>
+      <span id="voice-status-text"></span>
+    </div>
+
     <div class="chat-composer">
       <textarea id="chat-input" rows="1" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)"></textarea>
       <div class="chat-composer-actions">
         <input type="file" id="chat-file" multiple style="display:none" onchange="onChatFilesPicked(event)">
         <button class="btn btn-ghost btn-sm" id="btn-chat-attach" onclick="document.getElementById('chat-file').click()" title="Attach files">📎 Attach</button>
+        <!-- Hands-free voice, done in the browser: the mic transcribes locally and
+             the reply is read aloud, so the router still only ever sees text and
+             voice works with whichever model it picks. Press Escape to cut the
+             assistant off mid-sentence and talk again. -->
+        <button class="btn btn-ghost btn-sm" id="btn-chat-voice" onclick="toggleVoice()"
+                title="Talk instead of typing: speak, pause, and it sends. The reply is read back to you; Escape interrupts it. A level bar shows whether the microphone is reaching the page. Needs HTTPS or localhost — browsers block the microphone on plain HTTP.">🎙 Voice</button>
+        <!-- Model-native voice: the audio itself goes to an audio-in/audio-out
+             model and comes back as speech, which is what makes ChatGPT's voice
+             mode sound human. Hidden unless the admin key is in use — it bills
+             audio tokens on a model that was not chosen on price, so it stays
+             behind the one identity with no spend cap until it has one. -->
+        <button class="btn btn-ghost btn-sm" id="btn-chat-talk" onclick="toggleTalk()" style="display:none"
+                title="Speech-to-speech: the model hears your voice and answers in its own, instead of the browser transcribing and reading text aloud. Sounds far better and costs audio tokens per turn — and voice turns are NOT routed, because barely any model can emit audio. Admin only.">🔊 Talk</button>
+        <!-- Export is a <select> that immediately acts and resets, so it reads as
+             a menu of one-shot actions rather than a setting with a current
+             value. PDF goes through the browser's own print dialog: it needs no
+             server-side renderer, and it is the one path guaranteed to match
+             what the reader is looking at. -->
+        <label class="chat-agent-toggle" id="chat-export-label" title="Save this conversation, or print it to PDF">
+          ⤓ Export
+          <select id="chat-export" class="chat-agent-select" onchange="exportChat(this.value); this.value=''">
+            <option value="" selected></option>
+            <option value="md">Markdown (.md)</option>
+            <option value="html">Web page (.html)</option>
+            <option value="print">Print / Save as PDF…</option>
+          </select>
+        </label>
         <label class="chat-agent-toggle" id="chat-agent-label" title="Agent mode lets the assistant read, write, and create files in your private workspace. Auto turns it on only when your request asks for a file or filesystem work.">
           🛠 Agent
           <select id="chat-agent" class="chat-agent-select">
@@ -1436,6 +1699,21 @@
   </div>
 </div>
 
+<!-- ── Reports (bad responses users filed) ─────────────────────────── -->
+<div class="page" id="page-reports">
+  <h1 class="page-title">Reports</h1>
+  <p class="page-subtitle">Bad responses users reported, newest first. Each one carries
+  the whole conversation as it was sent upstream plus the routing decision behind the
+  reply — which model answered, on what profile, and why it was picked. Delete a report
+  once you've acted on it; nothing else clears it.</p>
+
+  <div id="reports-list"></div>
+  <div id="reports-empty" class="empty-state" style="display:none">
+    <div class="empty-icon">⚑</div>
+    No reports. Users can file one from the ⚑ Report link under any reply.
+  </div>
+</div>
+
 <!-- ── Providers ───────────────────────────────────────────────────── -->
 <div class="page" id="page-providers">
   <h1 class="page-title">Providers</h1>
@@ -1668,15 +1946,255 @@ async function detectGuestMode() {
   if (getApiKey()) return false;          // a stored key: normal (possibly admin) UI
   try {
     const r = await _rawFetch(`${API}/whoami`);
-    if (!r.ok) return false;              // 401 → auth required, use the key prompt
+    if (!r.ok) {
+      // Auth is required and we hold nothing. If this deployment mints keys on
+      // request, offering that is the only useful thing to show; otherwise fall
+      // through to the key prompt, which is right for an operator who has a key.
+      if (await signupAvailable()) showSignupGate();
+      return false;
+    }
     const me = await r.json();
     if (!me.anon) return false;
     _guestMode = true;
     document.body.classList.add('guest');
     const deg = document.getElementById('guest-degraded');
     if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
+    // Only a guest has an identity fragile enough to need saving.
+    const rec = document.getElementById('guest-recovery');
+    if (rec) rec.style.display = '';
+    // Offered to a guest as the durable version of the recovery link: a link keeps
+    // these chats reachable, a key makes them portable. Checked rather than always
+    // shown, so a deployment with signup off never advertises it.
+    if (await signupAvailable()) {
+      const su = document.getElementById('guest-signup');
+      if (su) su.style.display = '';
+    }
     return true;
   } catch(_) { return false; }
+}
+
+// ── Anonymous identity durability ─────────────────────────────────────────────
+// A guest's entire history hangs off one HttpOnly cookie, and cookies are the
+// first thing a browser throws away — ITP evicts them, storage pressure evicts
+// them, "clear recent history" takes them on purpose. When it goes, those
+// conversations are unreachable by anyone, including the operator. Two backstops,
+// both built on the same signed token from /api/anon/session:
+//
+//   * a localStorage mirror, restored automatically. Cookies and localStorage are
+//     cleared by different browser actions, so losing both takes intent rather
+//     than a routine cache purge.
+//   * a recovery link the visitor can save, which is the only thing here that can
+//     cross to a different browser or device.
+//
+// The token is a bearer credential for that history — there is no password to
+// pair it with, because the whole point is that we know nothing about the person.
+const ANON_TOKEN_KEY = 'sair_anon_token';
+
+function readStoredAnonToken() {
+  try { return localStorage.getItem(ANON_TOKEN_KEY) || ''; } catch(_) { return ''; }
+}
+function storeAnonToken(token) {
+  try {
+    if (token) localStorage.setItem(ANON_TOKEN_KEY, token);
+    else localStorage.removeItem(ANON_TOKEN_KEY);
+  } catch(_) {}    // private browsing / storage disabled: the cookie still works
+}
+// The session id is the token's first dot-separated field. Compared rather than
+// comparing whole tokens because a re-stamped token is a different string for the
+// same visitor, and treating that as a different person would restore in a loop.
+function anonSessionOf(token) { return String(token || '').split('.')[0]; }
+
+async function fetchAnonSession() {
+  try {
+    const r = await _rawFetch(`${API}/anon/session`);
+    return r.ok ? await r.json() : null;
+  } catch(_) { return null; }
+}
+
+async function claimAnonToken(token) {
+  try {
+    const r = await _rawFetch(`${API}/anon/claim`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    storeAnonToken(body.token || token);   // the server re-stamps it; keep the fresh one
+    return body;
+  } catch(_) { return null; }
+}
+
+// A recovery link arrives as #claim=<token>. Must run before anything asks who we
+// are, so the whole page loads as the reclaimed visitor rather than reloading.
+async function claimFromFragment() {
+  const m = (location.hash || '').match(/^#claim=([A-Za-z0-9_.-]+)$/);
+  if (!m) return false;
+  // Out of the address bar before anything else. A fragment never reaches the
+  // server — which is why the link uses one instead of a query string, keeping the
+  // token out of access logs and Referer headers — but the browser still shows it.
+  history.replaceState(null, '', location.pathname + location.search);
+  const claimed = await claimAnonToken(m[1]);
+  if (!claimed) alert('That recovery link is no longer valid.');
+  return !!claimed;
+}
+
+// Pasting a recovery link into the tab that is already open changes only the
+// fragment, which is a same-document navigation: no page load, so initDashboard
+// never runs and the link would appear to do nothing. Reloading after the claim is
+// the point — the cached identity and the loaded chat list both belong to whoever
+// the visitor was a moment ago. (replaceState above does not fire this, so
+// stripping the token can't loop.)
+window.addEventListener('hashchange', async () => {
+  if (await claimFromFragment()) location.reload();
+});
+
+// Reconcile the live cookie against the mirror, and return true if the caller
+// should reload as a different visitor.
+//
+// Restores only when the live identity has nothing to lose. A cookie that already
+// has chats under it is the newer truth: replacing it would strand those chats
+// with no link to get back to them, which is the very failure being prevented.
+async function syncAnonIdentity(liveConvCount) {
+  const live = await fetchAnonSession();
+  if (!live) return false;
+  const stored = readStoredAnonToken();
+  if (stored && anonSessionOf(stored) !== live.session_id && liveConvCount === 0) {
+    if (await claimAnonToken(stored)) return true;
+  }
+  // Also self-healing: a mirror the server no longer honors (secret rotated) gets
+  // overwritten with one that works instead of being retried forever.
+  storeAnonToken(live.token);
+  return false;
+}
+
+async function showRecoveryLink() {
+  const live = await fetchAnonSession();
+  if (!live) return;
+  const field = document.getElementById('guest-recovery-url');
+  field.value = `${location.origin}/#claim=${live.token}`;
+  document.getElementById('guest-recovery-box').style.display = '';
+  document.getElementById('guest-recovery-copied').style.display = 'none';
+  field.select();
+}
+
+async function copyRecoveryLink() {
+  const field = document.getElementById('guest-recovery-url');
+  const note = document.getElementById('guest-recovery-copied');
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch(_) {
+    field.select();                    // no clipboard permission: they can copy it
+    document.execCommand && document.execCommand('copy');
+  }
+  note.style.display = '';
+  setTimeout(() => { note.style.display = 'none'; }, 2000);
+}
+
+// ── Self-serve accounts ───────────────────────────────────────────────────────
+// A key anyone can mint for themselves, with nothing collected in exchange. Two
+// entry points, because there are two ways to arrive here with no credential:
+//   * as a guest — anonymous chat is on, so there is a banner to put the offer in,
+//     and signing up carries the visitor's existing chats onto the new account.
+//   * at a locked door — anonymous chat is off, every fetch 401s, and the offer
+//     *is* the page. Without this, a first-time visitor gets a browser prompt
+//     asking for a secret that by definition does not exist yet.
+// Both land in the same one-time reveal.
+const SIGNUP_CTA = 'Get a free API key so these chats work on your other devices →';
+let _signupAvailable = null;      // null = not asked yet
+let _signupGateOpen = false;
+
+async function signupAvailable() {
+  if (_signupAvailable !== null) return _signupAvailable;
+  try {
+    // _rawFetch: this is the one question worth asking *without* the key wrapper,
+    // since the whole point is that we have no key and must not trigger a prompt.
+    const r = await _rawFetch(`${API}/signup`);
+    const body = r.ok ? await r.json() : null;
+    _signupAvailable = !!(body && body.available);
+  } catch(_) { _signupAvailable = false; }
+  return _signupAvailable;
+}
+
+async function startSignup(trigger) {
+  const label = trigger ? trigger.textContent : '';
+  if (trigger) { trigger.disabled = true; trigger.textContent = 'Creating your account…'; }
+  let acct = null, detail = '';
+  try {
+    const r = await _rawFetch(`${API}/signup`, { method: 'POST' });
+    if (r.ok) acct = await r.json();
+    else { try { detail = (await r.json()).detail || ''; } catch(_) {} }
+  } catch(_) {}
+  if (trigger) { trigger.disabled = false; trigger.textContent = label; }
+  if (!acct || !acct.key) {
+    alert(detail || 'Could not create an account right now. Please try again later.');
+    return;
+  }
+  closeSignupGate();
+  showSignupKey(acct);
+}
+
+function showSignupKey(acct) {
+  // Stored immediately rather than when they click through: if the tab closed
+  // between the reveal and the confirm, the key — and the account behind it —
+  // would be gone for good. Writing it down is a backup for their *other*
+  // devices, not for this one.
+  setApiKey(acct.key);
+  document.getElementById('signup-key-value').textContent = acct.key;
+  document.getElementById('signup-handle').textContent = acct.user || '';
+  const carried = document.getElementById('signup-carried');
+  const n = acct.carried_over || 0;
+  carried.style.display = n ? '' : 'none';
+  carried.textContent = n === 1
+    ? 'Your existing chat has moved onto this account.'
+    : `Your ${n} existing chats have moved onto this account.`;
+  document.getElementById('signup-modal').classList.add('open');
+}
+
+async function copySignupKey() {
+  const btn = document.getElementById('btn-signup-copy');
+  try {
+    await navigator.clipboard.writeText(
+      document.getElementById('signup-key-value').textContent
+    );
+    const orig = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch(_) { alert('Copy failed — select the key and copy manually.'); }
+}
+
+function finishSignup() {
+  document.getElementById('signup-modal').classList.remove('open');
+  // Reload rather than patch the page: the identity changed, so the chat list, the
+  // badge and every cached answer belong to someone else now.
+  location.reload();
+}
+
+function showSignupGate() {
+  _signupGateOpen = true;
+  document.getElementById('signup-gate').classList.add('open');
+}
+
+function closeSignupGate() {
+  _signupGateOpen = false;
+  document.getElementById('signup-gate').classList.remove('open');
+}
+
+function gateEnterKey() {
+  if (promptApiKey()) location.reload();
+}
+
+// The banner for someone already holding a self-issued key. Driven from whoami
+// rather than from signup, because it has to appear on every later visit too.
+function renderSelfServeBanner(me) {
+  const box = document.getElementById('selfserve-banner');
+  if (!box) return;
+  if (!me || !me.self_serve) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const who = document.getElementById('selfserve-user');
+  if (who) who.textContent = me.user ? `(${me.user})` : '';
+  const deg = document.getElementById('selfserve-degraded');
+  if (deg) deg.style.display = me.degraded ? 'inline' : 'none';
 }
 
 // Let a guest become the operator: the badge is the only way back in once the
@@ -1690,13 +2208,26 @@ function onIdentityClick() {
 // Show who the stored key authenticates as (root/admin, a per-user label, or
 // open mode) so it's never a mystery which key is in use. /api/whoami reads the
 // identity the server attached to the request — it never returns the secret.
+// Fetched once and shared: the badge below and the chat sidebar (which offers the
+// owner filter to an admin key only) both need the same answer, and startup fires
+// loadWhoAmI() without awaiting it.
+let _whoAmIPromise = null;
+
+function fetchWhoAmI() {
+  if (!_whoAmIPromise) {
+    _whoAmIPromise = fetch(`${API}/whoami`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  }
+  return _whoAmIPromise;
+}
+
 async function loadWhoAmI() {
   const el = document.getElementById('topbar-whoami');
   if (!el) return;
   try {
-    const r = await fetch(`${API}/whoami`);
-    if (!r.ok) throw new Error();
-    const me = await r.json();
+    const me = await fetchWhoAmI();
+    if (!me) throw new Error();
     el.classList.toggle('admin', me.kind === 'admin');
     if (me.kind === 'admin') {
       el.innerHTML = `<span class="whoami-icon">🔑</span> root (admin)`;
@@ -1713,6 +2244,8 @@ async function loadWhoAmI() {
       el.title = 'No API key required by this router';
     }
     el.style.display = 'inline-flex';
+    revealNativeVoice(me);
+    renderSelfServeBanner(me);
   } catch(_) {
     el.style.display = 'none';   // e.g. still unauthenticated; the prompt handles it
   }
@@ -1794,6 +2327,7 @@ function showPage(name) {
   if (name === 'models' && _allModels.length === 0) fetchModels();
   if (name === 'chat') initChat();
   if (name === 'usage') fetchUsage();
+  if (name === 'reports') fetchReports();
   if (name === 'providers') fetchProviders();
   if (name === 'keys') fetchKeys();
   if (name === 'settings') { doCheckUpdates(); fetchRuntimeSettings(); }
@@ -1801,9 +2335,24 @@ function showPage(name) {
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
+  // A recovery link has to be redeemed before anything asks who we are, so every
+  // fetch below (and the cached /api/whoami answer) belongs to the reclaimed
+  // visitor rather than the one this browser's cookie happens to name.
+  await claimFromFragment();
   // Identity first. A guest gets the chat page and nothing else, so none of the
   // admin fetches below are worth making — they would only 401.
   if (await detectGuestMode()) {
+    loadWhoAmI();
+    showChatOnly();
+    return;
+  }
+  // Auth is required, we have no key, and the gate is offering to mint one. Firing
+  // the dashboard fetches now would stack a browser key prompt on top of it.
+  if (_signupGateOpen) return;
+  // A self-issued key gets the chat page and nothing else, same as a guest: every
+  // other tab is admin-gated and would only 403 at its holder.
+  const me = await fetchWhoAmI();
+  if (me && me.self_serve) {
     loadWhoAmI();
     showChatOnly();
     return;
@@ -2427,6 +2976,81 @@ async function doSync() {
   }
 }
 
+// ── Reports (admin: what users said was wrong) ───────────────────────────────
+// A report is only worth collecting if someone reads it, so this is the other
+// half of the ⚑ Report link in the chat. Whole transcripts come down with the
+// list — the counts here are small, and a second fetch per report to read the
+// thing it exists to show would be a round trip for nothing.
+async function fetchReports() {
+  const host = document.getElementById('reports-list');
+  const empty = document.getElementById('reports-empty');
+  host.innerHTML = '';
+  try {
+    const r = await fetch(`${API}/reports`);
+    if (!r.ok) {
+      let detail; try { detail = (await r.json()).detail; } catch(_) {}
+      throw new Error(detail || `GET /api/reports failed (${r.status})`);
+    }
+    const reports = (await r.json()).data || [];
+    empty.style.display = reports.length ? 'none' : 'block';
+    host.innerHTML = reports.map(reportCard).join('');
+  } catch(e) {
+    empty.style.display = 'none';
+    host.innerHTML = `<div class="empty-state" style="color:var(--error)">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function reportCard(rep) {
+  const meta = rep.meta || {};
+  const head = [
+    fmtMsgTime(rep.ts),
+    rep.user || 'anonymous',
+    meta.routed || 'model unknown',
+    meta.profile || '',
+  ].filter(Boolean).map(escapeHtml).join(' · ');
+  const turns = (rep.transcript || []).map(m => {
+    const { text, imgs, files } = messageParts(m && m.content);
+    const attached = [imgs ? `${imgs} image(s)` : '', files ? `${files} attachment(s)` : '']
+      .filter(Boolean).join(', ');
+    return `<div class="report-turn"><div class="chat-meta">${escapeHtml((m && m.role) || '?')}`
+      + `${attached ? ` · ${escapeHtml(attached)}` : ''}</div>${escapeHtml(text)}</div>`;
+  }).join('') || '<div class="chat-meta">No transcript was attached.</div>';
+  // The reply that was reported, quoted: in a long thread the description alone
+  // doesn't say which answer it is about.
+  const quoted = meta.reported_text
+    ? `<div class="report-turn" style="border-color:var(--warning)">${escapeHtml(meta.reported_text)}</div>`
+    : '';
+  const why = meta.why ? `<div class="chat-meta">Routing: ${escapeHtml(meta.why)}</div>` : '';
+  const conv = rep.conversation_id
+    ? `<div class="chat-meta">Thread ${escapeHtml(rep.conversation_id)}</div>`
+    : `<div class="chat-meta">Unsaved thread — this snapshot is the only copy.</div>`;
+  // Where it went on GitHub, or why it didn't — a token that stopped working is
+  // otherwise invisible until someone wonders where the issues went.
+  const issue = rep.issue_url
+    ? `<div class="chat-meta">Issue: <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">${escapeHtml(rep.issue_url)}</a></div>`
+    : rep.github_error
+      ? `<div class="chat-meta" style="color:var(--warning)">Not filed on GitHub: ${escapeHtml(rep.github_error)}</div>`
+      : '';
+  return `<div class="report-card">
+    <div class="chat-meta">#${rep.id} · ${head}</div>
+    <div class="report-desc">${escapeHtml(rep.description)}</div>
+    ${quoted}${why}${conv}${issue}
+    <details><summary>Conversation (${(rep.transcript || []).length} messages)</summary>${turns}</details>
+    <div style="margin-top:0.75rem">
+      <button class="btn btn-sm btn-danger" onclick="deleteReport(${rep.id})">Delete</button>
+    </div>
+  </div>`;
+}
+
+async function deleteReport(id) {
+  if (!confirm(`Delete report #${id}? The transcript goes with it.`)) return;
+  try {
+    const r = await fetch(`${API}/reports/${id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`Delete failed (${r.status})`);
+  } catch(e) { alert(e.message); }
+  fetchReports();
+}
+
 // ── Providers ───────────────────────────────────────────────────────────────
 async function fetchProviders() {
   try {
@@ -3036,8 +3660,20 @@ let _chatAttachments = [];     // {id, filename, mime, isImage} uploaded this tu
 let _chatCaps = null;
 let _chatInited = false;
 let _chatConvId = null;        // id of the conversation being viewed (null = unsaved/new)
-let _chatConvs = [];           // sidebar list of {id, title, updated_at}
+let _chatConvs = [];           // sidebar list of {id, title, tags, user, updated_at}
 let _chatAbort = null;         // AbortController for the in-flight reply, if any
+let _chatIsAdmin = false;      // admin key → the owner filter is offered
+let _chatCanShare = false;     // someone an admin could read → the privacy toggle
+let _chatOwners = [];          // every owner with chat history (admin only)
+let _chatOwnerFilter = '';     // '' = all owners; server-side filter
+let _chatTagFilter = '';       // '' = all groups; filtered in the browser
+let _chatRenamingId = null;    // row whose title is being edited inline
+let _chatTagsEditId = null;    // row the groups modal is editing
+// The routing decision behind the most recent reply, kept for a report to attach.
+// It lives only in this turn's response headers — nothing persists routing per
+// message — so a report filed without it can't say which model actually answered.
+let _lastRouting = null;
+let _reportTarget = null;      // the assistant bubble a report is being filed on
 
 // Max messages replayed upstream per turn (see trimChatHistory). ~20 turns.
 const _CHAT_HISTORY_MAX = 40;
@@ -3054,7 +3690,24 @@ async function initChat() {
     });
     await refreshChatCaps();
   }
+  // Only an admin key can see other people's threads, so only it gets the owner
+  // filter. Cached, so this costs one request per page load at most.
+  const me = await fetchWhoAmI();
+  _chatIsAdmin = !!me && me.kind === 'admin';
+  // The privacy toggle is only meaningful for someone an admin could otherwise
+  // read: in open mode there is no separate admin, and admin hiding a thread from
+  // itself does nothing.
+  _chatCanShare = !!me && (me.kind === 'user' || me.kind === 'anon');
+  document.getElementById('chat-privacy-hint').style.display =
+    _chatCanShare ? '' : 'none';
   await loadConversations();
+  // Now that the list is loaded, its emptiness is the signal syncAnonIdentity
+  // needs: a live identity with no chats has nothing to lose, so the localStorage
+  // mirror may safely replace it. Done here rather than at startup for exactly
+  // that reason — the answer isn't knowable until the threads are counted.
+  if (me && me.kind === 'anon' && await syncAnonIdentity(_chatConvs.length)) {
+    location.reload();
+  }
 }
 
 // ── Conversation persistence ────────────────────────────────────────────────
@@ -3064,30 +3717,293 @@ async function initChat() {
 
 async function loadConversations() {
   try {
-    const r = await fetch(`${API}/conversations`);
+    // The owner filter is a server-side scope (admin only, and the server refuses
+    // it for anyone else); the group filter is applied below, in the browser.
+    const qs = _chatOwnerFilter ? `?user=${encodeURIComponent(_chatOwnerFilter)}` : '';
+    const r = await fetch(`${API}/conversations${qs}`);
     if (!r.ok) throw new Error();
-    _chatConvs = (await r.json()).data || [];
+    const body = await r.json();
+    _chatConvs = body.data || [];
+    // `users` is every owner with history, not just the ones in this response, so
+    // the picker can always get back out of a filter. Empty for a non-admin key.
+    if (body.users && body.users.length) _chatOwners = body.users;
   } catch(_) { _chatConvs = []; }
+  renderConvFilters();
   renderConvList();
+}
+
+// Whose thread this is, for the admin's mixed list. Anonymous owners are
+// "anon:<session>" — far too long for a 240px sidebar, so they get shortened.
+function ownerLabel(user) {
+  if (!user) return '(no owner)';
+  if (user.startsWith('anon:')) return `guest · ${user.slice(5, 11)}…`;
+  return user;
+}
+
+// Tag counts across the loaded list — the source for both the chip row and the
+// groups modal's suggestions.
+function convTagCounts() {
+  const counts = new Map();
+  for (const c of _chatConvs) {
+    for (const t of (c.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  return counts;
+}
+
+function renderConvFilters() {
+  const ownerBox = document.getElementById('chat-owner-filter');
+  const tagBox = document.getElementById('chat-tag-filter');
+
+  if (_chatIsAdmin) {
+    const owners = _chatOwners.slice();
+    // Keep the active choice selectable even if its last thread just went away.
+    if (_chatOwnerFilter && !owners.includes(_chatOwnerFilter)) owners.push(_chatOwnerFilter);
+    document.getElementById('chat-owner-select').innerHTML =
+      ['<option value="">All users</option>'].concat(owners.map(u =>
+        `<option value="${escapeHtml(u)}"${u === _chatOwnerFilter ? ' selected' : ''}>${escapeHtml(ownerLabel(u))}</option>`
+      )).join('');
+    ownerBox.style.display = '';
+  } else {
+    ownerBox.style.display = 'none';
+  }
+
+  // Chips are computed from the whole loaded list and the filter is applied in
+  // the browser, so toggling one is instant and the row never collapses to just
+  // the group you picked.
+  const counts = convTagCounts();
+  if (_chatTagFilter && !counts.has(_chatTagFilter)) {
+    _chatTagFilter = '';   // the last thread in that group lost the tag
+  }
+  if (counts.size) {
+    const chips = [`<button class="chip ${_chatTagFilter ? '' : 'active'}" data-tag="">All</button>`]
+      .concat([...counts.keys()].sort().map(t =>
+        `<button class="chip ${t === _chatTagFilter ? 'active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)} · ${counts.get(t)}</button>`
+      ));
+    const host = document.getElementById('chat-tag-chips');
+    host.innerHTML = chips.join('');
+    // Delegated so a tag containing a quote can't break an inline handler.
+    host.onclick = (e) => {
+      const chip = e.target.closest('.chip');
+      if (chip) setTagFilter(chip.dataset.tag || '');
+    };
+    tagBox.style.display = '';
+  } else {
+    tagBox.style.display = 'none';
+  }
+
+  document.getElementById('chat-filters').style.display =
+    (_chatIsAdmin || counts.size) ? '' : 'none';
+}
+
+function setTagFilter(tag) {
+  _chatTagFilter = tag || '';
+  renderConvFilters();
+  renderConvList();
+}
+
+async function onOwnerFilterChange(user) {
+  _chatOwnerFilter = user || '';
+  await loadConversations();
 }
 
 function renderConvList() {
   const el = document.getElementById('chat-conv-list');
-  if (!_chatConvs.length) {
-    el.innerHTML = '<div class="chat-conv-empty">No conversations yet.</div>';
+  const visible = _chatTagFilter
+    ? _chatConvs.filter(c => (c.tags || []).includes(_chatTagFilter))
+    : _chatConvs;
+
+  if (!visible.length) {
+    el.innerHTML = `<div class="chat-conv-empty">${
+      _chatConvs.length ? 'No chats in this group.' : 'No conversations yet.'}</div>`;
     return;
   }
-  el.innerHTML = _chatConvs.map(c =>
-    `<div class="chat-conv ${c.id === _chatConvId ? 'active' : ''}" onclick="selectConversation('${c.id}')" title="${escapeHtml(c.title)}">
-       <span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>
-       <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
-     </div>`
-  ).join('');
+
+  el.innerHTML = visible.map(c => {
+    const badges = (c.tags || []).map(t => `<span class="chat-conv-tag">#${escapeHtml(t)}</span>`);
+    // Private is the exception, so it earns a badge visible without hovering;
+    // shared is the default and says nothing worth a badge.
+    if (c.shared === false) {
+      badges.push('<span class="chat-conv-private">🔒 private</span>');
+    }
+    // Owner is only worth a badge where the list can mix people: admin, unfiltered.
+    if (_chatIsAdmin && !_chatOwnerFilter) {
+      badges.push(`<span class="chat-conv-owner">${escapeHtml(ownerLabel(c.user))}</span>`);
+    }
+    const renaming = c.id === _chatRenamingId;
+    const title = renaming
+      ? `<input class="chat-conv-rename" id="chat-rename-input" value="${escapeHtml(c.title || '')}"
+                onclick="event.stopPropagation()" onkeydown="onRenameKey(event, '${c.id}')"
+                onblur="commitRename('${c.id}', this.value)">`
+      : `<span class="chat-conv-title">${escapeHtml(c.title || 'Untitled')}</span>`;
+    // The toggle shows the thread's current state, and its tooltip says what a
+    // click does. Absent entirely when there is no admin to share with.
+    const share = !_chatCanShare ? '' : (c.shared === false
+      ? `<span class="chat-conv-act" onclick="event.stopPropagation(); toggleShared('${c.id}')"
+               title="Private — click to share with the admin">🔒</span>`
+      : `<span class="chat-conv-act" onclick="event.stopPropagation(); toggleShared('${c.id}')"
+               title="Visible to the admin — click to make private">🔓</span>`);
+    // The cluster overlays the row's right edge, so it steps aside while the
+    // rename input owns that space.
+    const acts = renaming ? '' : `<span class="chat-conv-acts">
+         ${share}
+         <span class="chat-conv-act" onclick="event.stopPropagation(); startRename('${c.id}')" title="Rename">✎</span>
+         <span class="chat-conv-act" onclick="event.stopPropagation(); openTagsModal('${c.id}')" title="Groups">🏷</span>
+         <span class="chat-conv-x" onclick="event.stopPropagation(); deleteConversation('${c.id}')" title="Delete">×</span>
+       </span>`;
+    return `<div class="chat-conv ${c.id === _chatConvId ? 'active' : ''}" onclick="selectConversation('${c.id}')" title="${escapeHtml(c.title)}">
+       <div class="chat-conv-main">
+         ${title}
+         ${acts}
+       </div>
+       ${badges.length ? `<div class="chat-conv-meta">${badges.join('')}</div>` : ''}
+     </div>`;
+  }).join('');
+
+  if (_chatRenamingId) {
+    const inp = document.getElementById('chat-rename-input');
+    if (inp) { inp.focus(); inp.select(); }
+  }
 }
 
-// Render a stored message (content is a string, or an OpenAI content-parts
-// array with text + file/image refs) back into a transcript bubble.
-function renderStoredMsg(role, content) {
+// ── Rename (inline) and grouping ────────────────────────────────────────────
+// Renaming happens in place in the sidebar row: Enter or blur saves, Escape
+// backs out. Grouping is a tag set, edited in a modal — a thread can be in
+// several groups, so it's a filter over the list rather than a folder.
+
+function startRename(id) {
+  _chatRenamingId = id;
+  renderConvList();          // re-render swaps the title for an input and focuses it
+}
+
+function onRenameKey(e, id) {
+  e.stopPropagation();       // Escape here must not also close a modal
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.target.blur();         // blur commits
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    _chatRenamingId = null;  // makes the blur handler below a no-op
+    renderConvList();
+  }
+}
+
+async function commitRename(id, value) {
+  if (_chatRenamingId !== id) return;   // already cancelled with Escape
+  _chatRenamingId = null;
+  const conv = _chatConvs.find(c => c.id === id);
+  const title = (value || '').trim();
+  if (!title || (conv && title === conv.title)) { renderConvList(); return; }
+  await patchConversation(id, { title });
+}
+
+async function toggleShared(id) {
+  const conv = _chatConvs.find(c => c.id === id);
+  if (!conv) return;
+  await patchConversation(id, { shared: conv.shared === false });
+}
+
+async function patchConversation(id, body) {
+  try {
+    const r = await fetch(`${API}/conversations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const detail = (await r.json().catch(() => ({}))).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Update failed (${r.status})`);
+    }
+  } catch(e) { alert(e.message); }
+  await loadConversations();
+}
+
+function openTagsModal(id) {
+  const conv = _chatConvs.find(c => c.id === id);
+  if (!conv) return;
+  _chatTagsEditId = id;
+  document.getElementById('tags-modal-title').textContent = `Groups for “${conv.title || 'Untitled'}”`;
+  const inp = document.getElementById('tags-modal-input');
+  inp.value = (conv.tags || []).join(', ');
+
+  // Offer the groups already in use, so labels stay consistent instead of
+  // sprouting near-duplicates one typo at a time.
+  const known = [...convTagCounts().keys()].sort();
+  const host = document.getElementById('tags-modal-suggest');
+  host.innerHTML = known.length
+    ? known.map(t => `<button class="chip" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`).join('')
+    : '<span style="font-size:0.72rem;color:var(--text-muted)">No groups yet — type one above.</span>';
+  host.onclick = (e) => {
+    const chip = e.target.closest('.chip');
+    if (chip) toggleTagInInput(chip.dataset.tag);
+  };
+
+  document.getElementById('tags-modal').classList.add('open');
+  inp.focus();
+}
+
+function parseTagInput(value) {
+  return (value || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function toggleTagInInput(tag) {
+  const inp = document.getElementById('tags-modal-input');
+  const cur = parseTagInput(inp.value);
+  const next = cur.includes(tag) ? cur.filter(t => t !== tag) : cur.concat([tag]);
+  inp.value = next.join(', ');
+  inp.focus();
+}
+
+function closeTagsModal() {
+  _chatTagsEditId = null;
+  document.getElementById('tags-modal').classList.remove('open');
+}
+
+async function saveTagsModal() {
+  const id = _chatTagsEditId;
+  if (!id) return;
+  const tags = [...new Set(parseTagInput(document.getElementById('tags-modal-input').value))];
+  closeTagsModal();
+  await patchConversation(id, { tags });
+}
+
+function onTagsModalKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); saveTagsModal(); }
+}
+
+// The "this reply is unfinished" marker, plus the one action that resolves it.
+// Shown both live and on a reopened thread, from the same function, because the
+// two used to disagree: the live stream warned and the reload didn't, so the
+// permanent record of a truncated answer was the one that looked fine.
+//
+// Continue is a real follow-up turn rather than a silent stitch-together. It
+// costs another request either way, and a visible turn means the transcript still
+// says what was actually asked — a stitched reply that looks like one answer
+// hides the fact that the model never saw its own ending as one piece.
+function appendTruncationNotice(bubbleWrap, limit) {
+  const cap = parseInt(limit, 10);
+  const at = cap > 0 ? ` (${cap.toLocaleString()} tokens)` : '';
+  bubbleWrap.insertAdjacentHTML('beforeend',
+    `<div class="chat-meta chat-truncated" style="color:var(--error)">` +
+      `⚠ Cut off at the output limit${at} — this reply is incomplete. ` +
+      `<button class="chat-continue" onclick="continueReply()">Continue it</button>` +
+    `</div>`);
+}
+
+// Ask the model to pick the truncated reply back up. The unfinished text is
+// already the last assistant turn in history, so this needs no special plumbing
+// — which is also why it works on a thread reopened in a fresh tab.
+function continueReply() {
+  const input = document.getElementById('chat-input');
+  input.value = 'Continue from exactly where you stopped, without repeating '
+    + 'anything you already wrote, and finish the piece.';
+  autoGrow(input);
+  sendChat();
+}
+
+// Split a stored message's content into its text and its attachment counts. A
+// turn is either a plain string or an OpenAI content-parts array; both the
+// transcript and the exporters need the same reading of it.
+function messageParts(content) {
   let text = '', imgs = 0, files = 0;
   if (typeof content === 'string') {
     text = content;
@@ -3098,11 +4014,23 @@ function renderStoredMsg(role, content) {
       else if (p && p.type === 'file') files++;
     }
   }
-  const opts = {};
+  return { text, imgs, files };
+}
+
+// Render a stored message (content is a string, or an OpenAI content-parts
+// array with text + file/image refs) back into a transcript bubble.
+function renderStoredMsg(role, content, meta = {}) {
+  const { text, imgs, files } = messageParts(content);
+  const opts = { ts: meta.ts };
   if (imgs) opts.images = Array(imgs).fill('image');
   if (files) opts.files = Array(files).fill('attachment');
   const wrap = renderChatMsg(role, text, opts);
-  if (role === 'assistant') finalizeChatBubble(wrap.querySelector('.chat-bubble'), text);
+  if (role === 'assistant') {
+    finalizeChatBubble(wrap.querySelector('.chat-bubble'), text);
+    // The output limit isn't stored per message — only the fact that one bit.
+    // Naming a number we'd have to guess at would be worse than not naming one.
+    if (meta.truncated) appendTruncationNotice(wrap, '');
+  }
 }
 
 async function selectConversation(id) {
@@ -3114,13 +4042,14 @@ async function selectConversation(id) {
     _chatConvId = id;
     _chatMessages = [];
     _chatAttachments = [];
+    _lastRouting = null;   // belongs to the thread we just left, not this one
     renderAttachments();
     // Reset transcript to the empty placeholder, then replay stored turns.
     document.getElementById('chat-transcript').innerHTML =
       '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
     for (const m of (conv.messages || [])) {
       _chatMessages.push({ role: m.role, content: m.content });
-      renderStoredMsg(m.role, m.content);
+      renderStoredMsg(m.role, m.content, { truncated: !!m.truncated, ts: m.ts });
     }
     renderConvList();
   } catch(e) { alert(e.message); }
@@ -3130,6 +4059,7 @@ function newChat() {
   _chatConvId = null;
   _chatMessages = [];
   _chatAttachments = [];
+  _lastRouting = null;
   renderAttachments();
   document.getElementById('chat-transcript').innerHTML =
     '<div class="chat-empty" id="chat-empty">No messages yet. Say hello below.</div>';
@@ -3149,21 +4079,24 @@ async function deleteConversation(id) {
 // Persist one turn to the active conversation, creating the conversation on the
 // first turn (titled from the user's message). Returns false on failure so the
 // caller can decide whether to keep going.
-async function persistTurn(role, content) {
+async function persistTurn(role, content, opts = {}) {
   try {
     if (_chatConvId === null) {
       const title = typeof content === 'string'
         ? content : (Array.isArray(content) ? (content.find(p => p.type === 'text') || {}).text || 'New chat' : 'New chat');
+      // Start the thread in whatever group is being filtered, so a chat begun
+      // while looking at #work lands in #work instead of vanishing from the list.
+      const tags = _chatTagFilter ? [_chatTagFilter] : [];
       const r = await fetch(`${API}/conversations`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.slice(0, 60) }),
+        body: JSON.stringify({ title: title.slice(0, 60), tags }),
       });
       if (!r.ok) throw new Error();
       _chatConvId = (await r.json()).id;
     }
     await fetch(`${API}/conversations/${_chatConvId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, content }),
+      body: JSON.stringify({ role, content, truncated: !!opts.truncated }),
     });
     return true;
   } catch(_) { return false; }
@@ -3280,6 +4213,17 @@ function chatUserContent(text) {
   return parts;
 }
 
+// When a turn was sent, in the reader's own timezone. The store stamps `ts`
+// itself (always zone-qualified UTC — clients can't supply one), so Date()
+// reads it unambiguously. A live message has no stored ts yet and falls back to
+// now, which is the instant it is about to be persisted with. The raw string is
+// shown if it ever fails to parse: a visible oddity beats "Invalid Date".
+function fmtMsgTime(ts) {
+  if (!ts) return new Date().toLocaleString();
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleString();
+}
+
 function renderChatMsg(role, text, opts = {}) {
   const empty = document.getElementById('chat-empty');
   if (empty) empty.remove();
@@ -3296,6 +4240,13 @@ function renderChatMsg(role, text, opts = {}) {
       opts.files.map(n => `<span class="chat-chip">📄 ${escapeHtml(n)}</span>`).join('') + `</div>`;
   }
   inner += `<div class="chat-bubble">${escapeHtml(text)}</div>`;
+  // A reply is the only thing worth reporting, so the affordance rides the
+  // assistant's timestamp row — one click from the answer that was wrong, on both
+  // a live reply and a reopened thread, since both render through here.
+  const report = role === 'assistant'
+    ? ` · <button class="chat-continue" onclick="openReportModal(this)" title="Report a bad answer. The whole conversation is attached automatically.">⚑ Report</button>`
+    : '';
+  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}${report}</div>`;
   if (opts.meta) inner += `<div class="chat-meta">${escapeHtml(opts.meta)}</div>`;
   wrap.innerHTML = inner;
   t.appendChild(wrap);
@@ -3309,7 +4260,7 @@ function renderChatMsg(role, text, opts = {}) {
 // and whether the pick actually cleared the bar. The `why` string names the
 // binding constraint, so a surprising pick can be understood rather than
 // guessed at. (Replaces the old dashboard "playground" routing panel.)
-function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }) {
+function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto, webSearch }) {
   const parts = [];
   // Prefer the profile ("Law & regulatory @ specialist + ..."), which says what
   // the router actually matched on; fall back to the legacy label pair.
@@ -3331,8 +4282,111 @@ function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity,
       : 'Agent mode was on for this request.';
     html += ` <span class="chat-routing-agent" title="${escapeHtml(tip)}">${label}</span>`;
   }
+  // Only shown when a search happened. The absence of the badge is not a claim
+  // that nothing was checked — plenty of prompts need no checking — so labelling
+  // every unsearched reply would be noise on almost all of them.
+  if (webSearch) {
+    html += ` <span class="chat-routing-agent" title="This answer was checked against live web results, because it depends on facts that change.">🌐 web</span>`;
+  }
   html += `</div>`;
   return html;
+}
+
+// ── Reporting a bad reply, and feedback in general ──────────────────────────
+// The context is gathered for the user rather than asked of them: _chatMessages is
+// already the exact history that was sent upstream, and the routing metadata is
+// already in hand. All that's left to ask is the one thing only they know.
+//
+// btn = the ⚑ Report link on an assistant bubble, or null from the ⚑ Feedback
+// tab, which can be pressed on any page. The only difference is what it's about:
+// the tab still attaches the current conversation if there is one (that's what
+// makes a report diagnosable), and always says so before anything is typed.
+function openReportModal(btn) {
+  _reportTarget = btn ? btn.closest('.chat-msg') : null;
+  const n = _chatMessages.length;
+  document.getElementById('report-modal-title').textContent =
+    _reportTarget ? 'Report a bad response' : 'Report a problem';
+  document.getElementById('report-modal-context').textContent = n
+    ? `Attaching this conversation — ${n} message${n === 1 ? '' : 's'}`
+      + (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '')
+    : 'Nothing is attached — no chat open in this tab.';
+  const note = document.getElementById('report-modal-note');
+  note.textContent = n
+    ? 'The conversation and the routing decision are attached automatically.'
+    : '';
+  // Whether this lands in a public tracker is the operator's setting, and the
+  // one thing the user must know *before* writing rather than after.
+  fetchWhoAmI().then(me => {
+    if (!me || !me.reports_public) return;
+    note.textContent += (note.textContent ? ' ' : '')
+      + (me.reports_public_transcript && n
+        ? 'It is filed as a public issue on the project’s GitHub — including the conversation.'
+        : 'It is filed as a public issue on the project’s GitHub; the conversation itself stays on this router.');
+  });
+  const ta = document.getElementById('report-modal-text');
+  ta.value = '';
+  const status = document.getElementById('report-modal-status');
+  status.textContent = '';
+  status.style.color = '';               // may be the green receipt of a previous file
+  document.getElementById('btn-report-send').disabled = false;
+  document.getElementById('report-modal').classList.add('open');
+  ta.focus();
+}
+
+function closeReportModal() {
+  document.getElementById('report-modal').classList.remove('open');
+  _reportTarget = null;
+}
+
+async function submitReport() {
+  const description = document.getElementById('report-modal-text').value.trim();
+  const status = document.getElementById('report-modal-status');
+  if (!description) { status.textContent = 'Say what went wrong first.'; return; }
+  const btn = document.getElementById('btn-report-send');
+  btn.disabled = true;
+  status.textContent = 'Sending…';
+  // The bubble's own text, so the operator can find the reported reply inside a
+  // long transcript without the UI having to track message indexes (which drift:
+  // a failed turn leaves a bubble on screen and nothing in _chatMessages).
+  const bubble = _reportTarget && _reportTarget.querySelector('.chat-bubble');
+  const target = _reportTarget;
+  let sent = false;
+  try {
+    const r = await fetch(`${API}/reports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description,
+        conversation_id: _chatConvId || '',
+        transcript: _chatMessages,
+        meta: { ...(_lastRouting || {}), reported_text: (bubble ? bubble.textContent : '').slice(0, 2000) },
+      }),
+    });
+    if (!r.ok) {
+      let detail; try { const b = await r.json(); detail = b.detail || b.error; } catch(_) {}
+      throw new Error(detail || `Failed to file the report (${r.status})`);
+    }
+    const rep = await r.json();
+    sent = true;
+    const issue = rep.issue_url
+      ? ` <a href="${escapeHtml(rep.issue_url)}" target="_blank" rel="noopener">Tracked publicly →</a>`
+      : '';
+    if (target) {
+      closeReportModal();
+      target.insertAdjacentHTML('beforeend',
+        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks, the operator can see the whole thread.${issue}</div>`);
+    } else {
+      // Filed from the ⚑ Feedback tab: there is no bubble to hang a receipt on,
+      // so the modal stays open and becomes the receipt.
+      status.style.color = 'var(--success)';
+      status.innerHTML = `Filed (#${rep.id}) — thanks.${issue}`;
+      document.getElementById('report-modal-text').value = '';
+    }
+  } catch(e) {
+    status.textContent = e.message;
+  } finally {
+    btn.disabled = sent && !target;   // no double-filing the same words
+  }
 }
 
 async function sendChat() {
@@ -3354,6 +4408,7 @@ async function sendChat() {
 
   const bubbleWrap = renderChatMsg('assistant', '');
   const bubble = bubbleWrap.querySelector('.chat-bubble');
+  _spokenUpTo = 0;   // new reply, so nothing of it has been spoken yet
 
   // Tri-state agent flag: "auto" (classifier decides) / true (on) / false (off).
   const agentSel = document.getElementById('chat-agent').value;
@@ -3367,7 +4422,13 @@ async function sendChat() {
   try {
     const res = await fetch('/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Marks this as the chat page rather than an API client, which is what
+        // earns the reply its rich-output system note. A program driving /v1
+        // gets exactly the messages it sent — see proxy.py:_is_ui_client.
+        'X-Smart-Router-Client': 'ui',
+      },
       body: JSON.stringify({ model: 'smart-worker', stream: true, messages: _chatMessages, agent: agentFlag }),
       signal: _chatAbort.signal,
     });
@@ -3396,6 +4457,10 @@ async function sendChat() {
     const qualified = res.headers.get('X-Qualified') === 'false' ? false : true;
     const agentOn = res.headers.get('X-Agent') === 'true';
     const agentAuto = res.headers.get('X-Agent-Auto') === 'true';
+    const webSearch = res.headers.get('X-Web-Search') === 'true';
+    // Held for a bug report to attach: after this function returns, the only place
+    // that says which model answered is the badge under the bubble.
+    _lastRouting = { routed, profile, why, qualified, classifier, agent: agentOn, escalated };
     const { text: acc, truncated, streamError } = await streamChatInto(res, bubble);
 
     // A reply with no text is a failed turn, not a valid empty answer. Show it
@@ -3407,15 +4472,21 @@ async function sendChat() {
       bubbleWrap.classList.add('error');
       bubble.textContent = 'No response from the model. Nothing was added to this conversation — try again.';
       _chatMessages.pop();
+      // The assistant's turn is over even though it produced nothing, so release
+      // the mic guard before re-arming — a failed turn shouldn't end the loop.
+      if (_voiceOn) { _voiceBusy = false; startListening(); }
       return;
     }
 
     finalizeChatBubble(bubble, acc);
+    // Speak the tail and give the microphone back. Before persisting, so the
+    // spoken reply starts as soon as the text is complete rather than after two
+    // round trips to the store.
+    endVoiceTurn(acc);
     if (truncated) {
-      bubbleWrap.insertAdjacentHTML('beforeend',
-        `<div class="chat-meta" style="color:var(--error)">⚠ Reply was cut off at the output token limit — it may be incomplete.</div>`);
+      appendTruncationNotice(bubbleWrap, res.headers.get('X-Output-Limit') || '');
     }
-    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto }));
+    if (routed) bubbleWrap.insertAdjacentHTML('beforeend', chatRoutingBadge({ routed, profile, why, qualified, domain, complexity, escalated, classifier, agentOn, agentAuto, webSearch }));
     _chatMessages.push({ role: 'assistant', content: acc });
     trimChatHistory();
     // Persist both turns only now that the reply succeeded — on failure we drop
@@ -3424,7 +4495,11 @@ async function sendChat() {
     // reply; the sidebar refresh reflects the new/renamed thread + recency.
     if (!streamError) {
       await persistTurn('user', userContent);
-      await persistTurn('assistant', acc);
+      // `truncated` travels with the message so reopening this thread still says
+      // the reply is unfinished. Without it the stored text reads as a complete
+      // (if oddly short) answer, and the reader diagnoses the model instead of
+      // the ceiling.
+      await persistTurn('assistant', acc, { truncated });
       await loadConversations();
     }
   } catch(e) {
@@ -3432,6 +4507,9 @@ async function sendChat() {
     // An abort is a deliberate user action, not a failure to apologize for.
     bubble.textContent = e.name === 'AbortError' ? 'Stopped.' : e.message;
     _chatMessages.pop();
+    // Whatever went wrong, the mic has to come back or the hands-free loop is
+    // over and the button still says it's on.
+    if (_voiceOn) { window.speechSynthesis.cancel(); _voiceBusy = false; startListening(); }
   } finally {
     _chatAbort = null;
     setChatBusy(false);
@@ -3489,7 +4567,12 @@ async function streamChatInto(res, bubble) {
       if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; streamError = true; continue; }
       const choice = obj.choices && obj.choices[0];
       const delta = choice && choice.delta;
-      if (delta && delta.content) { acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight; }
+      if (delta && delta.content) {
+        acc += delta.content; bubble.textContent = acc; t.scrollTop = t.scrollHeight;
+        // Start speaking mid-stream. Waiting for the full reply would put the
+        // whole generation time in front of the first sound.
+        speakStreamed(acc);
+      }
       // "length" means the provider stopped at the output cap rather than
       // finishing its thought — the reply on screen is incomplete.
       if (choice && choice.finish_reason === 'length') truncated = true;
@@ -3530,6 +4613,236 @@ function finalizeChatBubble(bubble, text) {
   bubble.innerHTML = renderMarkdown(text);
 }
 
+// ── Artifacts: model-authored HTML/SVG, rendered ────────────────────────────
+// Fenced blocks the model *intended* as output rather than as code to read. Each
+// becomes a card with a live preview, a code view, and open/download/print.
+//
+// SECURITY. The preview is an iframe with `sandbox="allow-scripts"` and NO
+// `allow-same-origin`, so the document lands in an opaque origin: it cannot touch
+// this page's DOM, cookies, or the localStorage the API key lives in. Those two
+// tokens together would undo the sandbox entirely, which is why only one is here.
+// A CSP inside the document then blocks the network, so markup that tries to
+// fetch, beacon, or load a remote font/image/script gets nothing — a reply is
+// authored by a model that read the conversation, so "can it phone home" is a
+// question about the conversation's contents, not just about scripts.
+//
+// The visible cost of that choice: external images don't load. Inline SVG, CSS,
+// and data: URIs do, which is what actually draws diagrams and charts.
+const ARTIFACT_LANGS = { html: 'HTML', svg: 'SVG' };
+const _ARTIFACT_CSP =
+  "default-src 'none'; img-src data: blob:; media-src data: blob:; " +
+  "style-src 'unsafe-inline' data:; font-src data:; script-src 'unsafe-inline'";
+let _artifactSeq = 0;
+const _artifacts = new Map();   // id → { lang, src }
+
+// Wrap raw markup into a standalone document. An SVG block gets a host page that
+// centres it; an HTML block is assumed to be (or to be close enough to) a page
+// already, and only gains the CSP + a sane default font if it declared none.
+function artifactDocument(lang, src) {
+  const csp = `<meta http-equiv="Content-Security-Policy" content="${escapeHtml(_ARTIFACT_CSP)}">`;
+  if (lang === 'svg') {
+    return `<!doctype html><html><head><meta charset="utf-8">${csp}` +
+      `<style>html,body{margin:0;height:100%;display:grid;place-items:center;` +
+      `background:#fff}svg{max-width:100%;max-height:100%}</style></head>` +
+      `<body>${src}</body></html>`;
+  }
+  // A full document from the model: inject the CSP just after <head> so it still
+  // governs, and leave everything else exactly as written.
+  if (/<head[\s>]/i.test(src)) {
+    return src.replace(/<head([^>]*)>/i, `<head$1>${csp}`);
+  }
+  if (/<html[\s>]/i.test(src)) {
+    return src.replace(/<html([^>]*)>/i, `<html$1><head>${csp}</head>`);
+  }
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}` +
+    `<style>body{margin:0;padding:1rem;font:14px/1.5 -apple-system,BlinkMacSystemFont,` +
+    `"Segoe UI",sans-serif;color:#111;background:#fff}</style></head>` +
+    `<body>${src}</body></html>`;
+}
+
+// Set while building an export document. An artifact's iframe exists to contain
+// untrusted markup inside the app; a saved file has no app around it to protect,
+// and an iframe would print blank — so the export inlines the markup instead. A
+// flag rather than a parameter because the caller is renderMarkdown, five frames
+// up, and threading a render mode through Markdown parsing to reach it would put
+// the concern in four functions that have nothing to do with it.
+let _artifactInline = false;
+
+function renderArtifact(lang, src) {
+  const id = ++_artifactSeq;
+  _artifacts.set(id, { lang, src });
+  if (_artifactInline) {
+    return `<div class="artifact-inline">${src}</div>`;
+  }
+  const doc = artifactDocument(lang, src);
+  return `<div class="artifact" data-artifact="${id}">` +
+    `<div class="artifact-bar">` +
+      `<span class="artifact-kind">${escapeHtml(ARTIFACT_LANGS[lang])}</span>` +
+      `<span class="artifact-actions">` +
+        `<button onclick="artifactToggleCode(${id}, this)">Code</button>` +
+        `<button onclick="artifactExpand(${id}, this)">Expand</button>` +
+        `<button onclick="artifactOpen(${id})" title="Open in a new tab, where you can print or save as PDF">Open</button>` +
+        `<button onclick="artifactDownload(${id})">Download</button>` +
+      `</span>` +
+    `</div>` +
+    // srcdoc, not src: no server round-trip, and the document inherits no origin.
+    `<iframe class="artifact-frame" sandbox="allow-scripts" ` +
+      `referrerpolicy="no-referrer" srcdoc="${escapeHtml(doc)}"></iframe>` +
+    `<pre class="artifact-code" style="display:none"><code>${escapeHtml(src)}</code></pre>` +
+  `</div>`;
+}
+
+function _artifactCard(id) {
+  return document.querySelector(`.artifact[data-artifact="${id}"]`);
+}
+
+function artifactToggleCode(id, btn) {
+  const card = _artifactCard(id); if (!card) return;
+  const code = card.querySelector('.artifact-code');
+  const frame = card.querySelector('.artifact-frame');
+  const showCode = code.style.display === 'none';
+  code.style.display = showCode ? 'block' : 'none';
+  frame.style.display = showCode ? 'none' : 'block';
+  btn.textContent = showCode ? 'Preview' : 'Code';
+}
+
+function artifactExpand(id, btn) {
+  const frame = _artifactCard(id)?.querySelector('.artifact-frame');
+  if (!frame) return;
+  frame.classList.toggle('tall');
+  btn.textContent = frame.classList.contains('tall') ? 'Shrink' : 'Expand';
+}
+
+// Open the artifact as a real page. A blob URL rather than document.write into
+// the new window: a blob: document is its own opaque origin, so the popup can't
+// reach back into this one, and the browser's own Print → Save as PDF is then a
+// working export path with no dependency added here.
+function artifactOpen(id) {
+  const a = _artifacts.get(id); if (!a) return;
+  const url = URL.createObjectURL(
+    new Blob([artifactDocument(a.lang, a.src)], { type: 'text/html' }));
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function artifactDownload(id) {
+  const a = _artifacts.get(id); if (!a) return;
+  downloadBlob(artifactDocument(a.lang, a.src), 'text/html', `artifact-${id}.html`);
+}
+
+// One place that turns text into a saved file, so every export path below
+// behaves the same way.
+function downloadBlob(text, mime, filename) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ── Exporting a conversation ────────────────────────────────────────────────
+// Markdown, a standalone web page, or the browser's print dialog (which is also
+// how you get a PDF). All three are built client-side from the history already
+// loaded, so exporting adds no endpoint, no dependency, and no server CPU that
+// an anonymous visitor could spend on the operator's behalf.
+
+function conversationTitle() {
+  const conv = _chatConvs.find(c => c.id === _chatConvId);
+  return (conv && conv.title) || 'Conversation';
+}
+
+function conversationSlug() {
+  return (conversationTitle().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'conversation').slice(0, 60);
+}
+
+function conversationMarkdown() {
+  const out = [`# ${conversationTitle()}`, ''];
+  for (const m of _chatMessages) {
+    if (m.role === 'system') continue;
+    const { text, imgs, files } = messageParts(m.content);
+    out.push(`## ${m.role === 'user' ? 'You' : 'Assistant'}`, '');
+    const attached = [];
+    if (imgs) attached.push(`${imgs} image${imgs > 1 ? 's' : ''}`);
+    if (files) attached.push(`${files} file${files > 1 ? 's' : ''}`);
+    if (attached.length) out.push(`*(attached: ${attached.join(', ')})*`, '');
+    out.push(text, '');
+  }
+  return out.join('\n');
+}
+
+// A self-contained page. Artifacts are inlined here rather than kept in sandboxed
+// iframes: this file is a *document* the reader saves and opens themselves, not a
+// surface inside the app, so it holds nothing to steal — and inlining is what
+// makes the print output right, since iframe printing is unreliable and would
+// silently drop the visuals from the PDF.
+function conversationHtml({ autoPrint = false } = {}) {
+  const parts = [];
+  _artifactInline = true;
+  try {
+    for (const m of _chatMessages) {
+      if (m.role === 'system') continue;
+      const { text } = messageParts(m.content);
+      const who = m.role === 'user' ? 'You' : 'Assistant';
+      // The user's own turn stays plain text. Rendering it as Markdown would let
+      // a pasted fragment become live markup in the exported file, and nothing
+      // about a typed message asks to be interpreted.
+      const body = m.role === 'user'
+        ? `<p>${escapeHtml(text)}</p>`
+        : renderMarkdown(text);
+      parts.push(`<section class="turn ${m.role}"><h2>${who}</h2>${body}</section>`);
+    }
+  } finally {
+    _artifactInline = false;   // must not leak into the live transcript
+  }
+  const html = parts.join('\n');
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(conversationTitle())}</title>
+<style>
+  body { max-width: 46rem; margin: 2rem auto; padding: 0 1.5rem;
+         font: 16px/1.65 Georgia, "Times New Roman", serif; color: #16181d; }
+  h1 { font-size: 1.7rem; margin-bottom: 1.5rem; }
+  .turn { margin: 0 0 2rem; }
+  .turn h2 { font: 600 0.7rem/1 -apple-system, sans-serif; letter-spacing: 0.08em;
+             text-transform: uppercase; color: #8a8f98; margin: 0 0 0.5rem; }
+  .turn.user { padding-left: 1rem; border-left: 3px solid #d5d8de; color: #4a4f58; }
+  pre { background: #f5f6f8; padding: 0.8rem; overflow-x: auto;
+        font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #d5d8de; padding: 0.35rem 0.7rem; text-align: left; }
+  blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 3px solid #d5d8de;
+               color: #4a4f58; }
+  .artifact-inline { margin: 1.2rem 0; }
+  .artifact-inline svg, .artifact-inline img { max-width: 100%; height: auto; }
+  @media print { body { margin: 0; max-width: none; } .turn { break-inside: avoid; } }
+</style></head>
+<body onload="${autoPrint ? 'window.print()' : ''}">
+<h1>${escapeHtml(conversationTitle())}</h1>
+${html}
+</body></html>`;
+}
+
+function exportChat(kind) {
+  if (!kind) return;
+  if (!_chatMessages.length) { alert('Nothing to export yet.'); return; }
+  if (kind === 'md') {
+    downloadBlob(conversationMarkdown(), 'text/markdown', `${conversationSlug()}.md`);
+    return;
+  }
+  if (kind === 'html') {
+    downloadBlob(conversationHtml(), 'text/html', `${conversationSlug()}.html`);
+    return;
+  }
+  // print → open the same document in a tab and raise the print dialog, which is
+  // where "Save as PDF" lives. A blob URL keeps it out of this origin.
+  const url = URL.createObjectURL(
+    new Blob([conversationHtml({ autoPrint: true })], { type: 'text/html' }));
+  const w = window.open(url, '_blank');
+  if (!w) alert('Your browser blocked the print window. Allow pop-ups for this site, or export the .html file instead.');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 // A small, dependency-free Markdown → HTML renderer matching the no-build UI.
 // Supports headings, bold/italic, inline + fenced code, ordered/unordered lists
 // (with nesting by indent), blockquotes, horizontal rules, GFM tables, and
@@ -3545,16 +4858,28 @@ function renderMarkdown(src) {
   while (i < lines.length) {
     let line = lines[i];
 
-    // Fenced code block: ``` or ~~~ (language after the fence is ignored).
+    // Fenced code block: ``` or ~~~. The language tag is read now (it used to be
+    // discarded) because `html` and `svg` blocks are renderable output, not code
+    // to look at — see renderArtifact.
     const fence = line.match(/^\s*(```+|~~~+)(.*)$/);
     if (fence) {
       const marker = fence[1][0], body = [];
+      const lang = (fence[2] || '').trim().toLowerCase().split(/\s+/)[0];
       i++;
       while (i < lines.length && !new RegExp('^\\s*' + marker + '{3,}\\s*$').test(lines[i])) {
         body.push(lines[i]); i++;
       }
+      const closed = i < lines.length;   // false → the fence never closed
       i++;  // consume the closing fence
-      html += `<pre><code>${escapeHtml(body.join('\n'))}</code></pre>`;
+      const src = body.join('\n');
+      // Only render a *finished* block. A half-streamed or truncated document
+      // would render as a broken page, and the reader would have no way to know
+      // whether the model or the renderer produced the mess.
+      if (closed && ARTIFACT_LANGS[lang] && src.trim()) {
+        html += renderArtifact(lang, src);
+      } else {
+        html += `<pre><code>${escapeHtml(src)}</code></pre>`;
+      }
       continue;
     }
 
@@ -3689,11 +5014,706 @@ function renderInline(text) {
   return s;
 }
 
+// ── Voice: hands-free talk and listen, entirely in the browser ──────────────
+// The native Web Speech API — SpeechRecognition for the microphone,
+// speechSynthesis for the reply. Nothing about voice reaches the router: it
+// still sends and receives text. That is the whole reason to do it here rather
+// than server-side, because it means voice works with every model the router can
+// pick, including local Ollama ones, and costs nothing per turn.
+//
+// This is deliberately NOT model-native speech-to-speech, which is what makes
+// ChatGPT's voice mode sound the way it does. That would mean base64'ing
+// microphone audio through the proxy to one of the handful of audio-capable
+// models, at audio-token rates — giving up the cheapest-qualified routing this
+// service exists to do, in exchange for better prosody. The PR describes that
+// upgrade path; this is the version that works today, everywhere, for free.
+//
+// Half-duplex on purpose: the mic is off while the reply is being spoken.
+// Full-duplex needs echo cancellation, or the recogniser transcribes the
+// speakers and the assistant starts answering itself. Interruption is a click
+// (or Escape) rather than talking over it. Ceiling worth knowing; upgrade is
+// getUserMedia with echoCancellation plus a VAD, which is a real project.
+
+const _Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let _voiceOn = false;       // hands-free loop armed
+let _rec = null;            // live SpeechRecognition, or null between turns
+let _spokenUpTo = 0;        // chars of the current reply already queued to speak
+// The assistant's turn: from "question sent" until the last word is spoken. The
+// mic must stay shut for all of it, not just the speaking part — recognition ends
+// the moment the question does, and re-arming then leaves the mic open through
+// generation, so it hears the reply through the speakers and answers itself.
+let _voiceBusy = false;
+
+let _voiceStream = null;    // live getUserMedia stream, kept only for the meter
+let _voiceRaf = 0;
+let _voiceCtx = null;       // the AudioContext behind the meter; native voice reuses it
+
+// Voice fails in ways the page cannot see (OS-level mic permission, a browser
+// that throws on start(), a recogniser that never opens). Logging the lifecycle
+// is what turns "the button does nothing" into something diagnosable.
+function _vlog(...a) { console.debug('[voice]', ...a); }
+
+// The status strip. Voice is used with your attention elsewhere, so every state it
+// can be in has to be readable without clicking anything — including the states
+// that are failures, which is the whole reason this exists.
+function setVoiceStatus(text, problem = false) {
+  const box = document.getElementById('voice-status');
+  const out = document.getElementById('voice-status-text');
+  if (!box || !out) return;
+  box.style.display = text ? 'flex' : 'none';
+  box.classList.toggle('voice-problem', !!problem);
+  out.textContent = text || '';
+}
+
+// Open the microphone ourselves, before handing the turn to speech recognition.
+//
+// Two things this buys, and both were missing. It draws the browser's permission
+// prompt explicitly and reports refusal by name, where SpeechRecognition just
+// declines to fire. And the stream feeds a level meter, so "can it hear me" is
+// answerable independently of whether recognition works at all — on a machine
+// where the OS never granted the browser a microphone, the bar simply never moves
+// and that is the diagnosis.
+async function startMeter() {
+  if (_voiceStream) return '';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return '';   // no meter, but recognition may still work; not worth blocking on
+  }
+  try {
+    _voiceStream = await navigator.mediaDevices.getUserMedia({
+      // The mic is live while the assistant speaks only in the meter's case, but
+      // ask for cancellation anyway: it costs nothing and is what a future
+      // full-duplex version needs.
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (e) {
+    _vlog('getUserMedia failed', e.name, e.message);
+    return e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError'
+      ? 'No microphone was found on this machine.'
+      : 'The microphone was refused (' + e.name + '). Allow it for this site in the '
+        + 'address bar, and check this browser is listed under System Settings › '
+        + 'Privacy & Security › Microphone.';
+  }
+  // Kept on the module, because native voice records and plays through this same
+  // context. Opening a second one would mean a second permission-shaped surface
+  // and a second sample rate to keep straight for no gain.
+  const ctx = _voiceCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  ctx.createMediaStreamSource(_voiceStream).connect(analyser);
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  const bar = document.getElementById('voice-level');
+  const tick = () => {
+    if (!_voiceStream) return;
+    analyser.getByteTimeDomainData(buf);
+    // Peak deviation from silence (128), not RMS: it tracks speech onset closely
+    // enough to look responsive, which is the only job.
+    let peak = 0;
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    if (bar) bar.style.width = Math.min(100, Math.round(peak / 60 * 100)) + '%';
+    _voiceRaf = requestAnimationFrame(tick);
+  };
+  tick();
+  return '';
+}
+
+function stopMeter() {
+  if (_voiceRaf) { cancelAnimationFrame(_voiceRaf); _voiceRaf = 0; }
+  if (_voiceStream) {
+    _voiceStream.getTracks().forEach(t => t.stop());
+    _voiceStream = null;
+  }
+  // Close the context too. Browsers cap how many a page may have open, so leaving
+  // one behind on every toggle is a limit you eventually hit — and an open context
+  // on a stopped stream keeps the tab's mic indicator lit on some platforms, which
+  // says the microphone is live when it isn't.
+  if (_voiceCtx) {
+    try { _voiceCtx.close(); } catch (_) {}
+    _voiceCtx = null;
+  }
+  const bar = document.getElementById('voice-level');
+  if (bar) bar.style.width = '0';
+}
+
+function voiceUnsupportedReason() {
+  // Order matters: name the fixable problem first. Speech recognition needs a
+  // secure context, so on a plain-HTTP LAN address (http://host.local:8001) the
+  // API object exists and simply never fires — which reads as a broken button
+  // rather than a missing padlock.
+  if (!_Rec || !window.speechSynthesis) {
+    return 'This browser has no speech support. Try Chrome, Edge, or Safari 14.1+.';
+  }
+  if (!window.isSecureContext) {
+    return 'Voice needs HTTPS or http://localhost — browsers block the microphone '
+         + 'on a plain-HTTP address, so this page cannot listen. Open the router at '
+         + 'localhost, or put it behind TLS.';
+  }
+  return '';
+}
+
+// Reduce Markdown to something worth hearing. Read aloud verbatim, a reply full
+// of fenced code and pipe tables is unlistenable, and the code is the part the
+// listener least wants dictated — it's on screen to read.
+function stripForSpeech(md) {
+  return (md || '')
+    .replace(/```[\s\S]*?(```|$)/g, ' (code omitted) ')
+    .replace(/^\s*\|.*\|\s*$/gm, ' ')            // table rows
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')       // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')     // keep link text, drop the URL
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/[*_~]{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Prefer a voice that doesn't sound like 1998. The good ones are per-platform and
+// there is no capability flag for "sounds human", so this is a name list with a
+// plain fallback — a missing preferred voice means the default speaks, never
+// silence.
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices() || [];
+  const preferred = /Samantha|Ava|Serena|Zoe|Allison|Google US English|Microsoft (Aria|Jenny|Guy)/i;
+  return voices.find(v => preferred.test(v.name) && v.lang.startsWith('en'))
+      || voices.find(v => v.lang.startsWith(navigator.language.slice(0, 2)))
+      || null;
+}
+
+// Speak whatever has arrived since the last call. Called per streamed delta so
+// the reply starts being spoken while it is still being written — waiting for the
+// full text would add the entire generation time to the pause before any sound,
+// which is most of what makes a voice assistant feel slow.
+function speakStreamed(acc, { flush = false } = {}) {
+  if (!_voiceOn) return;
+  const clean = stripForSpeech(acc);
+  if (clean.length <= _spokenUpTo) return;
+  const pending = clean.slice(_spokenUpTo);
+  // Only speak up to the last sentence end, so a phrase isn't cut in half by the
+  // chunk boundary — unless the stream is over, when whatever is left is all
+  // there will be.
+  const cut = flush ? pending.length : Math.max(
+    pending.lastIndexOf('. '), pending.lastIndexOf('! '),
+    pending.lastIndexOf('? '), pending.lastIndexOf('\n'),
+  ) + 1;
+  if (cut <= 0) return;
+  const say = pending.slice(0, cut).trim();
+  _spokenUpTo += cut;
+  if (!say) return;
+  const u = new SpeechSynthesisUtterance(say);
+  const v = pickVoice();
+  if (v) u.voice = v;
+  window.speechSynthesis.speak(u);
+}
+
+// The reply is finished: speak the tail, then hand the microphone back. Listening
+// resumes only after the last utterance ends, which is what keeps the assistant
+// from transcribing its own voice.
+function endVoiceTurn(acc) {
+  if (!_voiceOn) return;
+  speakStreamed(acc, { flush: true });
+  setVoiceStatus('Reading the reply — Escape interrupts and hands the turn back.');
+  const resume = () => { if (_voiceOn) startListening(); };
+  // Poll rather than trust utterance.onend: cancel() and queued-utterance
+  // behaviour differ across browsers, and a missed onend would strand the loop
+  // with the mic off and no way back except clicking.
+  const t = setInterval(() => {
+    if (!_voiceOn) { clearInterval(t); return; }
+    if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+      clearInterval(t); _voiceBusy = false; resume();
+    }
+  }, 250);
+}
+
+function setVoiceButton(state) {
+  const b = document.getElementById('btn-chat-voice');
+  if (!b) return;
+  b.classList.toggle('voice-active', state !== 'off');
+  b.classList.toggle('voice-listening', state === 'listening');
+  // "Starting…" is a separate state from "Listening…" on purpose. The label used
+  // to claim it was listening the instant start() was called, which is before the
+  // permission prompt is answered and before the recogniser actually opens — so a
+  // mic that never opened looked identical to one waiting for you to speak.
+  b.textContent = state === 'listening' ? '🎙 Listening…'
+                : state === 'starting'  ? '🎙 Starting…'
+                : state === 'speaking'  ? '🔊 Speaking…'
+                : '🎙 Voice';
+}
+
+function startListening() {
+  if (!_voiceOn || _rec || _voiceBusy) return;
+  const rec = new _Rec();
+  rec.lang = navigator.language || 'en-US';
+  rec.interimResults = true;
+  // false, not true: ending the utterance on a pause IS how the end of a question
+  // is detected. With continuous = true the recogniser waits for a stop() that
+  // nothing would call, so the turn never ends on its own.
+  rec.continuous = false;
+  const input = document.getElementById('chat-input');
+  // Some browsers ship the SpeechRecognition interface with no engine behind it.
+  // start() returns normally and then no event ever arrives — not onstart, not
+  // onerror, not onend. Nothing in the API reports that, so the only way to notice
+  // is to time it: if the recogniser hasn't opened by now, it never will.
+  let opened = false;
+  let watchdog = setTimeout(() => {
+    if (opened || _rec !== rec) return;
+    _vlog('no onstart within 5s', navigator.userAgent);
+    stopVoice('Speech recognition never started, so voice will not work in this '
+      + 'browser. The microphone is fine — the level bar moves — but the browser '
+      + 'accepted the request and then reported nothing at all. That is what '
+      + 'happens in builds that ship the interface without a speech engine behind '
+      + 'it: Chrome reaches Google\'s recogniser and Safari uses Apple\'s, while '
+      + 'Opera, Brave and Vivaldi are Chromium without that access. Use Safari or '
+      + 'Chrome for voice. Typing works everywhere.');
+  }, 5000);
+  const engineAlive = () => { opened = true; clearTimeout(watchdog); };
+  rec.onstart = () => {
+    _vlog('recogniser open');
+    engineAlive();
+    setVoiceButton('listening');
+    setVoiceStatus('Listening — speak, then pause and it will send.');
+  };
+  rec.onresult = (e) => {
+    let text = '';
+    for (const r of e.results) text += r[0].transcript;
+    input.value = text;
+    // Interim text on screen is the proof that it can hear you. Without it, a
+    // recogniser that is working but slow to finalise is indistinguishable from one
+    // that never heard anything.
+    if (text.trim()) setVoiceStatus('Heard: ' + text);
+    // Send only on a final result. Acting on interim text sends half a sentence.
+    if (e.results[e.results.length - 1].isFinal && text.trim()) {
+      _vlog('heard', JSON.stringify(text));
+      _voiceBusy = true;          // set before stop(), because onend fires from it
+      _rec = null; rec.stop();
+      setVoiceButton('speaking');
+      setVoiceStatus('Sending… the reply will be read aloud. Escape interrupts it.');
+      sendChat();
+    }
+  };
+  // A silent turn is not an error worth stopping the loop for — the listener
+  // paused, or the room was quiet. Anything else (denied permission, no service)
+  // must switch voice off, or the button lies about what is happening.
+  rec.onerror = (e) => {
+    _vlog('error', e.error);
+    engineAlive();   // an error is still proof something is listening
+    _rec = null;
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      // Say it anyway. Silently re-arming is why a mic that hears nothing at all
+      // looks the same as one that is patiently waiting.
+      setVoiceStatus('Nothing heard yet — still listening. '
+        + 'If the bar stays flat while you talk, the microphone is not reaching '
+        + 'this page.', true);
+      return;
+    }
+    stopVoice(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'The microphone was refused. Check the site permission in the address bar, '
+        + 'and that this browser is allowed the microphone in System Settings › '
+        + 'Privacy & Security › Microphone.'
+      : `Voice stopped: ${e.error}`);
+  };
+  rec.onend = () => {
+    _vlog('recogniser closed');
+    engineAlive();
+    if (_rec === rec) _rec = null;
+    // Unconditional re-attempt: whether it's allowed is startListening's own
+    // decision (see its _voiceBusy guard), and keeping that judgement in one place
+    // is why the mic can't reopen mid-reply from any of the paths that call it.
+    if (_voiceOn) setTimeout(startListening, 150);
+  };
+  _rec = rec;
+  setVoiceButton('starting');
+  setVoiceStatus('Opening the microphone…');
+  try {
+    rec.start();
+  } catch (e) {
+    // Swallowing this is what made the button lie: it kept saying "Listening…"
+    // with no recogniser behind it and nothing that would ever restart one.
+    clearTimeout(watchdog);
+    _rec = null;
+    stopVoice(`The microphone could not be started (${e.name}: ${e.message}).`);
+  }
+}
+
+function stopVoice(message) {
+  _voiceOn = false;
+  _voiceBusy = false;
+  if (_rec) { try { _rec.abort(); } catch (_) {} _rec = null; }
+  window.speechSynthesis.cancel();
+  stopMeter();
+  setVoiceButton('off');
+  // Leave a failure on screen after the alert is dismissed — an alert is gone the
+  // moment it's acknowledged, which is before anyone can act on it.
+  setVoiceStatus(message || '', !!message);
+  if (message) { _vlog('stopped:', message); alert(message); }
+}
+
+async function toggleVoice() {
+  if (_voiceOn) { stopVoice(); setVoiceStatus(''); return; }
+  const why = voiceUnsupportedReason();
+  if (why) { setVoiceStatus(why, true); alert(why); return; }
+  _voiceOn = true;
+  _voiceBusy = false;   // clicking on is always the start of a fresh turn
+  setVoiceButton('starting');
+  // The user agent and which spelling of the API we got, because "no events ever
+  // arrive" is a per-browser fact and this is the only record of which browser.
+  _vlog('arming', window.SpeechRecognition ? 'standard' : 'webkit', navigator.userAgent);
+  // getVoices() is empty until the list loads on some browsers; touching it here
+  // means the first reply already has a good voice rather than the second.
+  window.speechSynthesis.getVoices();
+  // start() must run in the click's own task, before anything is awaited. User
+  // activation does not survive an await, and a recogniser started without it is
+  // ignored *silently* — no throw, no error event. Claiming the microphone first
+  // read better and was exactly that bug.
+  startListening();
+  // The meter follows. It is a diagnostic, not a precondition: if the microphone is
+  // refused, recognition reports it too, with the same advice.
+  const problem = await startMeter();
+  if (problem) setVoiceStatus(problem, true);
+}
+
+// ── Native voice: the model hears you and answers in its own voice ──────────
+//
+// The other trade from the block above. Instead of the browser transcribing your
+// microphone and reading text back, the audio goes to an audio-in/audio-out model
+// and its reply arrives as speech. That is what makes ChatGPT's voice mode sound
+// like a person rather than a screen reader, and the difference is not subtle.
+//
+// What it gives up is routing. Barely any model emits audio, so a spoken turn
+// goes to one fixed model rather than the cheapest that clears the bar — which is
+// why /v1/voice bypasses the router entirely, why it bills audio tokens, and why
+// the button is hidden unless the admin key is in use. See voice_routes.py.
+//
+// Deliberate ceilings, all of them the same shape — SSE cannot carry a duplex
+// conversation:
+//   * Half-duplex, like the browser mode. Real barge-in needs a WebSocket, and
+//     OpenRouter exposes no realtime endpoint at all. Escape interrupts.
+//   * The model returns a transcript of *its* reply but never of yours, so the
+//     history sent upstream carries only its side. A turn that leans on your exact
+//     earlier words ("say that again in French") may miss them. Fixing it means a
+//     transcription call alongside — a cascade, which this mode exists to avoid.
+//   * One turn per request. The recording is endpointed locally on a silence
+//     timer, not by the model.
+
+// Peak sample level (0…1) that counts as speech rather than room noise, and how
+// long a gap ends the turn. 1.1s is above a mid-sentence breath and below the
+// pause that means "your turn" — the same judgement SpeechRecognition makes
+// internally, which is the one thing it does that has to be rebuilt here.
+const _TALK_SPEECH_PEAK = 0.02;
+const _TALK_HANG_SECS = 1.1;
+// Hard ceiling on one recording, well inside the server's payload cap. Also the
+// backstop for a microphone that reads as permanently loud, where the silence
+// timer would never fire and the turn would never end.
+const _TALK_MAX_SECS = 25;
+
+let _talkOn = false;        // native voice loop armed
+let _talkBusy = false;      // the model's turn: sent → last sample played
+let _talkNode = null;       // live capture node, or null between turns
+let _talkPlayAt = 0;        // playback cursor in AudioContext time
+let _talkSources = [];      // scheduled buffers, so Escape can stop them
+let _talkHistory = [];      // assistant turns only — see the ceiling note above
+let _talkModel = '';        // reported by the server, for the routing badge
+
+// Show the button only for the admin key. Called from loadWhoAmI, which already
+// has the answer, rather than asking again.
+function revealNativeVoice(me) {
+  const b = document.getElementById('btn-chat-talk');
+  if (b) b.style.display = (me && me.kind === 'admin') ? 'inline-flex' : 'none';
+}
+
+function setTalkButton(state) {
+  const b = document.getElementById('btn-chat-talk');
+  if (!b) return;
+  b.classList.toggle('voice-active', state !== 'off');
+  b.classList.toggle('voice-listening', state === 'listening');
+  b.textContent = state === 'listening' ? '🔊 Listening…'
+                : state === 'thinking'  ? '🔊 Thinking…'
+                : state === 'speaking'  ? '🔊 Speaking…'
+                : '🔊 Talk';
+}
+
+// Float32 mono → base64 16-bit PCM wav. Written here rather than using
+// MediaRecorder because MediaRecorder produces webm on Chrome and mp4 on Safari,
+// and no audio model accepts either; wav is on every provider's list.
+function encodeWav(chunks, rate) {
+  let n = 0;
+  for (const c of chunks) n += c.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const tag = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  tag(0, 'RIFF');  v.setUint32(4, 36 + n * 2, true);  tag(8, 'WAVE');
+  tag(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);          // PCM, uncompressed
+  v.setUint16(22, 1, true);          // mono
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);   // byte rate = rate × channels × bytes
+  v.setUint16(32, 2, true);          // block align
+  v.setUint16(34, 16, true);         // bits per sample
+  tag(36, 'data'); v.setUint32(40, n * 2, true);
+  let off = 44;
+  for (const c of chunks) {
+    for (let i = 0; i < c.length; i++, off += 2) {
+      // Clamp before scaling: a sample slightly outside ±1 (which happens with
+      // gain applied) would otherwise wrap to full-scale opposite sign and click.
+      const s = Math.max(-1, Math.min(1, c[i]));
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+  }
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  // In 32k slices: String.fromCharCode.apply on a whole recording is hundreds of
+  // thousands of arguments and overflows the call stack.
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// Record until the speaker stops, then hand back the wav. Resolves with '' if
+// nothing above the noise floor was ever heard, so a silent turn costs nothing.
+function captureTurn() {
+  return new Promise((resolve) => {
+    const rate = _voiceCtx.sampleRate;
+    // ponytail: ScriptProcessorNode is deprecated in favour of AudioWorklet, and
+    // works in every browser that has Web Audio at all. Worth swapping only if the
+    // main-thread hop starts dropping frames — a worklet needs a separate module
+    // file or a Blob URL, which is real structure for the same 20 lines.
+    const node = _voiceCtx.createScriptProcessor(4096, 1, 1);
+    // A sink is required or onaudioprocess never fires, and it must be silent or
+    // the microphone is routed to the speakers and the room howls.
+    const mute = _voiceCtx.createGain();
+    mute.gain.value = 0;
+    const chunks = [];
+    let spoke = false, quiet = 0, elapsed = 0;
+    const finish = (out) => {
+      node.onaudioprocess = null;
+      try { node.disconnect(); mute.disconnect(); } catch (_) {}
+      if (_talkNode === node) _talkNode = null;
+      resolve(out);
+    };
+    node.onaudioprocess = (e) => {
+      const inp = e.inputBuffer.getChannelData(0);
+      let peak = 0;
+      for (let i = 0; i < inp.length; i++) peak = Math.max(peak, Math.abs(inp[i]));
+      const secs = inp.length / rate;
+      elapsed += secs;
+      if (peak >= _TALK_SPEECH_PEAK) { spoke = true; quiet = 0; }
+      else if (spoke) quiet += secs;
+      // Only keep audio from the first word on. Leading room tone is billed at
+      // audio-token rates like anything else.
+      if (spoke) chunks.push(new Float32Array(inp));
+      if (spoke && quiet >= _TALK_HANG_SECS) return finish(encodeWav(chunks, rate));
+      if (elapsed >= _TALK_MAX_SECS) return finish(spoke ? encodeWav(chunks, rate) : '');
+    };
+    _talkNode = node;
+    _voiceCtx.createMediaStreamSource(_voiceStream).connect(node);
+    node.connect(mute);
+    mute.connect(_voiceCtx.destination);
+  });
+}
+
+// Queue one base64 pcm16 chunk for playback, gapless after whatever is already
+// scheduled. Scheduling on the audio clock rather than firing each chunk on
+// arrival is what makes the reply sound continuous instead of stuttered.
+function playPcm16(b64, rate) {
+  if (!_voiceCtx) return;
+  const bin = atob(b64);
+  const n = bin.length >> 1;
+  if (!n) return;
+  const buf = _voiceCtx.createBuffer(1, n, rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    let s = (bin.charCodeAt(i * 2 + 1) << 8) | bin.charCodeAt(i * 2);
+    if (s >= 0x8000) s -= 0x10000;   // little-endian signed
+    ch[i] = s / 0x8000;
+  }
+  const src = _voiceCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(_voiceCtx.destination);
+  const now = _voiceCtx.currentTime;
+  // A short lead on the first chunk. Starting at currentTime exactly means any
+  // decode jitter lands after the clock has already passed the start time, and
+  // that audio is simply dropped.
+  if (_talkPlayAt < now) _talkPlayAt = now + 0.08;
+  src.start(_talkPlayAt);
+  _talkPlayAt += buf.duration;
+  _talkSources.push(src);
+  src.onended = () => { _talkSources = _talkSources.filter((s) => s !== src); };
+}
+
+function stopTalkPlayback() {
+  for (const s of _talkSources) { try { s.stop(); } catch (_) {} }
+  _talkSources = [];
+  _talkPlayAt = 0;
+}
+
+// Send one turn and play the reply as it arrives. Returns the transcript.
+async function speakTurn(b64) {
+  const res = await fetch('/v1/voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: b64, format: 'wav', messages: _talkHistory }),
+  });
+  if (!res.ok) {
+    let detail;
+    try { const b = await res.json(); detail = b.detail || b.error; }
+    catch (_) { detail = await res.text(); }
+    throw new Error(detail || `Voice turn failed (${res.status})`);
+  }
+  const rate = parseInt(res.headers.get('X-Voice-Sample-Rate') || '24000', 10) || 24000;
+  _talkModel = res.headers.get('X-Voice-Model') || '';
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buffered = '';
+  let transcript = '';
+  let first = true;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += dec.decode(value, { stream: true });
+    // Hold the tail: a chunk boundary lands mid-line often, and half a base64
+    // payload decodes to noise.
+    const lines = buffered.split('\n');
+    buffered = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const payload = line.slice(6).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let obj;
+      try { obj = JSON.parse(payload); } catch (_) { continue; }
+      for (const c of obj.choices || []) {
+        const a = (c.delta || {}).audio;
+        if (!a) continue;
+        if (a.data) {
+          if (first) { first = false; setTalkButton('speaking'); }
+          playPcm16(a.data, rate);
+        }
+        if (a.transcript) {
+          transcript += a.transcript;
+          setVoiceStatus('“' + transcript + '”');
+        }
+      }
+    }
+  }
+  return transcript;
+}
+
+// One full turn: listen, send, speak, repeat. A loop rather than recursion so a
+// long conversation doesn't grow the stack one frame per exchange.
+async function talkLoop() {
+  while (_talkOn) {
+    setTalkButton('listening');
+    setVoiceStatus('Listening — speak, then pause. The model answers in its own voice.');
+    const b64 = await captureTurn();
+    if (!_talkOn) return;
+    if (!b64) continue;   // nothing above the noise floor; listen again
+
+    _talkBusy = true;
+    setTalkButton('thinking');
+    setVoiceStatus('Sending your voice to the model… Escape interrupts the reply.');
+    let transcript = '';
+    try {
+      transcript = await speakTurn(b64);
+    } catch (e) {
+      stopTalk('Voice turn failed: ' + e.message);
+      return;
+    }
+    if (!_talkOn) return;
+    if (transcript.trim()) {
+      // Shown in the transcript so a spoken conversation leaves the same record a
+      // typed one does. The user side says only that something was said — the
+      // model does not hand back a transcript of the audio it was given.
+      renderChatMsg('user', '🎙 (spoken)');
+      const wrap = renderChatMsg('assistant', '');
+      finalizeChatBubble(wrap.querySelector('.chat-bubble'), transcript);
+      wrap.insertAdjacentHTML('beforeend', chatRoutingBadge({
+        routed: _talkModel || 'native voice', profile: 'voice / native',
+        why: 'Spoken turns are not routed — almost no model emits audio, so there '
+           + 'is nothing to choose between on price. Billed in audio tokens.',
+      }));
+      _talkHistory.push({ role: 'assistant', content: transcript });
+      // Trim in step with the server's own history cap, so the page is not
+      // building a list that gets silently truncated upstream.
+      if (_talkHistory.length > 20) _talkHistory = _talkHistory.slice(-20);
+    }
+    // Wait out the audio before reopening the microphone. Without this the model
+    // hears itself through the speakers and answers its own reply — the same
+    // half-duplex constraint the browser mode has.
+    while (_talkOn && _voiceCtx && _talkPlayAt > _voiceCtx.currentTime) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    _talkBusy = false;
+  }
+}
+
+function stopTalk(message) {
+  _talkOn = false;
+  _talkBusy = false;
+  if (_talkNode) {
+    _talkNode.onaudioprocess = null;
+    try { _talkNode.disconnect(); } catch (_) {}
+    _talkNode = null;
+  }
+  stopTalkPlayback();
+  stopMeter();
+  setTalkButton('off');
+  setVoiceStatus(message || '', !!message);
+  if (message) { _vlog('native voice stopped:', message); alert(message); }
+}
+
+async function toggleTalk() {
+  if (_talkOn) { stopTalk(); setVoiceStatus(''); return; }
+  // The two modes share one microphone, one AudioContext and one status strip, so
+  // running both at once would have each hearing the other's output.
+  if (_voiceOn) stopVoice();
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    const why = 'This browser has no Web Audio support, so native voice cannot '
+      + 'record or play. Typing works everywhere.';
+    setVoiceStatus(why, true); alert(why); return;
+  }
+  if (!window.isSecureContext) {
+    const why = 'Native voice needs HTTPS or http://localhost — browsers block the '
+      + 'microphone on plain HTTP.';
+    setVoiceStatus(why, true); alert(why); return;
+  }
+  setTalkButton('listening');
+  setVoiceStatus('Opening the microphone…');
+  const problem = await startMeter();
+  if (problem) { stopTalk(problem); return; }
+  // resume() after the click, not before: a context created outside a gesture
+  // starts suspended on some browsers, and a suspended context neither records
+  // nor plays while reporting no error at all.
+  try { await _voiceCtx.resume(); } catch (_) {}
+  _talkOn = true;
+  _talkPlayAt = 0;
+  _talkHistory = [];
+  talkLoop();
+}
+
+// Escape stops whichever mode is talking and hands the turn back — the
+// interruption affordance, given neither mode can be talked over. Registered
+// separately from the modal handler below so neither can swallow the other.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (_voiceOn && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+    window.speechSynthesis.cancel();
+    _voiceBusy = false;   // you interrupted; the assistant's turn is over
+    startListening();
+  }
+  if (_talkOn && _talkSources.length) {
+    // The loop is already waiting on the playback cursor, so clearing it is all
+    // that's needed — it reopens the microphone on its own next tick.
+    stopTalkPlayback();
+    setVoiceStatus('Interrupted — listening again.');
+  }
+});
+
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (document.getElementById('key-modal').classList.contains('open')) closeKeyModal();
   if (document.getElementById('profile-modal').classList.contains('open')) closeProfileModal();
+  if (document.getElementById('tags-modal').classList.contains('open')) closeTagsModal();
+  if (document.getElementById('report-modal').classList.contains('open')) closeReportModal();
 });
 initDashboard();
 </script>
@@ -3710,6 +5730,92 @@ initDashboard();
     <div class="modal-actions">
       <button class="btn btn-sm" id="btn-modal-copy" onclick="copyModalKey()">Copy key</button>
       <button class="btn btn-sm btn-primary" onclick="closeKeyModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Self-serve account: the key, shown once ────────────────────────── -->
+<!-- No backdrop-click close. Every other modal here is dismissible, but this one
+     holds the only copy of something unrecoverable, and a stray click outside it
+     would take an account with it. -->
+<div class="modal-backdrop" id="signup-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-modal-title">
+    <div class="modal-title" id="signup-modal-title">Your account is ready</div>
+    <div class="modal-body">
+      This key <strong>is</strong> your account — there is no email or password,
+      because nothing about you was collected.
+      <span class="modal-warn">It will not be shown again, and nobody can recover
+      it for you.</span>
+      Save it in a password manager now.
+      <code class="modal-key" id="signup-key-value"></code>
+      <div>Signed in on this browser already. To use it elsewhere, paste the key
+      when the site asks. Account <code id="signup-handle"></code>.</div>
+      <div id="signup-carried" style="display:none;margin-top:0.4rem"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="btn-signup-copy" onclick="copySignupKey()">Copy key</button>
+      <button class="btn btn-sm btn-primary" onclick="finishSignup()">I've saved it</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── No key, but this deployment hands them out ──────────────────────── -->
+<!-- The alternative to this screen is a browser prompt asking a first-time
+     visitor for a secret that does not exist yet. -->
+<div class="modal-backdrop" id="signup-gate">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signup-gate-title">
+    <div class="modal-title" id="signup-gate-title">This router needs a key</div>
+    <div class="modal-body">
+      You can make one right now — no email, no name, nothing to confirm. It comes
+      with a daily spending limit, and it can't run commands on the operator's
+      machine.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="gateEnterKey()">I already have a key</button>
+      <button class="btn btn-sm btn-primary" id="signup-gate-btn"
+              onclick="startSignup(this)">Create a free key</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Chat groups (sidebar row → 🏷) ─────────────────────────────────── -->
+<div class="modal-backdrop" id="tags-modal" onclick="if(event.target===this)closeTagsModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tags-modal-title">
+    <div class="modal-title" id="tags-modal-title">Groups</div>
+    <div class="modal-body">
+      Comma-separated labels. A chat can be in several groups, and the sidebar
+      filters by one at a time.
+      <input class="tags-modal-input" id="tags-modal-input" placeholder="work, taxes, side project"
+             onkeydown="onTagsModalKey(event)" autocomplete="off">
+      <div class="chat-tag-chips" id="tags-modal-suggest"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeTagsModal()">Cancel</button>
+      <button class="btn btn-sm btn-primary" onclick="saveTagsModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Feedback, from anywhere in the app. Same modal as the per-reply ⚑ Report,
+     with no bubble to pin it to — see openReportModal(). -->
+<button class="fab-feedback" onclick="openReportModal(null)"
+        title="Report a problem or send feedback">⚑<span class="fab-label"> Feedback</span></button>
+
+<!-- ── Report a bad reply (assistant bubble → ⚑ Report) ───────────────── -->
+<div class="modal-backdrop" id="report-modal" onclick="if(event.target===this)closeReportModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+    <div class="modal-title" id="report-modal-title">Report a bad response</div>
+    <div class="modal-body">
+      <div class="chat-meta" id="report-modal-context"></div>
+      <textarea class="tags-modal-input" id="report-modal-text" rows="5"
+                style="resize:vertical"
+                placeholder="What was wrong? e.g. it invented a function that doesn't exist, ignored half the question, or answered in the wrong language."></textarea>
+      <div class="chat-meta" id="report-modal-note"></div>
+      <div class="modal-warn" id="report-modal-status" style="font-size:0.8rem"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeReportModal()">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="btn-report-send" onclick="submitReport()">Send report</button>
     </div>
   </div>
 </div>

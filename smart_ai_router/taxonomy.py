@@ -62,6 +62,22 @@ FIELDS: dict[str, tuple[str, str]] = {
 
 FIELD_KEYS = tuple(FIELDS)
 
+# Fields whose answer *is* a document. Naming them is the difference between "a
+# short story" and one paragraph of one: the output ceiling that keeps a chatty
+# model from burning tokens on a factual question is the same ceiling that cuts a
+# story off mid-sentence, because nothing upstream distinguished the two. These
+# get a much larger output budget — see `api/proxy.py:_output_budget`.
+#
+# Deliberately narrow. `humanities_social` and `product_design` produce long
+# answers too, but they produce *analysis*, which is bounded by the question;
+# these four produce artifacts, whose length is set by the artifact.
+LONG_FORM_FIELDS: frozenset[str] = frozenset({
+    "creative_writing",
+    "technical_writing",
+    "education_explanation",
+    "translation_multilingual",   # output length is the *input's* length
+})
+
 # ── Depth ─────────────────────────────────────────────────────────────────────
 # How far into a field the answer has to go, and the model score that demands.
 #
@@ -90,11 +106,18 @@ DEPTH_RANK: dict[str, int] = {name: i for i, name in enumerate(DEPTH_KEYS)}
 # factual_precision is the heaviest because it is the hallucination axis: a
 # prompt that must name real statutes, standards, APIs, or citations punishes a
 # weaker model far more than one that only needs coherent prose.
+#
+# current_info carries a bump of 0.0 on purpose. Every other demand says "this
+# needs a better model"; this one says "this needs data the model does not have,
+# however good it is". Training cutoffs don't move with capability, so routing to
+# a stronger model buys nothing — it just makes a confidently stale answer more
+# expensive. What it gates is a web search (see api.proxy), not a higher bar.
 DEMANDS: dict[str, tuple[float, str]] = {
     "factual_precision": (0.05, "must name real statutes/standards/APIs/citations exactly"),
     "quantitative":      (0.03, "requires numeric derivation or estimation, not prose"),
     "long_synthesis":    (0.03, "must integrate many sources into one coherent artifact"),
     "agentic":           (0.02, "requires multi-step tool use"),
+    "current_info":      (0.00, "answer depends on facts that change after training"),
 }
 
 DEMAND_KEYS = tuple(DEMANDS)
@@ -217,6 +240,30 @@ class PromptProfile:
 
     def primary_field(self) -> str:
         return self.domains[0].field if self.domains else "general_knowledge"
+
+    def is_long_form(self) -> bool:
+        """Whether the answer is a document, and so needs room to be one.
+
+        Any named field being long-form counts, not just the primary one: "write
+        the API guide for this service" names technical_writing *second*, behind
+        a primary the classifier reads off the subject matter, and it is still a
+        document. `long_synthesis` counts on its own because that demand means
+        "integrate many sources into one coherent artifact", which is a length
+        claim in everything but name.
+        """
+        if "long_synthesis" in self.demands:
+            return True
+        return any(d.field in LONG_FORM_FIELDS for d in self.domains)
+
+    def needs_current_info(self) -> bool:
+        """Whether the answer depends on facts that may have changed since training.
+
+        A model cannot detect this about itself: from the inside, a fact learned in
+        training and a fact that is still true are indistinguishable, which is how a
+        reply written in 2026 called a 2024 season "current" and had no reason to
+        doubt it. The signal has to come from the prompt instead.
+        """
+        return "current_info" in self.demands
 
     def legacy_labels(self) -> tuple[str, str]:
         """(domain, complexity) in the old vocabulary, for the usage log, the

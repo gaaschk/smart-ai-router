@@ -138,3 +138,64 @@ def test_explicit_true_with_tool_model_is_not_auto(with_tools):
     })
     assert resp.headers.get("X-Agent") == "true"
     assert resp.headers.get("X-Agent-Auto") == "false"
+
+
+# ── a caller that brought its own tools ───────────────────────────────────────
+# A client that sends `tools` executes them itself — that is what the OpenAI tool
+# protocol means. Coding agents (Claude Code via claudish, Codex) send their
+# editor/shell/search tools and expect `tool_calls` back to run locally, and
+# their prompts are maximally actionable, so "auto" fired on every turn and the
+# router substituted its own filesystem loop over its own workspace: the
+# caller's tools were never invoked, its sandbox was never touched, and nothing
+# errored. Auto must yield to such a caller; only an explicit `agent: true` may
+# override, because then the router's loop was asked for by name.
+
+_CLIENT_TOOLS = [{
+    "type": "function",
+    "function": {
+        "name": "str_replace_editor",
+        "description": "Edit a file in the caller's own workspace.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+}]
+
+
+def test_auto_yields_to_a_client_that_brought_its_own_tools(with_tools):
+    resp = with_tools.post("/v1/chat/completions", json={
+        "model": "smart-worker",
+        "agent": "auto",
+        "tools": _CLIENT_TOOLS,
+        # The same prompt that (correctly) enters agent mode with no client
+        # tools — see test_auto_actionable_with_tool_model_enters_agent. The
+        # actionability of the prompt is not what changed; the caller is.
+        "messages": [{"role": "user", "content": "make me a resume PDF"}],
+    })
+    assert resp.headers.get("X-Agent") != "true"
+
+
+def test_absent_flag_also_yields_to_client_tools(with_tools):
+    # The real wire shape: a coding agent sends no `agent` key at all, so this is
+    # the path that was actually broken in production, not the explicit "auto".
+    resp = with_tools.post("/v1/chat/completions", json={
+        "model": "smart-worker",
+        "tools": _CLIENT_TOOLS,
+        "messages": [{"role": "user", "content": "create a report.docx"}],
+    })
+    assert resp.headers.get("X-Agent") != "true"
+
+
+def test_explicit_true_still_overrides_client_tools(with_tools):
+    # Asking for the router's workspace loop by name keeps working even when the
+    # caller also advertises tools — the deference is a default, not a veto.
+    resp = with_tools.post("/v1/chat/completions", json={
+        "model": "smart-worker",
+        "agent": True,
+        "tools": _CLIENT_TOOLS,
+        "messages": [{"role": "user", "content": "make me a resume PDF"}],
+    })
+    assert resp.headers.get("X-Agent") == "true"
+    assert resp.headers.get("X-Agent-Auto") == "false"

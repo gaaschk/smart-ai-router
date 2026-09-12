@@ -81,6 +81,18 @@ def _reject_negative(value: str) -> None:
         raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
+def _expect_owner_slash_name(value: str) -> None:
+    """Refuse anything that isn't `owner/name`.
+
+    A URL pasted from the browser bar is the obvious thing to type here, and it
+    would fail as a 404 from GitHub recorded against each individual report —
+    days later, in a place nobody looks. Cheaper to refuse it on the way in.
+    """
+    repo = value.strip().strip("/")
+    if repo and (repo.count("/") != 1 or not all(repo.split("/"))):
+        raise ValueError("expects owner/name, e.g. gaaschk/smart-ai-router")
+
+
 # The registry. Order here is the order the UI renders. Keep keys stable — they
 # are the DB primary keys and the JSON field names in the settings API.
 SPECS: tuple[SettingSpec, ...] = (
@@ -114,6 +126,110 @@ SPECS: tuple[SettingSpec, ...] = (
         help="Output-token ceiling applied when a request omits max_tokens. "
         "Caps output only — for reasoning models this covers thinking plus the "
         "answer, so too low a value yields empty or truncated replies.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="long_form_max_tokens",
+        env="SMART_ROUTER_LONG_FORM_MAX_TOKENS",
+        type="int",
+        default=32768,
+        label="Long-form max output tokens",
+        group="Routing",
+        help="Output ceiling for a prompt whose answer is a document — a story, "
+        "a guide, a lesson, a translation. The ordinary default is sized for a "
+        "reply; asking for a short story and getting one paragraph, cut "
+        "mid-sentence, is that default doing exactly what it was set to do. "
+        "Generous on purpose: this is a ceiling, not a target, and you are billed "
+        "for what the model actually writes. Automatically lowered to the chosen "
+        "model's own output limit, so a large value here can't produce a request "
+        "the provider rejects.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="long_form_min_model_output",
+        env="SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT",
+        type="int",
+        default=8192,
+        label="Long-form minimum model capacity",
+        group="Routing",
+        help="For a document request, prefer a model that can emit at least this "
+        "many tokens. Some cheap models cap output at 2–4k no matter what we ask "
+        "for, and cheapest-qualified-wins would hand them a story they physically "
+        "cannot finish. A preference, not a filter: if no roomier model qualifies, "
+        "the cheapest qualified one still answers rather than the request failing. "
+        "Set to 0 to rank documents on price alone.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="prompt_caching",
+        env="SMART_ROUTER_PROMPT_CACHING",
+        type="bool",
+        default=True,
+        label="Cache the repeated part of long conversations",
+        group="Routing",
+        help="Mark the unchanging front of a long request — tool definitions, "
+        "system prompt, earlier turns — so Claude models re-read it from cache at "
+        "10% of the input price instead of being billed for it again on every "
+        "turn. This is measured, not theoretical: 92% of this router's lifetime "
+        "spend was one five-minute coding session in which the same growing "
+        "prefix was re-billed 52 times. Claude models only (every other family "
+        "either caches automatically or not at all), only from the second turn "
+        "onward, and only above ~2k tokens, because writing a cache entry costs "
+        "25% extra and a one-shot prompt would never read it back. Turn off if "
+        "you see cache-related provider errors.",
+    ),
+    SettingSpec(
+        key="web_search_enabled",
+        env="SMART_ROUTER_WEB_SEARCH",
+        type="bool",
+        default=True,
+        label="Search the web for time-sensitive prompts",
+        group="Routing",
+        help="When the classifier reads a prompt as depending on current facts — "
+        "news, prices, standings, how many of something there are now — search the "
+        "web and give the model the results before it answers. Without this a model "
+        "answers from training data and has no way to know the world moved on: it "
+        "will call a 2024 season 'current' in 2026 and sound certain. Costs about "
+        "$0.007 per searched request (OpenRouter's web plugin, billed per search, "
+        "not per token). OpenRouter models only — a request routed to a local Ollama "
+        "model or to Bedrock answers unsearched, and the X-Web-Search response "
+        "header says which happened.",
+    ),
+    SettingSpec(
+        key="web_search_max_results",
+        env="SMART_ROUTER_WEB_SEARCH_MAX_RESULTS",
+        type="int",
+        default=5,
+        label="Web results per search",
+        group="Routing",
+        help="How many search results to put in front of the model. Up to 10 are "
+        "included in the per-search price, so lowering this saves nothing — it "
+        "only narrows what the model can check. Raising it past 10 costs $0.001 "
+        "per extra result and mostly adds prompt tokens.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="chat_rich_output_prompt",
+        env="SMART_ROUTER_CHAT_RICH_OUTPUT_PROMPT",
+        type="str",
+        default=(
+            "You are answering in a chat UI that renders your reply as Markdown, "
+            "and additionally renders fenced ```html and ```svg blocks as live, "
+            "sandboxed previews the reader can open, download, or print. Use them "
+            "when a visual genuinely helps — diagrams, charts, tables, timelines, "
+            "styled documents — and write self-contained markup with inline CSS. "
+            "Sandboxed previews cannot load anything over the network, so draw "
+            "with inline SVG or CSS rather than linking to external images, "
+            "fonts, or scripts. When asked for a document — a story, a guide, a "
+            "lesson — write the whole thing, at the length the request implies, "
+            "rather than an outline or an excerpt."
+        ),
+        label="Chat rich-output prompt",
+        group="Routing",
+        help="System note prepended to requests from the chat page only, so the "
+        "model knows the page renders HTML and SVG previews. Never sent to /v1 API "
+        "clients or tool-using requests, where an injected turn would change their "
+        "output and then persist in their history. Blank it to send nothing.",
     ),
     SettingSpec(
         key="classifier_model",
@@ -301,12 +417,16 @@ SPECS: tuple[SettingSpec, ...] = (
         key="public_max_output_tokens",
         env="SMART_ROUTER_PUBLIC_MAX_OUTPUT_TOKENS",
         type="int",
-        default=1024,
+        default=16384,
         label="Anonymous max output tokens",
         group="Public access",
         help="Hard ceiling on max_tokens for an anonymous request. This is what "
         "bounds how far concurrent requests can overshoot the daily cap, since a "
-        "call's real cost is only known after it returns.",
+        "call's real cost is only known after it returns. Deliberately roomy — a "
+        "stranger asking for a story should get a whole one, and what actually "
+        "bounds the bill is the daily budget, the rate limit, and the tier ceiling "
+        "rather than a ceiling that truncates every long answer. Lower it if you "
+        "would rather cut replies off than risk a single expensive call.",
         validate=_reject_negative,
     ),
     SettingSpec(
@@ -341,6 +461,181 @@ SPECS: tuple[SettingSpec, ...] = (
         "whole deployment (0 = unlimited). Protects the local GPU from being "
         "monopolized, and bounds budget overshoot.",
         validate=_reject_negative,
+    ),
+    # ── Self-serve accounts ─────────────────────────────────────────────────────
+    # Keys anyone can mint for themselves, with no personal information collected.
+    # Read the "pool" cap as the actual bill ceiling: signing up is free, so a
+    # per-account cap alone buys an abuser N accounts × N caps. See
+    # self_signup.py. Ships off.
+    SettingSpec(
+        key="self_signup_enabled",
+        env="SMART_ROUTER_SELF_SIGNUP",
+        type="bool",
+        default=False,
+        label="Let visitors create their own API keys",
+        group="Self-serve accounts",
+        help="Adds a button that mints an API key on the spot — no email, no "
+        "name, nothing to verify. A self-issued key can never use agent mode or "
+        "manage anything; it is capped by the two budgets below. Requires an "
+        "admin key (SMART_ROUTER_API_KEYS) to be configured. "
+        "Security-sensitive: this lets strangers spend your money.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="self_signup_pool_daily_budget_usd",
+        env="SMART_ROUTER_SIGNUP_POOL_DAILY_BUDGET",
+        type="float",
+        default=2.00,
+        label="All self-serve accounts: daily spend cap (USD)",
+        group="Self-serve accounts",
+        help="THE bill ceiling — what every self-issued key together may cost per "
+        "UTC day. Past it they are limited to free and local models rather than "
+        "cut off. This is the number that matters: the per-account cap below does "
+        "not bound your bill, because anyone can create more accounts.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_daily_budget_usd",
+        env="SMART_ROUTER_SIGNUP_DAILY_BUDGET",
+        type="float",
+        default=0.25,
+        label="Per self-serve account: daily spend cap (USD)",
+        group="Self-serve accounts",
+        help="What one self-issued key may cost per UTC day, so a single heavy "
+        "user can't drain the pool above and leave nothing for anyone else. "
+        "Fairness between accounts, not protection from them.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_tier",
+        env="SMART_ROUTER_SIGNUP_MAX_TIER",
+        type="int",
+        default=3,
+        label="Self-serve max cost tier",
+        group="Self-serve accounts",
+        help="Most expensive cost tier a self-issued key may reach while budget "
+        "remains (0 = local only, 1 = adds free models, 3 ≈ Haiku, 5 ≈ Sonnet, "
+        "8 ≈ Opus). Read live, so lowering it applies to keys that already exist.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_degraded_max_tier",
+        env="SMART_ROUTER_SIGNUP_DEGRADED_MAX_TIER",
+        type="int",
+        default=1,
+        label="Self-serve max tier once budget is spent",
+        group="Self-serve accounts",
+        help="Tier ceiling applied once either daily cap above is reached. 1 keeps "
+        "these accounts working on free and local models; 0 restricts them to local.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_output_tokens",
+        env="SMART_ROUTER_SIGNUP_MAX_OUTPUT_TOKENS",
+        type="int",
+        default=16384,
+        label="Self-serve max output tokens",
+        group="Self-serve accounts",
+        help="Hard ceiling on max_tokens for a self-issued key's request. This is "
+        "what bounds how far concurrent requests can overshoot the daily caps, "
+        "since a call's real cost is only known after it returns. Roomy enough for "
+        "a whole document, because truncating one to save a fraction of a cent is "
+        "a bad trade; the daily caps are what bound the bill.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_rl_max_req",
+        env="SMART_ROUTER_SIGNUP_RL_MAX_REQ",
+        type="int",
+        default=60,
+        label="Self-serve requests per window",
+        group="Self-serve accounts",
+        help="Request cap per key inside the window below (0 = no cap). Baked into "
+        "each key when it is created, so changing it affects new keys only.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_rl_window_s",
+        env="SMART_ROUTER_SIGNUP_RL_WINDOW_S",
+        type="int",
+        default=3600,
+        label="Self-serve rate-limit window (s)",
+        group="Self-serve accounts",
+        help="Length of the rolling window for a self-issued key's rate limit. "
+        "0 disables its rate limit entirely.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="self_signup_max_accounts",
+        env="SMART_ROUTER_SIGNUP_MAX_ACCOUNTS",
+        type="int",
+        default=100,
+        label="Maximum self-serve accounts",
+        group="Self-serve accounts",
+        help="How many self-issued keys may exist at once (0 = unlimited). "
+        "Creating one is free and scriptable, so this is how you say 'I'll take "
+        "fifty users, not five thousand'.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="voice_native_model",
+        env="SMART_ROUTER_VOICE_NATIVE_MODEL",
+        type="str",
+        default="openrouter/openai/gpt-audio-mini",
+        label="Native-voice model",
+        group="Voice",
+        help="The audio-in/audio-out model used by 🔊 Talk (admin only). Unlike "
+        "every other model choice here this one is NOT routed — barely any model "
+        "emits audio, so there is nothing to choose between on price. "
+        "openai/gpt-audio-mini is roughly $0.11 an hour of conversation; "
+        "openai/gpt-audio sounds better and is roughly $1.70. Both bill audio "
+        "tokens, which the usage page reads from the provider rather than from "
+        "the text rate.",
+    ),
+    SettingSpec(
+        key="github_issues_enabled",
+        env="SMART_ROUTER_GITHUB_ISSUES",
+        type="bool",
+        default=False,
+        label="File reports as GitHub issues",
+        group="Feedback",
+        help="Also open an issue on the repo below for every report filed from "
+        "the ⚑ Feedback button. Reports are always stored locally first, so a "
+        "bad token or a GitHub outage costs you the issue, never the report.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="github_repo",
+        env="SMART_ROUTER_GITHUB_REPO",
+        type="str",
+        default="",
+        label="GitHub repository",
+        group="Feedback",
+        help="owner/name of the repo that receives the issues.",
+        validate=_expect_owner_slash_name,
+    ),
+    SettingSpec(
+        key="github_token",
+        env="SMART_ROUTER_GITHUB_TOKEN",
+        type="str",
+        default="",
+        label="GitHub token",
+        group="Feedback",
+        help="A fine-grained token with Issues: write on that repo alone. It can "
+        "open issues as you, so give it nothing else.",
+        sensitive=True,
+    ),
+    SettingSpec(
+        key="github_include_transcript",
+        env="SMART_ROUTER_GITHUB_TRANSCRIPT",
+        type="bool",
+        default=False,
+        label="Put the conversation in the issue",
+        group="Feedback",
+        help="Off by default, and think before turning it on: a report carries "
+        "the whole chat, and an issue is public. Left off, the issue cites the "
+        "local report id and the transcript stays on this machine.",
+        sensitive=True,
     ),
 )
 

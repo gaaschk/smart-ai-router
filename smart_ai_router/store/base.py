@@ -8,6 +8,7 @@ from smart_ai_router.models import (
     FileRecord,
     ModelSpec,
     ProviderConfig,
+    Report,
     UsageRecord,
 )
 
@@ -108,6 +109,17 @@ class MatrixStore(ABC):
         """
 
     @abstractmethod
+    def spend_for_user(self, *, user: str, since_ts: str) -> float:
+        """Total $ charged to exactly one user, counting overhead rows.
+
+        The exact-match sibling of `spend_since`, and a separate method rather
+        than a flag because a per-account cap cannot use LIKE at all: one account
+        label can be a prefix of another, so a prefix match would bill one account
+        for a stranger's spend. Overhead is included for the same reason as
+        `spend_since` — it is money this user's prompts caused.
+        """
+
+    @abstractmethod
     def usage_summary(
         self, *, user: str | None = None, since_ts: str = ""
     ) -> dict:
@@ -157,16 +169,52 @@ class MatrixStore(ABC):
     def get_conversation(self, conversation_id: str) -> Conversation | None: ...
 
     @abstractmethod
-    def list_conversations(self, user: str | None = None) -> list[Conversation]:
-        """Conversations, optionally filtered to one owner, newest-updated first."""
+    def list_conversations(
+        self,
+        user: str | None = None,
+        *,
+        tag: str | None = None,
+        caller: str | None = None,
+    ) -> list[Conversation]:
+        """Conversations, newest-updated first, optionally filtered to one owner
+        (`user`) and/or one grouping label (`tag`). Each record carries its tags.
+
+        `caller` is the identity asking, and it gates privacy: a thread with
+        shared=False is returned only to its own owner. caller=None yields shared
+        threads only — the fail-safe direction, losing rows rather than leaking."""
 
     @abstractmethod
-    def update_conversation(self, conversation_id: str, *, title: str) -> bool:
-        """Rename a conversation. Returns False if nothing matched."""
+    def list_conversation_users(self, *, caller: str | None = None) -> list[str]:
+        """Every distinct owner with at least one conversation the caller may see,
+        sorted. Backs the admin's owner filter, so it lists who actually has visible
+        chat history — an owner whose every thread is private is omitted, since
+        appearing here would itself report that they exist."""
+
+    @abstractmethod
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: list[str] | None = None,
+        shared: bool | None = None,
+    ) -> bool:
+        """Rename, replace the tag set, and/or set admin visibility. Fields left
+        None are untouched; `tags=[]` clears them. False if nothing matched."""
+
+    @abstractmethod
+    def reassign_conversations(self, *, from_user: str, to_user: str) -> int:
+        """Move every conversation owned by `from_user` to `to_user`; count moved.
+
+        What makes signing up non-destructive. A visitor who has been chatting
+        anonymously and then creates an account is the same person one second
+        later, but they are a different `user` string — so without this, the moment
+        they commit to the service is the moment their whole history disappears."""
 
     @abstractmethod
     def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation and all its messages. False if nothing matched."""
+        """Delete a conversation, its messages, and its tags. False if nothing
+        matched."""
 
     @abstractmethod
     def add_chat_message(self, msg: ChatMessage) -> ChatMessage:
@@ -176,3 +224,21 @@ class MatrixStore(ABC):
     @abstractmethod
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         """All messages in a conversation, in send order (by ordinal)."""
+
+    # ── Bad-response reports ─────────────────────────────────────────────────────
+
+    @abstractmethod
+    def create_report(self, rec: Report) -> Report:
+        """File a report (fills ts if empty, assigns the id)."""
+
+    @abstractmethod
+    def list_reports(self, limit: int = 100) -> list[Report]:
+        """Reports newest first, capped at `limit`. Each carries its transcript."""
+
+    @abstractmethod
+    def set_report_issue(self, report_id: int, issue_url: str, error: str) -> None:
+        """Record where the report was mirrored to on GitHub, or why it wasn't."""
+
+    @abstractmethod
+    def delete_report(self, report_id: int) -> bool:
+        """Delete one report. False if nothing matched."""

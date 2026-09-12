@@ -122,6 +122,20 @@ def _needs_agentic(
     return needs_tools or agent_mode or "agentic" in profile.demands
 
 
+def _output_floor(profile: PromptProfile) -> int:
+    """Output capacity a request prefers its model to have, 0 = don't care.
+
+    Only documents care. A model's own max_output is the one ceiling the router
+    cannot raise by asking, and the cheap end of the catalog is where the low ones
+    live — several cap at 2–4k tokens — so cheapest-qualified-wins will reliably
+    hand a story to a model that must stop partway through it. Expressed as a
+    floor on capacity rather than a hard requirement: see _select().
+    """
+    if not profile.is_long_form():
+        return 0
+    return max(0, _settings.get_int("long_form_min_model_output"))
+
+
 def _margin(spec: ModelSpec, requirements: dict[str, float]) -> float:
     """How much room this model has on its *weakest* required field.
 
@@ -155,6 +169,12 @@ class RouteDecision:
     # leaves no trace in `scores`: the field scores of a model rejected for loop
     # stamina look fine, so without a count the decision reads as if that model
     # was never in the catalog.
+    output_deprioritized: int = 0
+    # Qualified models that were cheaper but couldn't emit a whole document, so a
+    # dearer one was picked. Counted for the same reason as above and one more: this
+    # is the only case where the router knowingly declines the cheapest qualified
+    # model, and a bill that went up for no visible reason is the kind of thing an
+    # operator should be able to read off the decision.
 
     def shortfalls(self) -> dict[str, tuple[float, float]]:
         """field → (required, actual) for every field the pick falls short on."""
@@ -188,10 +208,18 @@ class RouteDecision:
         )
 
     def _agentic_clause(self) -> str:
-        """The tool-loop exclusions, appended to explain() only when there were any."""
-        if not self.agentic_excluded:
-            return ""
-        return f"; {self.agentic_excluded} skipped as measured weak at tool loops"
+        """The exclusions that leave no trace in `scores`, appended when there were any."""
+        clauses = ""
+        if self.agentic_excluded:
+            clauses += (
+                f"; {self.agentic_excluded} skipped as measured weak at tool loops"
+            )
+        if self.output_deprioritized:
+            clauses += (
+                f"; {self.output_deprioritized} cheaper but capped too low to "
+                "finish a document"
+            )
+        return clauses
 
 
 def select(
@@ -239,6 +267,7 @@ def select(
         needs_vision=needs_vision,
         needs_structured=needs_structured,
         est_tokens=est_tokens,
+        min_output=_output_floor(profile),
         exclude=exclude,
         scope=scope,
         thresholds=thresholds,
@@ -275,6 +304,7 @@ def select_from(
         needs_vision=needs_vision,
         needs_structured=needs_structured,
         est_tokens=est_tokens,
+        min_output=_output_floor(profile),
         exclude=exclude,
         scope=scope,
         thresholds=thresholds,
@@ -292,6 +322,7 @@ def _select(
     needs_vision: bool = False,
     needs_structured: bool = False,
     est_tokens: int = 0,
+    min_output: int = 0,
     exclude: set[str] | None = None,
     scope: ModelScope | None = None,
     thresholds: dict[str, float] | None = None,
@@ -314,6 +345,7 @@ def _select(
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
     agentic_excluded = 0
+    output_deprioritized = 0
 
     def _drives_loops(spec: ModelSpec) -> bool:
         """Whether this model may be handed a multi-step tool task.
@@ -376,6 +408,7 @@ def _select(
             eligible_count=len(eligible),
             qualified_count=qualified_count,
             agentic_excluded=agentic_excluded,
+            output_deprioritized=output_deprioritized,
         )
 
     # Qualified = clears the bar on EVERY named field. Cheapest wins; ties break
@@ -383,8 +416,23 @@ def _select(
     # separated by how comfortably they clear rather than arbitrarily.
     qualified = [spec for spec in eligible if _margin(spec, requirements) >= 0]
     if qualified:
-        qualified.sort(key=lambda s: (s.cost, -_margin(s, requirements), s.value))
-        return _decision(qualified[0], True, len(qualified))
+        # For a document, prefer a model that can actually emit one. A ranking
+        # preference rather than a filter, and deliberately so: it costs money —
+        # the cramped models are the cheap ones — and a request must never fail
+        # because nothing roomy qualified. An unknown ceiling (max_output == 0,
+        # every local model) counts as roomy, since the alternative is excluding
+        # models on no evidence.
+        roomy = qualified
+        if min_output > 0:
+            spacious = [
+                s for s in qualified
+                if s.max_output <= 0 or s.max_output >= min_output
+            ]
+            if spacious:
+                output_deprioritized = len(qualified) - len(spacious)
+                roomy = spacious
+        roomy.sort(key=lambda s: (s.cost, -_margin(s, requirements), s.value))
+        return _decision(roomy[0], True, len(qualified))
 
     # Nothing is genuinely qualified. Take the model that falls shortest on the
     # binding field — cost is only a tiebreak here, because at this point the
