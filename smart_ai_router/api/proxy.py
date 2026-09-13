@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import datetime as _dt
 import json
+import random
 import re
 import sys
 from typing import Any, AsyncIterator
@@ -29,6 +30,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from smart_ai_router import capture as _capture
 from smart_ai_router import helper_models as _helpers
 from smart_ai_router import overhead as _overhead
 from smart_ai_router import public_access as _public
@@ -466,6 +468,12 @@ class _StreamUsageScanner:
         self._buf = ""
         self.usage: dict | None = None
         self._content_len = 0
+        # Tool calls arrive as fragments — a name in one delta, arguments split
+        # across the next several — keyed by index. Accumulated here because the
+        # forwarded bytes are never buffered, so this scanner is the only place a
+        # streamed reply can be observed at all. Used by turn capture; harmless
+        # (a few hundred bytes) when capture is off.
+        self._calls: dict[int, dict] = {}
 
     def feed(self, chunk: bytes) -> None:
         """Feed one raw network chunk. Parses only whole lines; a partial
@@ -494,6 +502,38 @@ class _StreamUsageScanner:
                         piece = delta.get("content")
                         if isinstance(piece, str):
                             self._content_len += len(piece)
+                        for frag in delta.get("tool_calls") or []:
+                            self._feed_call(frag)
+
+    def _feed_call(self, frag: Any) -> None:
+        """Merge one tool_call delta fragment into the call it belongs to."""
+        if not isinstance(frag, dict):
+            return
+        fn = frag.get("function")
+        if not isinstance(fn, dict):
+            return
+        try:
+            idx = int(frag.get("index", 0))
+        except (TypeError, ValueError):
+            idx = 0
+        slot = self._calls.setdefault(idx, {"name": "", "arguments": ""})
+        if fn.get("name"):
+            slot["name"] = str(fn["name"])
+        if isinstance(fn.get("arguments"), str):
+            slot["arguments"] += fn["arguments"]
+
+    @property
+    def content_len(self) -> int:
+        """Characters of prose streamed (not stored anywhere — see capture.py)."""
+        return self._content_len
+
+    def tool_calls(self) -> list[dict]:
+        """The reassembled calls, in index order and in the shape a non-streamed
+        response would have used, so both paths capture the same thing."""
+        return [
+            {"function": self._calls[i]} for i in sorted(self._calls)
+            if self._calls[i]["name"]
+        ]
 
     def resolve(self, messages: list[dict]) -> tuple[dict, bool]:
         """Return (usage_block, tokens_estimated). Prefers the provider's real
@@ -692,6 +732,30 @@ def _orchestrator_capable(spec: ModelSpec) -> bool:
     if gen is None:
         return True
     return (int(gen.group(1)), int(gen.group(2) or 0)) >= _ORCHESTRATOR_MIN_GENERATION
+
+
+def _canary_spec(cr) -> ModelSpec | None:
+    """The challenger to try on *this* orchestrator request, or None.
+
+    `_orchestrator_capable` is a string match, so the only way into the lane is
+    to be called Claude — and a bakeoff on a hand-written corpus turned out not
+    to settle whether that is right: the measured agentic index disagreed with
+    measured tool-call reliability in both directions (the best scorer had never
+    been measured; the highest-scoring non-Claude placed last). So a challenger
+    is admitted here, by name and for a share of traffic the operator sets,
+    rather than by widening the rule on evidence that does not support it.
+
+    Returns None unless a model is named, the share is above zero, and this
+    request falls inside it. An unknown name also returns None — a typo in a
+    settings field must not take the lane down.
+    """
+    name = _settings.get_str("orchestrator_canary_model").strip()
+    share = _settings.get_int("orchestrator_canary_percent")
+    if not name or share <= 0:
+        return None
+    if share < 100 and random.random() * 100 >= share:
+        return None
+    return cr.get_model(name)
 
 
 def _enforce_rate_limit(cr, request: Request) -> None:
@@ -1086,27 +1150,36 @@ async def chat_completions(request: Request):
     else:
         candidates = None
 
+    route_kw = dict(
+        needs_tools=needs_tools,
+        needs_vision=needs_vision,
+        needs_structured=needs_structured,
+        est_tokens=est_tokens,
+        scope=scope,
+        agent_mode=agent_mode,
+    )
+    # A named challenger takes its share of orchestrator traffic — but only if it
+    # would have been picked on the merits. Routed through the same select_from as
+    # the pool, so scope, the tool/vision/structured requirements, the context
+    # ceiling and the profile's own bar all apply unchanged: a canary that isn't
+    # eligible (RuntimeError) or doesn't clear the bar (`qualified` false) loses
+    # the turn to Claude instead of degrading it.
+    canary = _canary_spec(cr) if candidates is not None else None
+    decision = None
+    if canary is not None:
+        try:
+            attempt = cr.select_from([canary], profile, **route_kw)
+        except RuntimeError:
+            attempt = None
+        if attempt is not None and attempt.qualified:
+            decision = attempt
+
+    canary_used = decision is not None
     try:
-        if candidates is None:
-            decision = cr.select(
-                profile,
-                needs_tools=needs_tools,
-                needs_vision=needs_vision,
-                needs_structured=needs_structured,
-                est_tokens=est_tokens,
-                scope=scope,
-                agent_mode=agent_mode,
-            )
-        else:
-            decision = cr.select_from(
-                candidates,
-                profile,
-                needs_tools=needs_tools,
-                needs_vision=needs_vision,
-                needs_structured=needs_structured,
-                est_tokens=est_tokens,
-                scope=scope,
-                agent_mode=agent_mode,
+        if decision is None:
+            decision = (
+                cr.select(profile, **route_kw) if candidates is None
+                else cr.select_from(candidates, profile, **route_kw)
             )
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -1143,6 +1216,7 @@ async def chat_completions(request: Request):
 
     mode = "orchestrator" if is_orchestrator else profile.describe()
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
+          f"{' [CANARY]' if canary_used else ''}"
           f"{' [ESCALATED]' if claude_tier else ''}"
           f"{' [UNDERQUALIFIED]' if underqualified else ''}",
           file=sys.stderr, flush=True)
@@ -1219,6 +1293,14 @@ async def chat_completions(request: Request):
         forward_body, routed_model, est_tokens, loops=agent_mode
     )
     url = f"{base_url}/chat/completions"
+    # Turn capture: a sampled copy of the operator's own tool-bearing turns, so a
+    # candidate model can be judged on traffic that really happened rather than a
+    # corpus written by hand. Decided once, here — the sampling coin is flipped
+    # per request, not per code path — and only for requests that still carry
+    # tools after _drop_unsupported, since a turn with no tools cannot exercise a
+    # tool loop and would only put ordinary chat on disk. See capture.py.
+    capture_lane = "orchestrator" if is_orchestrator else "worker"
+    capture_this = bool(forward_body.get("tools")) and _capture.wanted(user)
     routing_headers = {
         "X-Routed-Model": routed_model,
         "X-Domain": domain,
@@ -1249,6 +1331,11 @@ async def chat_completions(request: Request):
     }
     routing_headers["X-Routing-Why"] = _header_safe(decision.explain())
     routing_headers["X-Qualified"] = "false" if underqualified else "true"
+    # Only present when it fired: a client comparing two runs shouldn't have to
+    # know the header exists to read "false" from it, and X-Routed-Model already
+    # names the model either way.
+    if canary_used:
+        routing_headers["X-Canary"] = "true"
 
     if underqualified:
         _ESCALATION_NOTE = (
@@ -1364,6 +1451,7 @@ async def chat_completions(request: Request):
             yield b": smart-ai-router connected\n\n"
             scanner = _StreamUsageScanner()
             logged = False  # guard: log usage exactly once (drain or error)
+            drained = False  # the reply arrived whole (see capture below)
 
             def _record(status: int) -> None:
                 nonlocal logged
@@ -1378,6 +1466,17 @@ async def chat_completions(request: Request):
                     status=status, tokens_estimated=estimated,
                     profile=profile, classifier=classifier_used,
                 )
+                # Only a whole reply is a usable reference: a client that
+                # disconnected mid-stream leaves a half-built tool call, which
+                # would read as malformed arguments when replayed.
+                if capture_this and drained:
+                    _capture.record(
+                        lane=capture_lane, routed_model=routed_model,
+                        messages=forward_body.get("messages") or [],
+                        tools=forward_body.get("tools"),
+                        tool_calls=scanner.tool_calls(),
+                        content_len=scanner.content_len,
+                    )
 
             try:
                 async with httpx.AsyncClient(timeout=_timeout) as client:
@@ -1414,6 +1513,7 @@ async def chat_completions(request: Request):
                         async for chunk in resp.aiter_raw():
                             scanner.feed(chunk)
                             yield chunk
+                        drained = True
                         _record(resp.status_code)
             except httpx.RequestError as exc:
                 yield f"data: {json.dumps({'error': f'proxy upstream error: {exc}'})}\n\n".encode()
@@ -1460,4 +1560,14 @@ async def chat_completions(request: Request):
             status=resp.status_code,
             profile=profile, classifier=classifier_used,
         )
+        if capture_this and isinstance(data, dict):
+            choice = (data.get("choices") or [{}])[0]
+            msg = (choice or {}).get("message") or {}
+            _capture.record(
+                lane=capture_lane, routed_model=routed_model,
+                messages=forward_body.get("messages") or [],
+                tools=forward_body.get("tools"),
+                tool_calls=msg.get("tool_calls") or [],
+                content_len=len(msg.get("content") or ""),
+            )
         return JSONResponse(content=data, headers=routing_headers)

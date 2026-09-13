@@ -229,6 +229,86 @@ def test_a_human_client_still_gets_the_caveat(weak_only):
     assert _NOTE_PHRASE in r.json()["choices"][0]["message"]["content"]
 
 
+# ── The canary ────────────────────────────────────────────────────────────────
+# A named challenger takes a share of orchestrator traffic, because the lane
+# filter is a string match and the measured agentic index turned out not to
+# predict tool-call reliability either way (see scripts/bakeoff_orchestrator.py).
+# It is a way to gather evidence, so it must never cost a turn: an unknown name or
+# a turn the canary doesn't qualify for goes to Claude as before.
+
+def _canary(monkeypatch, model, percent=100):
+    monkeypatch.setenv("SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL", model)
+    monkeypatch.setenv("SMART_ROUTER_ORCHESTRATOR_CANARY_PERCENT", str(percent))
+
+
+def test_no_canary_by_default(client, monkeypatch):
+    monkeypatch.delenv("SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL", raising=False)
+    monkeypatch.delenv("SMART_ROUTER_ORCHESTRATOR_CANARY_PERCENT", raising=False)
+    r = _chat(client, _TRIVIAL)
+    assert "claude" in r.headers["X-Routed-Model"]
+    assert "X-Canary" not in r.headers
+
+
+def test_a_named_canary_takes_the_turn(client, monkeypatch):
+    _canary(monkeypatch, "ollama/qwen3-coder:30b")
+    r = _chat(client, _TRIVIAL)
+    assert r.headers["X-Routed-Model"] == "ollama/qwen3-coder:30b"
+    assert r.headers["X-Canary"] == "true"
+
+
+def test_a_zero_share_is_off_even_when_named(client, monkeypatch):
+    _canary(monkeypatch, "ollama/qwen3-coder:30b", percent=0)
+    assert "claude" in _chat(client, _TRIVIAL).headers["X-Routed-Model"]
+
+
+def test_an_unknown_canary_falls_back_to_claude(client, monkeypatch):
+    """A typo in a settings field must not take the lane down."""
+    _canary(monkeypatch, "openrouter/does-not/exist")
+    r = _chat(client, _TRIVIAL)
+    assert "claude" in r.headers["X-Routed-Model"]
+    assert "X-Canary" not in r.headers
+
+
+def test_the_canary_loses_a_turn_it_does_not_qualify_for(monkeypatch):
+    """The whole safety property: the canary is routed through the same
+    select_from as the pool, so the prompt's own bar still applies. A cheap weak
+    model gets the mechanical turns it can handle and none of the hard ones."""
+    weak = ModelSpec(
+        "ollama/tiny:1b", provider="ollama", cost=0, ctx_k=200, tools=True,
+        reliability=1.0,
+        competence={"coding": 0.55, "docs": 0.55, "reasoning": 0.5, "general": 0.6},
+        profile={"software_engineering": 0.55, "law_regulatory": 0.45,
+                 "general_knowledge": 0.60},
+    )
+    client = _client(_HAIKU, _OPUS, weak, monkeypatch=monkeypatch)
+    _canary(monkeypatch, "ollama/tiny:1b")
+    assert _chat(client, _TRIVIAL).headers["X-Canary"] == "true"
+
+    hard = _chat(client, _HARD)
+    assert hard.headers["X-Routed-Model"] == "openrouter/anthropic/claude-opus-4.8"
+    assert "X-Canary" not in hard.headers
+
+
+def test_the_canary_does_not_touch_the_worker_lane(client, monkeypatch):
+    """The worker lane already considers every model in scope and picks on cost;
+    a canary there would only override that with a fixed choice."""
+    _canary(monkeypatch, "openrouter/anthropic/claude-opus-4.8")
+    r = _chat(client, _TRIVIAL, model="smart-worker")
+    assert r.headers["X-Routed-Model"] == "ollama/qwen3-coder:30b"
+    assert "X-Canary" not in r.headers
+
+
+def test_a_canary_turn_is_still_logged_and_answered(client, monkeypatch):
+    _canary(monkeypatch, "ollama/qwen3-coder:30b")
+    r = _chat(client, _TRIVIAL)
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"] == "answer."
+    # Billed against the canary, not the Claude it replaced — otherwise the
+    # Usage page could not answer "what did the experiment cost".
+    by_model = client.get("/api/usage").json()["by_model"]
+    assert [r["key"] for r in by_model] == ["ollama/qwen3-coder:30b"]
+
+
 # ── Eligibility ───────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("value", [

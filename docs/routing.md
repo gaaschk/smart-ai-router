@@ -227,6 +227,40 @@ If **nothing** qualifies, the pick is the *closest miss* — ranked by how far s
 
 Every response carries `X-Prompt-Profile` (the profile in words), `X-Routing-Why` (the binding constraint), `X-Qualified`, and the legacy `X-Domain` / `X-Complexity` derived from the profile.
 
+## Earning a place in the orchestrator lane
+
+`smart-orchestrator` admits a model on one test: whether its name contains
+"claude". That string match decides where nearly all the spend goes — on this
+router's first month, 99.9% of it — because a coding client pins its main loop to
+that lane. Whether the rule is *right* is a measurement, and there are two ways
+to make it, neither of which is "widen the rule and see":
+
+**A bakeoff.** `python scripts/bakeoff_orchestrator.py` scores candidates on
+tool-call reliability: did it call a tool when the turn needed one, were the
+arguments well-formed, did it stay quiet on the turn that wanted prose, did it
+avoid re-issuing a call it already had the answer to. `--pool` prints who each
+candidate rule would admit, for free. The script's docstring records the last
+run — including the result that the catalog's measured `agentic` index does *not*
+predict this corpus, which is why the shipped filter has not been widened.
+
+**A canary.** Set *Orchestrator canary model* and *Orchestrator canary share (%)*
+on the Settings page and a named challenger — usually not a Claude — takes that
+share of orchestrator turns. It is routed through the same selection as the pool,
+so scope, capability requirements and the prompt's own bar all still apply: a
+turn the canary doesn't qualify for goes to Claude as it would have. When it
+fires, the response carries `X-Canary: true` and the usage row is billed against
+the canary, so the Usage page answers what the experiment cost. Default 0 = off.
+
+**Replaying real turns.** A synthetic corpus is a proxy for traffic, not a sample
+of it — the first version of ours marked all three Claude incumbents down for
+correctly reading a file before editing it. *Capture tool-loop turns (%)* samples
+your own tool-bearing requests to `~/.smart_ai_router_captures.jsonl`, and
+`bakeoff_orchestrator.py --replay` scores candidates against them, using the
+incumbent's own tool calls as the reference for what each turn required. The
+prompt is written to disk verbatim, so the capture is deliberately narrow: admin
+traffic only (not configurable), requests that carry tools only, and of the reply
+only its tool calls — never its prose.
+
 ## Prompt caching
 
 Routing picks the cheapest capable model. Caching removes the tokens entirely,
