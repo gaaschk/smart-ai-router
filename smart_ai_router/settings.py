@@ -593,6 +593,53 @@ SPECS: tuple[SettingSpec, ...] = (
         "the text rate.",
     ),
     SettingSpec(
+        key="orchestrator_canary_model",
+        env="SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL",
+        type="str",
+        default="",
+        label="Orchestrator canary model",
+        group="Measurement",
+        help="One model — usually not a Claude — to try on a slice of "
+        "orchestrator traffic. The orchestrator lane admits a model on whether "
+        "its name contains 'claude', and that string match is where nearly all "
+        "the spend goes; this is how a challenger earns its place on real turns "
+        "instead of a hand-written corpus. Name it exactly as the catalog does. "
+        "Ignored unless the percent below is above zero, and a turn the canary "
+        "does not qualify for falls back to the Claude pool rather than "
+        "degrading.",
+    ),
+    SettingSpec(
+        key="orchestrator_canary_percent",
+        env="SMART_ROUTER_ORCHESTRATOR_CANARY_PERCENT",
+        type="int",
+        default=0,
+        label="Orchestrator canary share (%)",
+        group="Measurement",
+        help="What share of orchestrator requests the canary above takes "
+        "(0 = off, which is the default). Start small: this is your editor's "
+        "main loop, and a model that mishandles a tool call costs you a turn. "
+        "Compare cost per request on the Usage page, and turn on turn capture "
+        "below to compare what the two actually did.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="capture_turn_percent",
+        env="SMART_ROUTER_CAPTURE_TURN_PERCENT",
+        type="int",
+        default=0,
+        label="Capture tool-loop turns (%)",
+        group="Measurement",
+        help="Sample this share of your own tool-bearing requests to "
+        "~/.smart_ai_router_captures.jsonl, so "
+        "`bakeoff_orchestrator.py --replay` can judge a candidate on turns that "
+        "really happened. The prompt is written to disk verbatim — file "
+        "contents and all — so: only the admin user is ever captured (not "
+        "configurable), only requests that carry tools, and of the reply only "
+        "its tool calls, never its prose. 0 = off.",
+        sensitive=True,
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="github_issues_enabled",
         env="SMART_ROUTER_GITHUB_ISSUES",
         type="bool",
