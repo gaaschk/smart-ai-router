@@ -31,6 +31,10 @@ admin secret) and stay environment-only.
 | `SMART_ROUTER_WEB_SEARCH_MAX_RESULTS` ⚙ | `5` | Results put in front of the model. Up to 10 are in the per-search price; past 10 costs $0.001 each. |
 | `SMART_ROUTER_MODEL_DENYLIST` ⚙ | *(empty)* | Comma-separated, case-insensitive substrings of model names to never route to (e.g. a broken local model). |
 | `SMART_ROUTER_AGENT_DENYLIST` ⚙ | *(empty)* | Like the model denylist, but applied only in agent mode (models that advertise tools yet stall a tool-calling loop). |
+| `SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL` ⚙ | *(empty)* | One model — usually not a Claude — to try on a slice of orchestrator traffic, since that lane admits on a name match (see [Earning a place in the orchestrator lane](routing.md#earning-a-place-in-the-orchestrator-lane)). A turn it doesn't qualify for still goes to Claude. |
+| `SMART_ROUTER_ORCHESTRATOR_CANARY_PERCENT` ⚙ | `0` | Share of orchestrator requests the canary takes. `0` = off. Responses it handles carry `X-Canary: true`. |
+| `SMART_ROUTER_CAPTURE_TURN_PERCENT` ⚙ | `0` | Share of your own tool-bearing requests written to `SMART_ROUTER_CAPTURE_FILE` for `bakeoff_orchestrator.py --replay`. Admin traffic only, tool-bearing requests only, and of the reply only its tool calls. The prompt is stored verbatim. `0` = off. |
+| `SMART_ROUTER_CAPTURE_FILE` | `~/.smart_ai_router_captures.jsonl` | Where captured turns are appended (rotated at 8 MB, one generation kept). |
 | `SMART_ROUTER_WORKSPACE_DIR` | `~/.smart_ai_router_workspaces` | Root holding each user's private agent workspace (one subdir per identity). |
 | `SMART_ROUTER_FILES_DIR` | `~/.smart_ai_router_files` | Root for uploaded/generated file blobs (metadata lives in SQLite). |
 | `SMART_ROUTER_MAX_FILE_MB` ⚙ | `512` | Upload size ceiling in MB; larger uploads get `413`. |
