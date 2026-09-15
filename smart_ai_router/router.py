@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from smart_ai_router import settings as _settings
 from smart_ai_router.models import ModelSpec
+from smart_ai_router.pricing import blended_rate
 from smart_ai_router.scope import ModelScope
 from smart_ai_router.store.base import MatrixStore
 from smart_ai_router.taxonomy import (
@@ -134,6 +135,24 @@ def _output_floor(profile: PromptProfile) -> int:
     if not profile.is_long_form():
         return 0
     return max(0, _settings.get_int("long_form_min_model_output"))
+
+
+def _price(spec: ModelSpec) -> float:
+    """What this model really costs, for ranking inside a cost tier.
+
+    ModelSpec.cost is a coarse bucket — that is what makes it usable as an API
+    key's max_tier ceiling — so models at visibly different prices share one:
+    claude-sonnet-4 ($3/$15) and claude-sonnet-5 ($2/$10) are both tier 5. With
+    only the tier to sort on, the tie fell to routing margin, and margin is
+    decided by field scores that need not have anything to do with price. On the
+    live deployment that sent 195 requests to Sonnet 4 over Sonnet 5 — same 0.95
+    on the binding field, 33% dearer — on a margin difference of 0.001 in a field
+    the prompt touched only at surface depth.
+
+    Zero for local and unknown-price models, which is what the tier already says
+    about them; ordering between those stays the tier's business.
+    """
+    return blended_rate(spec.cost_input, spec.cost_output)
 
 
 def _margin(spec: ModelSpec, requirements: dict[str, float]) -> float:
@@ -411,9 +430,10 @@ def _select(
             output_deprioritized=output_deprioritized,
         )
 
-    # Qualified = clears the bar on EVERY named field. Cheapest wins; ties break
-    # on the largest margin on the weakest field, so equal-priced models are
-    # separated by how comfortably they clear rather than arbitrarily.
+    # Qualified = clears the bar on EVERY named field. Cheapest wins — by tier,
+    # then by real blended price within the tier (see _price) — and only models
+    # that cost the same are separated by how comfortably they clear, rather than
+    # a field score deciding which of two different prices gets paid.
     qualified = [spec for spec in eligible if _margin(spec, requirements) >= 0]
     if qualified:
         # For a document, prefer a model that can actually emit one. A ranking
@@ -431,13 +451,13 @@ def _select(
             if spacious:
                 output_deprioritized = len(qualified) - len(spacious)
                 roomy = spacious
-        roomy.sort(key=lambda s: (s.cost, -_margin(s, requirements), s.value))
+        roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
         return _decision(roomy[0], True, len(qualified))
 
     # Nothing is genuinely qualified. Take the model that falls shortest on the
     # binding field — cost is only a tiebreak here, because at this point the
     # question is capability, not price.
-    eligible.sort(key=lambda s: (-_margin(s, requirements), s.cost, s.value))
+    eligible.sort(key=lambda s: (-_margin(s, requirements), s.cost, _price(s), s.value))
     return _decision(eligible[0], False, 0)
 
 

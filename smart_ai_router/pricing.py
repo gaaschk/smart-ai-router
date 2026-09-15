@@ -10,6 +10,26 @@ from __future__ import annotations
 
 from smart_ai_router.models import ModelSpec
 
+# Weighting assumes output volume ~3x input (a typical chat/generation mix).
+_BLEND_WEIGHT_INPUT = 0.25
+_BLEND_WEIGHT_OUTPUT = 0.75
+
+
+def blended_rate(cost_input: float, cost_output: float) -> float:
+    """One comparable $/1M figure for a model whose two rates differ.
+
+    Output tokens are priced far higher than input (typically ~3-5x) and
+    generation workloads emit more output than they ingest, so output dominates
+    real cost: ranking by input alone mis-orders models (a
+    cheap-input/expensive-output reasoning model looks cheaper than it is).
+
+    Two callers, and they need the same number for different reasons — sync
+    buckets it into ModelSpec.cost, and the router breaks price ties with it.
+    Keeping one function means a tie can never be broken on a different notion of
+    "cheaper" than the one that assigned the tier.
+    """
+    return _BLEND_WEIGHT_INPUT * cost_input + _BLEND_WEIGHT_OUTPUT * cost_output
+
 
 def cost_for(
     spec: ModelSpec,
