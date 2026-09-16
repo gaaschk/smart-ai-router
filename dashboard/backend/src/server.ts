@@ -23,7 +23,13 @@ async function bootstrap(): Promise<void> {
     // Create Socket.IO server
     const io = new SocketIOServer(server, {
       cors: {
-        origin: config.cors.origin,
+        origin: (origin, callback) => {
+          if (!origin || config.cors.allowedOrigin(origin)) {
+            callback(null, true);
+            return;
+          }
+          callback(new Error(`Origin ${origin} not allowed by CORS`));
+        },
         methods: ['GET', 'POST'],
         credentials: true,
       },

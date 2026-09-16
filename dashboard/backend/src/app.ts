@@ -29,8 +29,17 @@ export function createApp(): Express {
   // Security middleware
   app.use(helmet());
   app.use(cors({
-    origin: config.cors.origin,
+    origin: (origin, callback) => {
+      // No Origin header (curl, server-to-server, same-origin) -- allow.
+      if (!origin || config.cors.allowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   }));
 
   // Body parsing middleware

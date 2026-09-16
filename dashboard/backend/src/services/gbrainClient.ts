@@ -265,3 +265,24 @@ export async function submitJob(
 ): Promise<GBrainJob> {
   return runGBrainCall('submit_job', { name, data, ...extra }) as Promise<GBrainJob>;
 }
+
+/**
+ * Save a fact/learning to the brain using the `remember` tool.
+ * This persists the learning as a brain page so it can be retrieved in future chats.
+ *
+ * @param title Short title of the learning
+ * @param content Full learning text
+ * @param entity Optional entity to tag (e.g. "people/me" for personal facts)
+ * @returns GBrain's response object
+ */
+export async function remember(
+  title: string,
+  content: string,
+  entity?: string
+): Promise<unknown> {
+  return runGBrainCall('remember', {
+    fact: `${title}\n\n${content}`,
+    visibility: 'private',
+    entity: entity || 'chat-learnings',
+  });
+}
