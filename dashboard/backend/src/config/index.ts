@@ -5,7 +5,10 @@ dotenv.config();
 export const config = {
   // Server
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '5000', 10),
+  // 5000 collides with macOS's AirPlay Receiver / ControlCenter (which binds it
+  // by default on modern Macs, including the Mac Mini this is deployed to), so
+  // the default here is 5050 instead. Override with PORT if that's still busy.
+  port: parseInt(process.env.PORT || '5050', 10),
   logLevel: process.env.LOG_LEVEL || 'info',
 
   // Database

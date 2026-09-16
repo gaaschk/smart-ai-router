@@ -50,7 +50,7 @@ cp .env.example .env
 Update `.env` with your configuration:
 ```bash
 NODE_ENV=development
-PORT=5000
+PORT=5050
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dashboard
 SMART_ROUTER_URL=http://localhost:8001
 GBRAIN_URL=http://localhost:8002
@@ -71,7 +71,7 @@ npm install
 ```bash
 cd dashboard/backend
 npm run dev
-# Runs on http://localhost:5000
+# Runs on http://localhost:5050
 ```
 
 **Terminal 2 - Frontend:**
@@ -184,7 +184,7 @@ All configurable via `.env`:
 ```
 # Server
 NODE_ENV=development|production
-PORT=5000
+PORT=5050
 LOG_LEVEL=debug|info|warn|error
 
 # Database
@@ -210,7 +210,7 @@ WS_PING_TIMEOUT=5000
 
 1. **Backend Health:**
    ```bash
-   curl http://localhost:5000/health
+   curl http://localhost:5050/health
    ```
    Should return: `{"status":"ok", ...}`
 
@@ -225,8 +225,8 @@ WS_PING_TIMEOUT=5000
 
 ### Port Already in Use
 ```bash
-# Find process using port 5000
-lsof -i :5000
+# Find process using port 5050
+lsof -i :5050
 # Kill it
 kill -9 <PID>
 ```
@@ -268,7 +268,7 @@ User Browser (http://localhost:5173)
          │   ├── Users Page
          │   └── Settings Page
          │
-         └─→ Backend API (http://localhost:5000)
+         └─→ Backend API (http://localhost:5050)
              ├── Express.js
              ├── Socket.IO (WebSocket)
              ├── PostgreSQL (Database)
