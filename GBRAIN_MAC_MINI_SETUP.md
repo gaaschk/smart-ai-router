@@ -8,15 +8,23 @@ This guide sets up GBrain on a Mac Mini to work alongside smart-ai-router as a u
 Dashboard (http://localhost:5173)
     ↓
 Dashboard Backend (http://localhost:5050)
-    ├→ Smart-AI-Router (http://localhost:8001)
+    ├→ Smart-AI-Router (http://localhost:8001, HTTP)
     │   └→ LLM Providers (OpenRouter, Ollama, Bedrock, etc.)
     │
-    └→ GBrain (http://localhost:8002)
+    └→ GBrain CLI (`gbrain call <tool> '<json>'`, subprocess -- no HTTP server)
         └→ Smart-AI-Router (for synthesis/enrichment)
             └→ LLM Providers
 ```
 
-GBrain stores knowledge (people, companies, facts, timeline) in PostgreSQL. When you ask the dashboard a question:
+**GBrain has no HTTP API.** It ships as a CLI (`gbrain call <tool> '<json-args>'`,
+~40 tools -- see `gbrain --tools-json`) plus a stdio-only MCP server (`gbrain
+serve`) meant for editor/agent integrations. There is no `gbrain mcp-server
+--port N` HTTP mode. The dashboard backend talks to GBrain by shelling out to
+the CLI and serializing calls (see "A note on concurrency" below), not by
+making HTTP requests to it.
+
+GBrain stores knowledge (people, companies, facts, timeline) in PostgreSQL (or
+embedded PGLite). When you ask the dashboard a question:
 1. Dashboard sends the query to GBrain
 2. GBrain searches its memory (hybrid keyword + vector search)
 3. GBrain synthesizes an answer with citations using an LLM (via smart-ai-router)
@@ -242,29 +250,23 @@ gbrain list
 gbrain get-page people/alice
 ```
 
-## Step 9: Set Up GBrain MCP Server
+## Step 9: A Note on Concurrency (No Server to "Set Up")
 
-GBrain exposes a Model Context Protocol (MCP) server so external apps (like the dashboard backend) can call it.
+There is no GBrain HTTP server to start. `gbrain call <tool> '<json>'` is a
+one-shot CLI process, and `gbrain serve` is a stdio MCP server for editor/agent
+clients -- neither listens on a port. The dashboard backend calls the CLI
+directly (see `dashboard/backend/src/services/gbrainClient.ts`); nothing needs
+to be started or kept running for this step.
 
-```bash
-# Start the MCP server (runs in foreground)
-gbrain mcp-server --port 3000
-
-# In another terminal, test it
-# (The dashboard backend will make HTTP calls to http://localhost:3000)
-```
-
-For production (daemon mode):
-```bash
-gbrain autopilot --install
-
-# This creates a systemd/launchd service that keeps the MCP server alive
-```
-
-Verify the MCP server is listening:
-```bash
-curl http://localhost:3000/health
-```
+The one thing that *does* matter operationally: GBrain's default embedded
+store (PGLite) takes an **exclusive file lock** for the lifetime of each CLI
+invocation. Two `gbrain call`/`gbrain <command>` processes cannot run
+concurrently against the same brain -- the second one blocks on the lock and
+eventually times out (`GBrain: Timed out waiting for PGLite lock.`). The
+dashboard backend serializes its own calls through a small in-process queue,
+but if you also run `gbrain` commands by hand (or a cron sync) while the
+dashboard is live, expect occasional lock contention. Switching to Postgres
+(Step 3, Option A/B) removes this limitation.
 
 ## Step 10: Optional — Set Up Autopilot (24/7 Enrichment)
 
@@ -290,24 +292,27 @@ The daemon will:
 
 Skip this for initial setup — focus on getting the dashboard working first.
 
-## Step 11: Integrate with Dashboard Backend
+## Step 11: Dashboard Backend Integration (Phase 3 -- Done)
 
-The dashboard backend (`dashboard/backend`) will call GBrain's MCP server to:
-- Search memory (`POST /api/memory/search`)
-- List skills (`GET /api/skills`)
-- Trigger skill execution (`POST /api/skills/{id}/execute`)
-
-See **Phase 3** of the Unified Dashboard plan for implementation.
+The dashboard backend (`dashboard/backend`) calls the GBrain CLI directly
+(`src/services/gbrainClient.ts`), exposed to the frontend as:
+- `GET /api/memory/stats`, `/search`, `/pages`, `/page`, `/graph` -- brain
+  stats, hybrid/keyword search, page browsing, and link-graph traversal.
+- `GET /api/skills/integrations` + `/integrations/:id/status` -- the
+  integration recipes (email/calendar/X/voice/... senses) as GBrain's
+  closest equivalent to a "skill library".
+- `GET/POST /api/skills/jobs` -- list and submit GBrain's built-in
+  background job types (sync, embed, lint, import, extract, backlinks,
+  autopilot-cycle) via its Minions job queue.
 
 ## Configuration Summary
 
 | Component | Port | URL |
 |-----------|------|-----|
-| GBrain MCP Server | 3000 | `http://localhost:3000` |
+| GBrain CLI | - | `gbrain` command (must be on `PATH`) |
 | GBrain Daemon (autopilot) | - | systemd/launchd service |
-| GBrain Brain Database | 5432 (Postgres) | `postgresql://postgres@localhost/gbrain` |
+| GBrain Brain Database | 5432 (Postgres) or embedded PGLite | `postgresql://postgres@localhost/gbrain` |
 | GBrain Brain Files | - | `~/gbrain-memory/` |
-| GBrain CLI | - | `gbrain` command |
 
 ## Troubleshooting
 
@@ -334,7 +339,11 @@ export VOYAGE_API_KEY=pa-...
 gbrain embed --stale
 ```
 
-### Port 5000/5050/8001/8002/3000 already in use
+### "GBrain: Timed out waiting for PGLite lock."
+Another `gbrain` process is holding the exclusive PGLite lock (see Step 9).
+Wait for it to finish, or switch to Postgres for concurrent access.
+
+### Port 5000/5050/8001 already in use
 
 Find the process:
 ```bash
@@ -344,7 +353,6 @@ lsof -i :5000   # Show process using port 5000
 Kill it or use a different port:
 ```bash
 PORT=5051 npm run dev  # Dashboard backend on 5051 instead
-gbrain mcp-server --port 3001  # GBrain MCP on 3001 instead
 ```
 
 ## Next Steps
@@ -354,8 +362,8 @@ gbrain mcp-server --port 3001  # GBrain MCP on 3001 instead
 3. ✅ Initialize GBrain (`gbrain init`)
 4. ✅ Create brain structure (`gbrain-memory/`)
 5. ✅ Configure smart-ai-router gateway
-6. ✅ Start GBrain MCP server (`gbrain mcp-server`)
-7. ⏳ **Phase 3 Dashboard Integration** — wire dashboard backend to GBrain API
+6. ✅ Confirm the CLI works (`gbrain call get_stats '{}'`)
+7. ✅ **Phase 3 Dashboard Integration** — dashboard backend calls the GBrain CLI directly
 
 ## Additional Resources
 

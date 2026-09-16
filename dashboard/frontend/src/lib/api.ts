@@ -63,3 +63,139 @@ export async function fetchUsageSummary(days = 30): Promise<UsageSummary> {
   const { data } = await api.get<UsageSummary>('/analytics/usage', { params: { days } });
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Memory (GBrain)
+// ---------------------------------------------------------------------------
+
+export interface GBrainStats {
+  page_count: number;
+  chunk_count: number;
+  embedded_count: number;
+  link_count: number;
+  tag_count: number;
+  timeline_entry_count: number;
+  pages_by_type: Record<string, number>;
+}
+
+export interface GBrainHealth {
+  page_count: number;
+  embed_coverage: number;
+  stale_pages: number;
+  orphan_pages: number;
+  missing_embeddings: number;
+  brain_score: number;
+  dead_links: number;
+  link_coverage: number;
+  timeline_coverage: number;
+}
+
+export async function fetchMemoryStats(): Promise<{ stats: GBrainStats; health: GBrainHealth }> {
+  const { data } = await api.get('/memory/stats');
+  return data;
+}
+
+export interface MemorySearchResult {
+  slug: string;
+  page_id: number;
+  title: string;
+  type: string;
+  chunk_text: string;
+  score: number;
+  stale: boolean;
+}
+
+export async function searchMemory(
+  query: string,
+  mode: 'hybrid' | 'keyword' = 'hybrid',
+  limit = 10
+): Promise<MemorySearchResult[]> {
+  if (!query.trim()) return [];
+  const { data } = await api.get<{ results: MemorySearchResult[] }>('/memory/search', {
+    params: { q: query, mode, limit },
+  });
+  return data.results;
+}
+
+export interface MemoryPageSummary {
+  slug: string;
+  type: string;
+  title: string;
+  updated_at: string;
+}
+
+export async function listMemoryPages(params: {
+  type?: string;
+  tag?: string;
+  limit?: number;
+} = {}): Promise<MemoryPageSummary[]> {
+  const { data } = await api.get<{ pages: MemoryPageSummary[] }>('/memory/pages', { params });
+  return data.pages;
+}
+
+export async function fetchMemoryPage(slug: string): Promise<{
+  page: unknown;
+  tags: string[];
+  links: unknown[];
+  backlinks: unknown[];
+}> {
+  const { data } = await api.get('/memory/page', { params: { slug } });
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Skills (GBrain integrations + background jobs)
+// ---------------------------------------------------------------------------
+
+export interface GBrainIntegration {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  category: string;
+  status: string;
+  setup_time: string;
+  requires: string[];
+}
+
+export interface GBrainIntegrationsList {
+  infra: GBrainIntegration[];
+  senses: GBrainIntegration[];
+  reflexes: GBrainIntegration[];
+}
+
+export async function fetchIntegrations(): Promise<GBrainIntegrationsList> {
+  const { data } = await api.get<GBrainIntegrationsList>('/skills/integrations');
+  return data;
+}
+
+export interface JobCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export async function fetchJobCatalog(): Promise<JobCatalogEntry[]> {
+  const { data } = await api.get<{ jobs: JobCatalogEntry[] }>('/skills/jobs/catalog');
+  return data.jobs;
+}
+
+export interface GBrainJob {
+  id: number;
+  name: string;
+  status: string;
+  queue: string;
+  created_at: string;
+  finished_at: string | null;
+  error_text: string | null;
+}
+
+export async function listJobs(limit = 10): Promise<GBrainJob[]> {
+  const { data } = await api.get<{ jobs: GBrainJob[] }>('/skills/jobs', { params: { limit } });
+  return data.jobs;
+}
+
+export async function submitJob(name: string, params: Record<string, unknown> = {}): Promise<GBrainJob> {
+  const { data } = await api.post<{ job: GBrainJob }>('/skills/jobs', { name, params });
+  return data.job;
+}

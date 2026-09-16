@@ -92,14 +92,17 @@ gbrain --tools-json
 
 ## Next Steps
 
-### Phase 3: Dashboard Integration
+### Phase 3: Dashboard Integration ✅ Done
 
-The dashboard backend (`dashboard/backend`) will call GBrain's MCP server to:
-1. **Search memory** — `POST /api/memory/search`
-2. **Query & synthesize** — `POST /api/memory/query`
-3. **List pages** — `GET /api/memory/pages`
-4. **List available skills** — `GET /api/skills`
-5. **Execute skills** — `POST /api/skills/{id}/execute`
+GBrain has no HTTP API to call, so the dashboard backend shells out to the
+`gbrain` CLI (`gbrain call <tool> '<json>'`) instead, serialized through a
+queue since PGLite holds an exclusive lock per invocation. See
+`dashboard/backend/src/services/gbrainClient.ts`. Exposed to the frontend as:
+1. **Search memory** — `GET /api/memory/search?q=...&mode=hybrid|keyword`
+2. **Browse pages / page detail** — `GET /api/memory/pages`, `/api/memory/page?slug=...`
+3. **Link graph** — `GET /api/memory/graph?slug=...`
+4. **Integration recipes (skills)** — `GET /api/skills/integrations`
+5. **Background jobs (Minions)** — `GET /api/skills/jobs`, `POST /api/skills/jobs`
 
 ### Running GBrain Services
 

@@ -44,7 +44,7 @@ async function bootstrap(): Promise<void> {
       log('info', `🚀 Dashboard server running on port ${config.port}`, {
         environment: config.nodeEnv,
         smartRouter: config.smartRouter.url,
-        gbrain: config.gbrain.url,
+        gbrainBin: config.gbrain.bin,
       });
     });
 
