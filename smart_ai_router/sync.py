@@ -13,6 +13,7 @@ import urllib.request
 from dataclasses import dataclass, field
 
 from smart_ai_router.models import ModelSpec
+from smart_ai_router.pricing import blended_rate
 from smart_ai_router.profiler import (
     agentic_level,
     apply_ratings,
@@ -137,30 +138,27 @@ def _prune_missing(
 
 
 # ── Cost tier ─────────────────────────────────────────────────────────────────
-# The router sorts primarily by ModelSpec.cost (an integer tier). We derive the
-# tier from a *blended* effective price, not input price alone: output tokens
-# are priced far higher than input (typically ~3-5x) and generation workloads
-# emit more output than they ingest, so output dominates real cost. Ranking by
-# input alone mis-orders models (e.g. cheap-input/expensive-output reasoning
-# models look cheaper than they are).
-#
-# Weighting assumes output volume ~3x input (a typical chat/generation mix).
-_TIER_WEIGHT_INPUT = 0.25
-_TIER_WEIGHT_OUTPUT = 0.75
+# The router sorts primarily by ModelSpec.cost (an integer tier), derived from
+# the blended effective price — see pricing.blended_rate for why blended.
 
 
 def _cost_tier(cost_input: float, cost_output: float, *, is_free: bool = False) -> int:
     """Map per-1M input/output $ rates to an integer cost tier for routing.
 
-    Blends input and output rates (see weights above) then buckets. Both rates
+    Blends input and output rates (pricing.blended_rate) then buckets. Both rates
     zero → tier 0 (local/unknown) or 1 (:free). Buckets are calibrated on the
     blended scale so distinct price points stay in distinct tiers, e.g.
     Haiku ($1/$5)≈$4→3, Sonnet ($3/$15)≈$12→5, Opus 4.8 ($5/$25)≈$20→8,
     Opus 4.1 ($15/$75)≈$60→15.
+
+    Coarse on purpose — the tier is the unit an API key's max_tier caps — so two
+    genuinely different prices can share one (Sonnet 4 at $12 and Sonnet 5 at $8
+    are both tier 5). Ranking *within* a tier is the router's job, and it uses
+    the unbucketed rate.
     """
     if cost_input == 0.0 and cost_output == 0.0:
         return 1 if is_free else 0
-    eff = _TIER_WEIGHT_INPUT * cost_input + _TIER_WEIGHT_OUTPUT * cost_output
+    eff = blended_rate(cost_input, cost_output)
     if eff < 0.5:
         return 1
     if eff < 2:

@@ -343,3 +343,44 @@ def test_expert_tier_has_a_threshold():
     )
     assert route(store, "reasoning", "hard", needs_tools=False) == "good"
     assert route(store, "reasoning", "expert", needs_tools=False) == "best"
+
+
+# ── within-tier price ─────────────────────────────────────────────────────────
+
+# The live regression: both Sonnets are tier 5 and both score 0.95 on the field
+# the prompt actually needs, so the tie fell to `data_analysis` — a field this
+# prompt touches only at surface depth (bar 0.53), which both clear by 0.3+. The
+# 0.001 margin difference bought the 33%-dearer model 195 times.
+_SONNET_4 = ModelSpec(
+    "claude-sonnet-4", cost=5, cost_input=3.0, cost_output=15.0, reliability=1.0,
+    profile={"software_engineering": 0.95, "data_analysis": 0.91},
+)
+_SONNET_5 = ModelSpec(
+    "claude-sonnet-5", cost=5, cost_input=2.0, cost_output=10.0, reliability=1.0,
+    profile={"software_engineering": 0.95, "data_analysis": 0.85},
+)
+
+
+def test_same_tier_picks_the_genuinely_cheaper_model():
+    store = _store_with(_SONNET_4, _SONNET_5)
+    decision = select(
+        store, needs_tools=False,
+        profile=_p(("software_engineering", "practitioner"),
+                   ("data_analysis", "surface"), stakes="medium"),
+    )
+    assert decision.qualified
+    assert decision.model == "claude-sonnet-5"
+
+
+def test_equal_price_still_breaks_on_margin():
+    # Price only outranks margin when the prices actually differ.
+    dearer_but_stronger = ModelSpec(
+        "strong", cost=5, cost_input=3.0, cost_output=15.0, reliability=1.0,
+        profile={"software_engineering": 0.98, "data_analysis": 0.91},
+    )
+    store = _store_with(_SONNET_4, dearer_but_stronger)
+    assert select(
+        store, needs_tools=False,
+        profile=_p(("software_engineering", "practitioner"),
+                   ("data_analysis", "surface"), stakes="medium"),
+    ).model == "strong"
