@@ -44,8 +44,28 @@ export const config = {
   },
 
   // CORS
+  //
+  // The dashboard is accessed from whatever host it's deployed on (localhost
+  // in dev, `<hostname>.local`, or a LAN IP on the Mac Mini) plus, optionally,
+  // an explicit CORS_ORIGIN override. Rather than hardcode one host, allow any
+  // origin whose hostname is localhost/127.0.0.1, ends in `.local` (mDNS), or
+  // is a private LAN IP (192.168.x.x / 10.x.x.x / 172.16-31.x.x) -- all normal
+  // ways to reach a home-network Mac Mini -- plus CORS_ORIGIN if set.
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    allowedOrigin(origin: string): boolean {
+      if (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN) return true;
+      try {
+        const { hostname } = new URL(origin);
+        if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+        if (hostname.endsWith('.local')) return true;
+        if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+        if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+        if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+      } catch {
+        // Not a parseable URL (e.g. non-browser client with no Origin header)
+      }
+      return false;
+    },
   },
 
   // WebSocket

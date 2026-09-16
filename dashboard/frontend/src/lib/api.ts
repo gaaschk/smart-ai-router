@@ -1,15 +1,22 @@
 import axios from 'axios';
+import { getBackendOrigin } from './backendOrigin';
 
 /**
  * Talks to the dashboard backend (not smart-ai-router directly — the backend
  * proxies chat/analytics calls so the browser never needs the router's own
  * API key). Vite's dev server proxies `/api` to the backend (see
- * vite.config.ts), so a relative base URL works in both dev and prod.
+ * vite.config.ts), so a relative base URL works there.
+ *
+ * In production the frontend is served as static files by `serve`, which has
+ * no proxy -- a relative `/api` request would just 200 with `index.html`
+ * (SPA fallback) instead of reaching the backend. So in production we target
+ * the backend's actual origin directly, computed from the page's own
+ * hostname (works from `localhost`, a LAN IP, or a `.local` hostname alike).
  *
  * Authorization: Bearer tokens are set in App.tsx whenever the auth state changes.
  */
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${getBackendOrigin()}/api`,
   timeout: 60000, // chat replies can take a while on a reasoning model
 });
 
