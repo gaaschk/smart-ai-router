@@ -102,30 +102,58 @@ export function AnalyticsPage() {
         )}
       </div>
 
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">By Model</h3>
-        {(summary?.by_model ?? []).length === 0 ? (
-          <p className="text-gray-400 text-sm">No routed requests yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 border-b border-gray-200">
-                <th className="py-2">Model</th>
-                <th className="py-2">Requests</th>
-                <th className="py-2">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(summary?.by_model ?? []).map((row) => (
-                <tr key={row.key} className="border-b border-gray-100">
-                  <td className="py-2 text-gray-800">{row.key}</td>
-                  <td className="py-2 text-gray-600">{row.requests}</td>
-                  <td className="py-2 text-gray-600">${row.cost_usd.toFixed(4)}</td>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">By Model</h3>
+          {(summary?.by_model ?? []).length === 0 ? (
+            <p className="text-gray-400 text-sm">No routed requests yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-2">Model</th>
+                  <th className="py-2">Requests</th>
+                  <th className="py-2">Cost</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {(summary?.by_model ?? []).map((row) => (
+                  <tr key={row.key} className="border-b border-gray-100">
+                    <td className="py-2 text-gray-800">{row.key}</td>
+                    <td className="py-2 text-gray-600">{row.requests}</td>
+                    <td className="py-2 text-gray-600">${row.cost_usd.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">By Domain</h3>
+          {(summary?.by_domain ?? []).length === 0 ? (
+            <p className="text-gray-400 text-sm">No requests yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-2">Domain</th>
+                  <th className="py-2">Requests</th>
+                  <th className="py-2">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(summary?.by_domain ?? []).map((row) => (
+                  <tr key={row.key} className="border-b border-gray-100">
+                    <td className="py-2 text-gray-800">{row.key}</td>
+                    <td className="py-2 text-gray-600">{row.requests}</td>
+                    <td className="py-2 text-gray-600">${row.cost_usd.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );
