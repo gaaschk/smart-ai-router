@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Save } from 'lucide-react';
 
 export function SettingsPage() {

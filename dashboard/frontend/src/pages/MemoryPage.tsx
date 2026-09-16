@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search } from 'lucide-react';
 
 export function MemoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [results, setResults] = useState([]);
+  const [results] = useState([]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);

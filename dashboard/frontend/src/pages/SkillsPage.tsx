@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Play } from 'lucide-react';
 
 export function SkillsPage() {
-  const [skills, setSkills] = useState([]);
+  const [skills] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const handleTriggerSkill = async (skillId: string) => {
