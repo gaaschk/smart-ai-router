@@ -22,6 +22,7 @@ from smart_ai_router.api.reports_routes import reports_router
 from smart_ai_router.api.anon_routes import anon_router
 from smart_ai_router.api.signup_routes import signup_router
 from smart_ai_router.api.voice_routes import voice_router
+from smart_ai_router.api.gbrain_routes import gbrain_router
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -40,6 +41,8 @@ _ANON_PATHS = frozenset({
     "/api/whoami",
     "/api/conversations",
     "/api/conversations/",
+    # GBrain search is read-only and safe for anonymous visitors.
+    "/api/gbrain/search",
     # Filing a report. Listed without a trailing slash, so /api/reports/{id} stays
     # unreachable; reading the list is refused by the route itself, which is
     # admin-only. The people most likely to be handed a bad answer are the ones
@@ -281,6 +284,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     app.include_router(reports_router, prefix="/api")
     app.include_router(anon_router, prefix="/api")
     app.include_router(signup_router, prefix="/api")
+    app.include_router(gbrain_router)
     app.include_router(proxy_router)
     app.include_router(voice_router)
     app.include_router(files_router)

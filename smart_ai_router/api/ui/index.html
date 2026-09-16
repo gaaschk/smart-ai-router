@@ -1250,6 +1250,8 @@
     <button data-admin onclick="showPage('usage')">Usage</button>
     <button data-admin onclick="showPage('reports')">Reports</button>
     <button data-admin onclick="showPage('providers')">Providers</button>
+    <button data-admin onclick="showPage('memory')">Memory</button>
+    <button data-admin onclick="showPage('skills')">Skills</button>
     <button data-admin onclick="showPage('keys')">Keys</button>
     <button data-admin onclick="showPage('settings')">Settings</button>
   </nav>
@@ -2345,6 +2347,8 @@ function showPage(name) {
   if (name === 'usage') fetchUsage();
   if (name === 'reports') fetchReports();
   if (name === 'providers') fetchProviders();
+  if (name === 'memory') initMemoryPage();
+  if (name === 'skills') initSkillsPage();
   if (name === 'keys') fetchKeys();
   if (name === 'settings') { doCheckUpdates(); fetchRuntimeSettings(); }
 }
@@ -3196,6 +3200,69 @@ function _keysMessage(text) {
   const empty = document.getElementById('keys-empty');
   empty.style.display = '';
   empty.textContent = text;
+}
+
+// ── GBrain Memory ───────────────────────────────────────────────────────────
+async function initMemoryPage() {
+  const resultsDiv = document.getElementById('memory-results');
+  resultsDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">Enter a query to search your knowledge base.</div>';
+}
+
+async function doSearchMemory() {
+  const query = document.getElementById('memory-search-query').value.trim();
+  if (!query) {
+    document.getElementById('memory-results').innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">Enter a query to search.</div>';
+    return;
+  }
+  
+  const resultsDiv = document.getElementById('memory-results');
+  resultsDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">Searching...</div>';
+  
+  try {
+    const r = await fetch(`${API}/gbrain/search?q=${encodeURIComponent(query)}&mode=hybrid&limit=10`);
+    if (!r.ok) {
+      resultsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Search failed (${r.status}). Is GBrain running?</div>`;
+      return;
+    }
+    const results = await r.json();
+    if (!results || results.length === 0) {
+      resultsDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">No results found.</div>';
+      return;
+    }
+    
+    resultsDiv.innerHTML = results.map((r, idx) => `
+      <div style="margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid var(--border);font-size:0.8rem">
+        <div style="font-weight:600;color:var(--text)">${r.title || 'Untitled'}</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);margin:0.25rem 0">${r.slug}</div>
+        <div style="color:var(--text-secondary);margin-top:0.5rem;line-height:1.5">${(r.chunk_text || '').substring(0, 300)}${(r.chunk_text || '').length > 300 ? '…' : ''}</div>
+        <div style="color:var(--accent);margin-top:0.5rem;font-size:0.7rem">Score: ${(r.score || 0).toFixed(3)}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    resultsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+// ── GBrain Skills ───────────────────────────────────────────────────────────
+async function initSkillsPage() {
+  await fetchGBrainStatus();
+  // In the future: fetch integrations and jobs
+}
+
+async function fetchGBrainStatus() {
+  try {
+    const r = await fetch(`${API}/gbrain/health`);
+    const data = await r.json();
+    const statusDiv = document.getElementById('skills-status');
+    
+    if (data.available) {
+      statusDiv.innerHTML = `<span style="color:var(--success)">✓ GBrain is running</span><br><span style="font-size:0.75rem;color:var(--text-muted)">Brain Score: ${data.brain_score}/100</span>`;
+    } else {
+      statusDiv.innerHTML = `<span style="color:var(--error)">✗ GBrain is offline</span><br><span style="font-size:0.75rem;color:var(--text-muted)">${data.error || 'Unknown error'}</span>`;
+    }
+  } catch(e) {
+    document.getElementById('skills-status').innerHTML = `<span style="color:var(--error)">✗ Could not connect: ${e.message}</span>`;
+  }
 }
 
 async function fetchKeys() {
@@ -5858,6 +5925,48 @@ initDashboard();
       <button class="btn btn-sm" onclick="closeReportModal()">Cancel</button>
       <button class="btn btn-sm btn-primary" id="btn-report-send" onclick="submitReport()">Send report</button>
     </div>
+  </div>
+</div>
+
+<!-- ── GBrain Memory ────────────────────────────────────────────────── -->
+<div class="page" id="page-memory">
+  <h1 class="page-title">Knowledge Memory</h1>
+  <p class="page-subtitle">Search your personal knowledge base powered by GBrain.</p>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+      <input type="text" id="memory-search-query" placeholder="Search your knowledge base..." 
+             style="flex:1;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)"
+             onkeyup="if(event.key==='Enter') doSearchMemory()">
+      <button class="btn btn-primary btn-sm" onclick="doSearchMemory()">
+        <span id="spin-memory-search" style="display:none" class="spinner"></span>
+        Search
+      </button>
+    </div>
+    <div id="memory-results" style="max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;background:var(--bg);color:var(--text-muted);font-size:0.85rem">
+      Enter a query to search your knowledge base.
+    </div>
+  </div>
+</div>
+
+<!-- ── GBrain Skills ────────────────────────────────────────────────── -->
+<div class="page" id="page-skills">
+  <h1 class="page-title">GBrain Skills</h1>
+  <p class="page-subtitle">Integrations, recipes, and background jobs.</p>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <div style="font-size:0.85rem;font-weight:600;margin-bottom:1rem">Status</div>
+    <div id="skills-status" style="font-size:0.8rem;color:var(--text-muted)">Loading GBrain status...</div>
+  </div>
+
+  <div class="section-title">Integrations</div>
+  <div id="skills-integrations" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <div style="font-size:0.8rem;color:var(--text-muted)">No integrations available.</div>
+  </div>
+
+  <div class="section-title">Background Jobs</div>
+  <div id="skills-jobs" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <div style="font-size:0.8rem;color:var(--text-muted)">No recent jobs.</div>
   </div>
 </div>
 
