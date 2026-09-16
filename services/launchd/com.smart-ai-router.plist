@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.smart-ai-router</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/kevingaasch/ProjectHome/smart-ai-router/.venv/bin/python</string>
+		<string>-m</string>
+		<string>smart_ai_router</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/kevingaasch/ProjectHome/smart-ai-router</string>
+	<key>StandardOutPath</key>
+	<string>/Users/kevingaasch/Library/Logs/dashboard/smartrouter.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/kevingaasch/Library/Logs/dashboard/smartrouter-error.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/kevingaasch</string>
+		<key>PATH</key>
+		<string>/Users/kevingaasch/ProjectHome/smart-ai-router/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>SMART_ROUTER_PORT</key>
+		<string>8001</string>
+		<key>SMART_ROUTER_LABEL</key>
+		<string>com.smart-ai-router</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Adaptive</string>
+</dict>
+</plist>
