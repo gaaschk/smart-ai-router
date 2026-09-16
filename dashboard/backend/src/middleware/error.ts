@@ -8,27 +8,45 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  // Log error
-  log('error', 'Unhandled error', {
-    message: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method,
-  });
+  const requestId = (req as any).id || 'unknown';
+  const isDev = process.env.NODE_ENV === 'development';
 
-  // Handle AppError
+  // Determine status code and error details
+  let statusCode = 500;
+  let errorCode = 'INTERNAL_ERROR';
+  let userMessage = 'Internal server error';
+
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({
-      error: err.message,
-      code: err.code,
-      statusCode: err.statusCode,
-    });
-    return;
+    statusCode = err.statusCode;
+    errorCode = err.code || 'UNKNOWN_ERROR';
+    userMessage = err.message;
   }
 
-  // Handle generic errors
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+  // Log error with full context
+  const errorLog: any = {
+    requestId,
+    statusCode,
+    errorCode,
+    message: err.message,
+    path: req.path,
+    method: req.method,
+    userId: (req as any).userId || null,
+    userAgent: req.headers['user-agent'] || 'unknown',
+    ip: req.ip || 'unknown',
+    timestamp: new Date().toISOString(),
+  };
+
+  if (isDev && 'stack' in err) {
+    errorLog.stack = (err as any).stack;
+  }
+
+  log('error', `${statusCode} ${err.constructor.name}`, errorLog);
+
+  // Return error response
+  res.status(statusCode).json({
+    error: userMessage,
+    code: errorCode,
+    ...(isDev && { message: err.message, stack: err.stack }),
+    ...(requestId && { requestId }), // Include requestId for debugging
   });
 }

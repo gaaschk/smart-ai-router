@@ -7,6 +7,7 @@ import { config } from './config';
 // Middleware imports
 import { errorHandler } from './middleware/error';
 import { requestLogger } from './middleware/logging';
+import { requestIdMiddleware } from './middleware/requestId';
 
 // Routes
 import { chatRouter } from './routes/chat';
@@ -21,6 +22,9 @@ export function createApp(): Express {
 
   // Trust proxy
   app.set('trust proxy', 1);
+
+  // Request ID (must be first middleware)
+  app.use(requestIdMiddleware);
 
   // Security middleware
   app.use(helmet());
