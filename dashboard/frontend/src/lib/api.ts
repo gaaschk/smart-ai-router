@@ -20,7 +20,8 @@ export interface ChatRoutingInfo {
 }
 
 export interface ChatApiResponse {
-  id: string;
+  conversationId: string;
+  messageId: string;
   message: string;
   modelUsed: string;
   cost: number | null;
@@ -32,9 +33,59 @@ export interface ChatApiResponse {
 
 export async function sendChatMessage(
   message: string,
+  conversationId?: string,
   history: { role: string; content: string }[] = []
 ): Promise<ChatApiResponse> {
-  const { data } = await api.post<ChatApiResponse>('/chat', { message, history });
+  const { data } = await api.post<ChatApiResponse>('/chat', { message, conversationId, history });
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation History
+// ---------------------------------------------------------------------------
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  archived: boolean;
+}
+
+export async function fetchConversations(limit = 20, offset = 0): Promise<{
+  conversations: Conversation[];
+  total: number;
+  limit: number;
+  offset: number;
+}> {
+  const { data } = await api.get('/chat/conversations', { params: { limit, offset } });
+  return data;
+}
+
+export interface StoredChatMessage {
+  id: string;
+  role: string;
+  content: string;
+  modelUsed?: string;
+  routing?: Record<string, unknown>;
+  tokens?: { prompt: number; completion: number };
+  cost?: number;
+  timestamp: string;
+}
+
+export async function fetchConversationHistory(conversationId: string): Promise<{
+  conversationId: string;
+  messages: StoredChatMessage[];
+}> {
+  const { data } = await api.get(`/chat/conversations/${conversationId}`);
+  return data;
+}
+
+export async function updateConversation(
+  conversationId: string,
+  updates: { title?: string; archived?: boolean }
+): Promise<{ success: boolean }> {
+  const { data } = await api.patch(`/chat/conversations/${conversationId}`, updates);
   return data;
 }
 
