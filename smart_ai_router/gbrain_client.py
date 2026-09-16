@@ -10,6 +10,7 @@ operations still serialize at the subprocess level via the event loop.
 """
 import json
 import logging
+import os
 import subprocess
 import shutil
 from typing import Any, Optional
@@ -34,11 +35,22 @@ class GBrainClient:
 
     def _check_binary(self):
         """Verify gbrain binary exists and is executable."""
-        if not shutil.which(self.bin_path):
-            raise RuntimeError(
-                f"gbrain binary not found at {self.bin_path}. "
-                "Install via: bun install -g github:garrytan/gbrain"
-            )
+        # Check the default location first (in PATH)
+        if shutil.which(self.bin_path):
+            return
+
+        # Check common Bun installation path
+        home = os.path.expanduser("~")
+        bun_path = os.path.join(home, ".bun", "bin", "gbrain")
+        if os.path.isfile(bun_path):
+            self.bin_path = bun_path
+            return
+
+        # Not found
+        raise RuntimeError(
+            f"gbrain binary not found at {self.bin_path} or {bun_path}. "
+            "Install via: bun install -g github:garrytan/gbrain"
+        )
 
     def _call(self, tool: str, args: dict[str, Any]) -> Any:
         """
