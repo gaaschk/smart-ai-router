@@ -5,6 +5,7 @@ import { query } from '../services/database';
 import { authRequired } from '../middleware/auth';
 import { AppError } from '../types';
 import { log } from '../middleware/logging';
+import * as gbrain from '../services/gbrainClient';
 
 export const chatRouter = Router();
 
@@ -70,7 +71,29 @@ chatRouter.post('/', authRequired, async (req: Request, res: Response, next: Nex
       [userMsgId, conversationId, userId, 'user', body.message.trim()]
     );
 
-    const messages = [...(body.history ?? []), { role: 'user', content: body.message }];
+    // Retrieve context from GBrain before calling the LLM
+    // This enriches the prompt with relevant knowledge from the personal brain
+    let gbrainContext = '';
+    try {
+      const searchResults = await gbrain.hybridQuery(body.message.trim(), 5, true);
+      if (searchResults && searchResults.length > 0) {
+        const contextChunks = searchResults
+          .map((r) => `[${r.title}] ${r.chunk_text}`)
+          .join('\n\n');
+        gbrainContext = `\n\n## Relevant Context from Personal Knowledge Base:\n${contextChunks}`;
+        log('info', 'GBrain context retrieved', { queryLength: body.message.length, results: searchResults.length });
+      }
+    } catch (err) {
+      // GBrain retrieval is optional; a failure here doesn't block the chat
+      log('warn', 'GBrain context retrieval failed (continuing without context)', { error: err });
+    }
+
+    // Build the full message list with injected context
+    const userMessageWithContext = body.message.trim() + gbrainContext;
+    const messages = [
+      ...(body.history ?? []),
+      { role: 'user', content: userMessageWithContext },
+    ];
     const result = await chatCompletion(messages);
 
     // Save assistant message
@@ -123,6 +146,20 @@ chatRouter.post('/', authRequired, async (req: Request, res: Response, next: Nex
     await query('UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [
       conversationId,
     ]);
+
+    // Optionally save the exchange as a learning to GBrain (best-effort, non-blocking)
+    // This makes the AI's reasoning/insights available for future context retrieval
+    if (body.message.trim().length > 20 && result.content.length > 50) {
+      try {
+        const learningTitle = `Chat: ${body.message.trim().substring(0, 50)}...`;
+        const learningContent = `**Q:** ${body.message.trim()}\n\n**A:** ${result.content}\n\n_Routed to ${result.modelUsed} (confidence: ${result.qualified ? 'high' : 'low'})_`;
+        await gbrain.remember(learningTitle, learningContent, `chat-exchanges/${conversationId}`);
+        log('info', 'Chat exchange saved to GBrain', { conversationId, messageId: assistantMsgId });
+      } catch (err) {
+        // Saving learnings is optional; don't let a failure block the response
+        log('warn', 'Failed to save chat exchange to GBrain (continuing)', { error: err });
+      }
+    }
 
     const responsePayload = {
       conversationId,
