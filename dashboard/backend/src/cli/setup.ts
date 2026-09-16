@@ -34,14 +34,14 @@ async function setup(): Promise<void> {
 
   // 1. Verify environment
   console.log('1️⃣  Verifying environment...');
-  const requiredEnvVars = ['DATABASE_URL', 'AUTH_JWT_SECRET'];
+  const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET'];
   const missing = requiredEnvVars.filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
     console.error(`❌ Missing environment variables: ${missing.join(', ')}`);
     console.error(`\n   Create a .env file with at least:\n`);
     console.error(`   DATABASE_URL=postgresql://user:pass@localhost:5432/dashboard`);
-    console.error(`   AUTH_JWT_SECRET=your-secret-key\n`);
+    console.error(`   JWT_SECRET=your-secret-key\n`);
     process.exit(1);
   }
   console.log('✅ Environment verified\n');
@@ -74,14 +74,20 @@ async function setup(): Promise<void> {
       // 4. Create admin user
       console.log('4️⃣  No admin user found. Creating one...\n');
 
-      const email = await prompt('   Admin email: ');
+      // Support non-interactive setup via env vars (useful for scripted/automated
+      // deployment where stdin cannot be reliably used for prompts).
+      const envEmail = process.env.ADMIN_EMAIL;
+      const envName = process.env.ADMIN_NAME;
+      const envPassword = process.env.ADMIN_PASSWORD;
+
+      const email = envEmail || (await prompt('   Admin email: '));
       if (!email.includes('@')) {
         console.error('\n❌ Invalid email format');
         process.exit(1);
       }
 
-      const name = await prompt('   Admin name: ');
-      const password = await prompt('   Admin password (8+ chars): ');
+      const name = envName || (envEmail ? email : await prompt('   Admin name: '));
+      const password = envPassword || (await prompt('   Admin password (8+ chars): '));
 
       if (password.length < 8) {
         console.error('\n❌ Password must be at least 8 characters');

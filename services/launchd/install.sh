@@ -18,13 +18,13 @@ LAUNCHD_DIR="$HOME/Library/LaunchAgents"
 SERVICES=(
     "com.dashboard.backend.plist"
     "com.dashboard.frontend.plist"
-    "com.smartrouter.api.plist"
+    "com.smart-ai-router.plist"
 )
 
 SERVICE_LABELS=(
     "com.dashboard.backend"
     "com.dashboard.frontend"
-    "com.smartrouter.api"
+    "com.smart-ai-router"
 )
 
 # Colors for output

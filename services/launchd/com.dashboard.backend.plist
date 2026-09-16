@@ -12,11 +12,13 @@
 	<key>WorkingDirectory</key>
 	<string>/Users/kevingaasch/ProjectHome/smart-ai-router/dashboard/backend</string>
 	<key>StandardOutPath</key>
-	<string>/var/log/dashboard-backend.log</string>
+	<string>/Users/kevingaasch/Library/Logs/dashboard/backend.log</string>
 	<key>StandardErrorPath</key>
-	<string>/var/log/dashboard-backend-error.log</string>
+	<string>/Users/kevingaasch/Library/Logs/dashboard/backend-error.log</string>
 	<key>EnvironmentVariables</key>
 	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 		<key>NODE_ENV</key>
 		<string>production</string>
 		<key>PORT</key>
@@ -26,10 +28,10 @@
 		<key>SMART_ROUTER_URL</key>
 		<string>http://localhost:8001</string>
 		<key>GBRAIN_BIN</key>
-		<string>/opt/homebrew/bin/gbrain</string>
+		<string>gbrain</string>
 		<key>GBRAIN_CLI_TIMEOUT_MS</key>
 		<string>30000</string>
-		<key>AUTH_JWT_SECRET</key>
+		<key>JWT_SECRET</key>
 		<string>CHANGE_ME_IN_PRODUCTION</string>
 		<key>CORS_ORIGIN</key>
 		<string>http://localhost:5173</string>
@@ -40,8 +42,6 @@
 	<true/>
 	<key>RunAtLoad</key>
 	<true/>
-	<key>StartInterval</key>
-	<integer>5</integer>
 	<key>ProcessType</key>
 	<string>Adaptive</string>
 </dict>
