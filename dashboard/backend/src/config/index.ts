@@ -24,10 +24,17 @@ export const config = {
   },
 
   // GBrain
+  //
+  // GBrain has no HTTP server — it's a CLI (`gbrain call <tool> '<json>'`) plus
+  // a stdio-only MCP server (`gbrain serve`), neither of which a Node backend
+  // can reach over HTTP. We shell out to the CLI instead (see gbrainClient.ts).
+  // Its default PGLite store also takes an exclusive file lock, so calls must
+  // be serialized — one gbrain process at a time — or they time out waiting
+  // on the lock.
   gbrain: {
-    url: process.env.GBRAIN_URL || 'http://localhost:8002',
-    databaseUrl: process.env.GBRAIN_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gbrain',
-    timeout: 30000, // 30 seconds
+    bin: process.env.GBRAIN_BIN || 'gbrain',
+    databaseUrl: process.env.GBRAIN_DATABASE_URL || '',
+    cliTimeoutMs: parseInt(process.env.GBRAIN_CLI_TIMEOUT_MS || '30000', 10),
   },
 
   // Authentication
@@ -53,7 +60,7 @@ function validateConfig(): void {
   const required = [
     'database.url',
     'smartRouter.url',
-    'gbrain.url',
+    'gbrain.bin',
     'auth.jwtSecret',
   ];
 

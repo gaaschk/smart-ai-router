@@ -11,9 +11,9 @@ import { requestLogger } from './middleware/logging';
 // Routes
 import { chatRouter } from './routes/chat';
 import { analyticsRouter } from './routes/analytics';
+import { memoryRouter } from './routes/memory';
+import { skillsRouter } from './routes/skills';
 // import authRoutes from './routes/auth';
-// import memoryRoutes from './routes/memory';
-// import skillsRoutes from './routes/skills';
 // import usersRoutes from './routes/users';
 
 export function createApp(): Express {
@@ -49,9 +49,9 @@ export function createApp(): Express {
   // API Routes
   app.use('/api/chat', chatRouter);
   app.use('/api/analytics', analyticsRouter);
+  app.use('/api/memory', memoryRouter);
+  app.use('/api/skills', skillsRouter);
   // app.use('/api/auth', authRoutes);
-  // app.use('/api/memory', memoryRoutes);
-  // app.use('/api/skills', skillsRoutes);
   // app.use('/api/users', usersRoutes);
 
   // 404 handler
