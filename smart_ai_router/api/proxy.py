@@ -39,6 +39,7 @@ from smart_ai_router import settings as _settings
 from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
+from smart_ai_router.gbrain_client import get_client as get_gbrain
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     classifier_fallback_model,
@@ -939,6 +940,67 @@ def list_models():
     }
 
 
+def _enrich_with_gbrain_context(
+    messages: list[dict[str, Any]], prompt_text: str
+) -> list[dict[str, Any]]:
+    """
+    Retrieve relevant context from GBrain and prepend it to the message list.
+
+    This implements Retrieval-Augmented Generation (RAG) so every chat has access
+    to the user's personal knowledge base. If GBrain is unavailable or retrieval
+    fails, returns messages unchanged (best-effort, non-blocking).
+
+    Args:
+        messages: Incoming message list from the client
+        prompt_text: Extracted last user message for context retrieval
+
+    Returns:
+        Message list with GBrain context prepended as a system message
+    """
+    if not prompt_text or len(prompt_text) < 10:
+        return messages  # Too short to search meaningfully
+
+    try:
+        gbrain = get_gbrain()
+        results = gbrain.hybrid_query(prompt_text, limit=5, expand=True)
+
+        if not results:
+            return messages  # No context found
+
+        # Format context chunks into a readable block
+        context_chunks = [
+            f"[{r.get('title', 'Untitled')}] {r.get('chunk_text', '')}"
+            for r in results
+            if r.get("chunk_text")
+        ]
+
+        if not context_chunks:
+            return messages
+
+        context_text = "\n\n".join(context_chunks)
+        context_msg = {
+            "role": "system",
+            "content": f"## Relevant Context from Personal Knowledge:\n{context_text}",
+        }
+
+        print(
+            f"[proxy] gbrain context: {len(results)} chunks, "
+            f"{len(context_text)} chars",
+            file=sys.stderr,
+            flush=True,
+        )
+
+        # Prepend context after any existing system messages
+        enriched = list(messages)
+        system_count = sum(1 for m in enriched if m.get("role") == "system")
+        enriched.insert(system_count, context_msg)
+        return enriched
+
+    except Exception as e:
+        print(f"[proxy] gbrain context retrieval failed: {e}", file=sys.stderr, flush=True)
+        return messages  # Return unchanged on any error
+
+
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body: dict[str, Any] = await request.json()
@@ -1247,6 +1309,14 @@ async def chat_completions(request: Request):
             [{"role": "system", "content": n} for n in notes if n]
             + list(forward_body.get("messages") or [])
         )
+    
+    # Enrich with GBrain context (personal knowledge retrieval-augmented generation).
+    # This injects relevant knowledge from the user's brain before routing to the LLM.
+    # Best-effort; if retrieval fails, proceeds normally.
+    forward_body["messages"] = _enrich_with_gbrain_context(
+        forward_body.get("messages") or [], prompt_text
+    )
+    
     # Search the web when the prompt turns on facts that move. Set on forward_body
     # before the agent branch reads it, so an agent round searches too.
     search_plugin = _web_search_plugin(profile, routed_model)
