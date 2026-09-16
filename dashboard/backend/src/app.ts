@@ -14,7 +14,7 @@ import { analyticsRouter } from './routes/analytics';
 import { memoryRouter } from './routes/memory';
 import { skillsRouter } from './routes/skills';
 import { authRouter } from './routes/auth';
-// import usersRoutes from './routes/users';
+import { usersRouter } from './routes/users';
 
 export function createApp(): Express {
   const app = express();
@@ -48,11 +48,11 @@ export function createApp(): Express {
 
   // API Routes
   app.use('/api/auth', authRouter);
+  app.use('/api/users', usersRouter);
   app.use('/api/chat', chatRouter);
   app.use('/api/analytics', analyticsRouter);
   app.use('/api/memory', memoryRouter);
   app.use('/api/skills', skillsRouter);
-  // app.use('/api/users', usersRoutes);
 
   // 404 handler
   app.use((req: Request, res: Response) => {
