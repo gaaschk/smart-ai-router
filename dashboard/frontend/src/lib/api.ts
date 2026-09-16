@@ -5,11 +5,27 @@ import axios from 'axios';
  * proxies chat/analytics calls so the browser never needs the router's own
  * API key). Vite's dev server proxies `/api` to the backend (see
  * vite.config.ts), so a relative base URL works in both dev and prod.
+ *
+ * Authorization: Bearer tokens are set in App.tsx whenever the auth state changes.
  */
 export const api = axios.create({
   baseURL: '/api',
   timeout: 60000, // chat replies can take a while on a reasoning model
 });
+
+// Add response interceptor to handle 401 (unauthorized)
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear auth state and redirect to login
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface ChatRoutingInfo {
   why: string;

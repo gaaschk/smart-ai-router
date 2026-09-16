@@ -1,3 +1,4 @@
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   MessageCircle,
   BarChart3,
@@ -7,23 +8,35 @@ import {
   Settings,
   Wifi,
   WifiOff,
+  LogOut,
 } from 'lucide-react';
+import { User } from '../hooks/useAuth';
 
 interface NavigationProps {
-  currentPage: string;
-  onPageChange: (page: any) => void;
   isConnected: boolean;
+  user: User | null;
+  onLogout: () => void;
 }
 
-export function Navigation({ currentPage, onPageChange, isConnected }: NavigationProps) {
+export function Navigation({ isConnected, user, onLogout }: NavigationProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const navItems = [
-    { id: 'chat', label: 'Chat', icon: MessageCircle },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'memory', label: 'Memory', icon: Brain },
-    { id: 'skills', label: 'Skills', icon: Zap },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { path: '/', label: 'Chat', icon: MessageCircle },
+    { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+    { path: '/memory', label: 'Memory', icon: Brain },
+    { path: '/skills', label: 'Skills', icon: Zap },
+    ...(user?.role === 'admin'
+      ? [{ path: '/users', label: 'Users', icon: Users }]
+      : []),
+    { path: '/settings', label: 'Settings', icon: Settings },
   ];
+
+  const handleLogout = () => {
+    onLogout();
+    navigate('/login');
+  };
 
   return (
     <nav className="w-64 bg-white shadow-md flex flex-col">
@@ -31,6 +44,12 @@ export function Navigation({ currentPage, onPageChange, isConnected }: Navigatio
       <div className="p-6 border-b border-gray-200">
         <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
         <p className="text-sm text-gray-500 mt-1">Smart Router & GBrain</p>
+      </div>
+
+      {/* User Info */}
+      <div className="px-6 py-4 border-b border-gray-200">
+        <p className="text-sm font-medium text-gray-800">{user?.name}</p>
+        <p className="text-xs text-gray-500">{user?.email}</p>
       </div>
 
       {/* Connection Status */}
@@ -54,12 +73,12 @@ export function Navigation({ currentPage, onPageChange, isConnected }: Navigatio
       <ul className="flex-1 py-4">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = currentPage === item.id;
+          const isActive = location.pathname === item.path;
 
           return (
-            <li key={item.id}>
+            <li key={item.path}>
               <button
-                onClick={() => onPageChange(item.id)}
+                onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-6 py-3 transition-colors ${
                   isActive
                     ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
@@ -73,6 +92,17 @@ export function Navigation({ currentPage, onPageChange, isConnected }: Navigatio
           );
         })}
       </ul>
+
+      {/* Logout Button */}
+      <div className="p-4 border-t border-gray-200">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition font-medium text-sm"
+        >
+          <LogOut className="w-4 h-4" />
+          Logout
+        </button>
+      </div>
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-200 text-center">
