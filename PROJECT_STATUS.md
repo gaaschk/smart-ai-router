@@ -42,7 +42,27 @@ All three talk to each other through intelligent APIs.
 - Dashboard Skills page: integration recipes (email/calendar/X/voice senses)
   + background job catalog (sync/embed/lint/import/extract/backlinks/
   autopilot-cycle) via GBrain's Minions job queue — submit and list jobs live.
-- Status: **IMPLEMENTED**, pending PR review/merge
+- Status: **MERGED** (PR #99)
+
+### Phase 4: Multi-User Support ✅
+- PostgreSQL schema for users, sessions, conversations, cost tracking
+- JWT authentication (login/register) with per-user scoping
+- Conversation persistence: save/fetch chat history per user
+- Per-user cost analytics: users only see their own LLM spending
+- Admin user management endpoints (list, detail, update, soft-delete)
+- React Router with protected routes (unauthenticated users redirected to /login)
+- Frontend auth UI (LoginPage with login/register toggle)
+- useAuth hook for JWT token & user state management (localStorage)
+- Request ID tracking for error logging & debugging
+- Status: **MERGED** (PRs #100 & #101)
+
+### Phase 5: Production Readiness 🚀 (In Progress)
+- Enhanced error handling with structured logging (statusCode, userId, requestId, etc.)
+- Request ID middleware for distributed tracing
+- Setup CLI (`npm run setup`) for first-run initialization (DB migrations, admin user creation)
+- Comprehensive deployment guide (DEPLOYMENT_GUIDE.md) with Mac Mini instructions
+- Quick start guide (QUICK_START.md) for developers
+- Status: **IN PROGRESS** — More coming (systemd/launchd services, backup scripts)
 
 ## Services Running on Mac Mini
 
@@ -187,13 +207,24 @@ Then visit **http://localhost:5173** in your browser.
 ✅ **Dashboard Phase 3** — Memory + Skills pages wired to live GBrain data
 ✅ **Port conflict fixed** — Backend now uses 5050 instead of 5000
 
-## What's Next (Phase 4)
+## What's Next (Phase 5+)
 
-⏳ **User Management** — Multi-user auth, per-user cost/memory scoping
-⏳ **Conversation Persistence** — Save chat history to PostgreSQL
-⏳ **Real Authentication** — JWT instead of open dev mode
-⏳ **GBrain on Postgres** — Removes the PGLite single-writer lock for true
-   concurrent access once multiple users are hitting Memory/Skills at once
+✅ **Phase 5 (In Progress):**
+- ✅ Enhanced error handling & request tracing
+- ✅ Setup CLI for first-run initialization
+- ✅ Deployment guide & quick start docs
+- ⏳ Systemd/launchd service files for auto-start
+- ⏳ Database backup & recovery scripts
+- ⏳ Rate limiting on auth endpoints
+- ⏳ Security hardening (CSRF tokens, input validation)
+
+**Phase 6 (Future):**
+- 🔲 GBrain on PostgreSQL — Removes PGLite single-writer lock for true
+  concurrent access (enables multi-user job workers)
+- 🔲 Conversation tagging & search
+- 🔲 Shared brains (multi-user knowledge base collaboration)
+- 🔲 Custom LLM workflows & prompts
+- 🔲 Role-based access control refinements (fine-grained permissions)
 
 ## PRs and Branches
 
