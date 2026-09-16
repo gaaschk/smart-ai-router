@@ -148,17 +148,21 @@ chatRouter.post('/', authRequired, async (req: Request, res: Response, next: Nex
     ]);
 
     // Optionally save the exchange as a learning to GBrain (best-effort, non-blocking)
-    // This makes the AI's reasoning/insights available for future context retrieval
+    // This makes the AI's reasoning/insights available for future context retrieval.
+    // NOTE: Saving is deferred to background (fire-and-forget) so a GBrain slowness
+    // doesn't add latency to chat responses.
     if (body.message.trim().length > 20 && result.content.length > 50) {
-      try {
-        const learningTitle = `Chat: ${body.message.trim().substring(0, 50)}...`;
-        const learningContent = `**Q:** ${body.message.trim()}\n\n**A:** ${result.content}\n\n_Routed to ${result.modelUsed} (confidence: ${result.qualified ? 'high' : 'low'})_`;
-        await gbrain.remember(learningTitle, learningContent, `chat-exchanges/${conversationId}`);
-        log('info', 'Chat exchange saved to GBrain', { conversationId, messageId: assistantMsgId });
-      } catch (err) {
-        // Saving learnings is optional; don't let a failure block the response
-        log('warn', 'Failed to save chat exchange to GBrain (continuing)', { error: err });
-      }
+      setImmediate(async () => {
+        try {
+          const learningTitle = `Chat: ${body.message.trim().substring(0, 50)}...`;
+          const learningContent = `**Q:** ${body.message.trim()}\n\n**A:** ${result.content}\n\n_Routed to ${result.modelUsed} (confidence: ${result.qualified ? 'high' : 'low'})_`;
+          await gbrain.remember(learningTitle, learningContent, `chat-exchanges/${conversationId}`);
+          log('info', 'Chat exchange saved to GBrain', { conversationId, messageId: assistantMsgId });
+        } catch (err) {
+          // Saving learnings is optional; failures are just logged
+          log('warn', 'Failed to save chat exchange to GBrain (fire-and-forget)', { error: err });
+        }
+      });
     }
 
     const responsePayload = {
