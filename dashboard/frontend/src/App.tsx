@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { ChatPage } from './pages/ChatPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -6,6 +6,7 @@ import { MemoryPage } from './pages/MemoryPage';
 import { SkillsPage } from './pages/SkillsPage';
 import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { getSocket } from './lib/socket';
 
 type PageType = 'chat' | 'analytics' | 'memory' | 'skills' | 'users' | 'settings';
 
@@ -14,8 +15,18 @@ export function App() {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // TODO: Check backend connection
-    setIsConnected(true);
+    const socket = getSocket();
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    if (socket.connected) setIsConnected(true);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
   }, []);
 
   const renderPage = () => {

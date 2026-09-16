@@ -1,18 +1,17 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config';
-import { AppError } from './types';
 
 // Middleware imports
 import { errorHandler } from './middleware/error';
 import { requestLogger } from './middleware/logging';
 
-// Routes (will be added as we create them)
+// Routes
+import { chatRouter } from './routes/chat';
+import { analyticsRouter } from './routes/analytics';
 // import authRoutes from './routes/auth';
-// import chatRoutes from './routes/chat';
-// import analyticsRoutes from './routes/analytics';
 // import memoryRoutes from './routes/memory';
 // import skillsRoutes from './routes/skills';
 // import usersRoutes from './routes/users';
@@ -39,7 +38,7 @@ export function createApp(): Express {
   app.use(requestLogger);
 
   // Health check endpoint
-  app.get('/health', (req: Request, res: Response) => {
+  app.get('/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -47,10 +46,10 @@ export function createApp(): Express {
     });
   });
 
-  // API Routes (will be added as we build them)
+  // API Routes
+  app.use('/api/chat', chatRouter);
+  app.use('/api/analytics', analyticsRouter);
   // app.use('/api/auth', authRoutes);
-  // app.use('/api/chat', chatRoutes);
-  // app.use('/api/analytics', analyticsRoutes);
   // app.use('/api/memory', memoryRoutes);
   // app.use('/api/skills', skillsRoutes);
   // app.use('/api/users', usersRoutes);

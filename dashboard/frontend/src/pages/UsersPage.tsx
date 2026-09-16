@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { UserPlus, Trash2 } from 'lucide-react';
 
 export function UsersPage() {
-  const [users, setUsers] = useState([]);
+  const [users] = useState([]);
   const [showAddUser, setShowAddUser] = useState(false);
 
   return (

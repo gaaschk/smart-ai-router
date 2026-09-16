@@ -359,7 +359,7 @@ wait
 ```bash
 # Terminal 1: Backend
 cd dashboard/backend
-npm run dev  # Runs on 5000 with hot reload
+npm run dev  # Runs on 5050 with hot reload
 
 # Terminal 2: Frontend  
 cd dashboard/frontend
