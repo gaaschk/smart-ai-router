@@ -8,7 +8,7 @@ import { AppError } from '../types';
 
 export const authRouter = Router();
 
-/** POST /api/auth/register — Create a new user account */
+/** POST /api/auth/register — Create a new user account and auto-login */
 authRouter.post('/register', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, name, password } = req.body;
@@ -21,8 +21,13 @@ authRouter.post('/register', async (req: Request, res: Response, next: NextFunct
       throw new AppError(400, 'Password must be at least 8 characters', 'WEAK_PASSWORD');
     }
 
-    const user = await createUser(email, name, password, 'user');
-    res.status(201).json({ user });
+    await createUser(email, name, password, 'user');
+
+    // Auto-login after registration
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const { user: loginUser, token } = await authenticateUser(email, password, ipAddress);
+
+    res.status(201).json({ token, user: loginUser });
   } catch (err) {
     next(err);
   }
