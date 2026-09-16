@@ -97,6 +97,31 @@ def test_days_window_bounds_which_rows_count(monkeypatch):
     assert ninety["totals"]["requests"] == 2  # both rows
 
 
+def test_hours_window_sees_inside_a_single_day(monkeypatch):
+    # What the sub-day options are for: two rows in the same calendar day, which
+    # `days` cannot separate at all.
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+
+    monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
+    s = SqliteStore(":memory:")
+    s.record_usage(_rec("alice", "m", (now - timedelta(minutes=30)).isoformat()))
+    s.record_usage(_rec("alice", "m", (now - timedelta(hours=8)).isoformat()))
+    client = _client(CapabilityRouter(store=s))
+
+    def req(qs):
+        return client.get(f"/api/usage{qs}", headers=_auth(_ADMIN)).json()["totals"]["requests"]
+
+    assert req("?hours=1") == 1     # only the 30-minute-old row
+    assert req("?hours=12") == 2    # both
+    assert req("") == 2             # default 30 days still covers both
+    # hours wins when both are sent, and a nonsense value is clamped rather than
+    # returning an empty window.
+    assert req("?days=90&hours=1") == 1
+    assert req("?hours=0") == 1
+    assert req("?hours=-5") == 1
+
+
 def test_usage_requires_auth_when_keys_configured(admin_client):
     assert admin_client.get("/api/usage").status_code == 401
 

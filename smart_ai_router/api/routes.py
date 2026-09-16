@@ -437,19 +437,25 @@ def cost(body: CostRequest, request: Request):
 
 
 @api_router.get("/usage", response_model=UsageSummaryResponse)
-def usage(request: Request, days: int = 30):
+def usage(request: Request, days: int = 30, hours: int | None = None):
     """Aggregated usage for the dashboard.
 
     Scoped like conversations: the admin identity sees all users (with a
     by_user breakdown); a per-user key sees only its own rows. Open (no-auth)
     mode has caller "", which matches the ""-owner rows written in that mode.
-    `days` bounds the window (clamped 1–365).
+
+    The window is `hours` when given, else `days` — clamped to 1 hour … 1 year
+    either way. Two parameters rather than one because a day is the wrong unit
+    for "what has this deployment been doing since lunch" and `days` is already
+    a public query param: an external caller's ?days=7 has to keep working, and
+    ?days=0.25 is a worse way to ask for six hours than ?hours=6.
     """
     cr = _router_instance(request)
     caller = getattr(request.state, "user", "") or ""
     is_admin = caller == "admin"
-    days = max(1, min(days, 365))
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    span_h = hours if hours is not None else days * 24
+    span_h = max(1, min(span_h, 365 * 24))
+    since = (datetime.now(timezone.utc) - timedelta(hours=span_h)).isoformat()
     scope_user = None if is_admin else caller
     return cr.usage_summary(user=scope_user, since_ts=since)
 
