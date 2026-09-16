@@ -1554,13 +1554,29 @@
 
   <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:1.5rem">
     <label style="font-size:0.8rem;color:var(--text-muted)">Window
-      <select id="usage-days" onchange="fetchUsage()" style="margin-left:0.4rem">
-        <option value="7">Last 7 days</option>
-        <option value="30" selected>Last 30 days</option>
-        <option value="90">Last 90 days</option>
-        <option value="365">Last year</option>
+      <!-- Values are hours, including for the day-and-longer options, so the
+           custom box and the presets feed the same query param. -->
+      <select id="usage-window" onchange="onUsageWindowChange()" style="margin-left:0.4rem">
+        <option value="1">Last hour</option>
+        <option value="6">Last 6 hours</option>
+        <option value="12">Last 12 hours</option>
+        <option value="24">Last 24 hours</option>
+        <option value="168">Last 7 days</option>
+        <option value="720" selected>Last 30 days</option>
+        <option value="2160">Last 90 days</option>
+        <option value="8760">Last year</option>
+        <option value="custom">Custom…</option>
       </select>
     </label>
+    <span id="usage-custom" style="display:none;gap:0.35rem;align-items:center">
+      <span style="font-size:0.8rem;color:var(--text-muted)">Last</span>
+      <input id="usage-custom-n" type="number" min="1" max="8760" value="48"
+             onchange="fetchUsage()" style="width:5rem">
+      <select id="usage-custom-unit" onchange="fetchUsage()">
+        <option value="1">hours</option>
+        <option value="24">days</option>
+      </select>
+    </span>
     <button class="btn btn-ghost btn-sm" onclick="fetchUsage()">
       <span id="spin-usage" style="display:none" class="spinner"></span>
       Refresh
@@ -1595,7 +1611,7 @@
       </div>
     </div>
 
-    <div class="usage-section">
+    <div class="usage-section" id="usage-daybars-section">
       <div class="section-title">Requests per day</div>
       <div class="usage-bars" id="usage-daybars"></div>
     </div>
@@ -2426,12 +2442,31 @@ function _fmtCost(n) {
 }
 function _tokens(row) { return (row.prompt_tokens || 0) + (row.completion_tokens || 0); }
 
+// The selected window in hours. Clamped here as well as server-side so a typed
+// 0 or a cleared box asks for something answerable instead of an error.
+function usageWindowHours() {
+  const sel = document.getElementById('usage-window');
+  if (!sel) return 720;
+  if (sel.value !== 'custom') return parseInt(sel.value, 10) || 720;
+  const n = parseInt(document.getElementById('usage-custom-n').value, 10);
+  const unit = parseInt(document.getElementById('usage-custom-unit').value, 10) || 1;
+  return Math.min(8760, Math.max(1, (n > 0 ? n : 1) * unit));
+}
+
+function onUsageWindowChange() {
+  const custom = document.getElementById('usage-window').value === 'custom';
+  document.getElementById('usage-custom').style.display = custom ? 'inline-flex' : 'none';
+  // Switching *to* Custom only reveals the box — the number in it is a leftover,
+  // not a request. The inputs fetch on their own change.
+  if (!custom) fetchUsage();
+}
+
 async function fetchUsage() {
   const spin = document.getElementById('spin-usage');
-  const days = document.getElementById('usage-days').value || '30';
+  const hours = usageWindowHours();
   if (spin) spin.style.display = 'inline-block';
   try {
-    const r = await fetch(`${API}/usage?days=${encodeURIComponent(days)}`);
+    const r = await fetch(`${API}/usage?hours=${encodeURIComponent(hours)}`);
     if (!r.ok) throw new Error(`GET /api/usage failed (${r.status})`);
     renderUsage(await r.json());
   } catch (e) {
@@ -2573,6 +2608,12 @@ function renderUsageOverhead(oh, totals) {
 
 function renderUsageDayBars(byDay) {
   const el = document.getElementById('usage-daybars');
+  // Rows are bucketed by calendar day, so any window shorter than a day is one
+  // bar at full height — a chart that says only "yes, it all happened today".
+  // Hidden rather than drawn: the stat cards and the by-model table are what a
+  // short window is for.
+  const section = document.getElementById('usage-daybars-section');
+  if (section) section.style.display = byDay.length > 1 ? 'block' : 'none';
   if (!byDay.length) { el.innerHTML = ''; return; }
   const max = Math.max(...byDay.map(d => d.requests || 0), 1);
   el.innerHTML = byDay.map(d => {
