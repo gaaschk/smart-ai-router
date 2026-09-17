@@ -43,7 +43,13 @@ class GBrainClient:
         home = os.path.expanduser("~")
         bun_path = os.path.join(home, ".bun", "bin", "gbrain")
         if os.path.isfile(bun_path):
-            self.bin_path = bun_path
+            # gbrain is a /usr/bin/env bun shebang script, so we need to call
+            # bun explicitly with the script path when bun isn't in PATH.
+            # Store as a tuple: (runner, script) for use in _call() and _cli()
+            bun_bin = shutil.which("bun") or os.path.join(home, ".bun", "bin", "bun")
+            if not os.path.isfile(bun_bin):
+                raise RuntimeError(f"bun binary not found (required to run {bun_path})")
+            self.bin_path = (bun_bin, bun_path)
             return
 
         # Not found
@@ -67,8 +73,14 @@ class GBrainClient:
             RuntimeError: If the CLI call fails
         """
         try:
+            # Handle bin_path as either a string (in PATH) or a tuple (bun, script)
+            if isinstance(self.bin_path, tuple):
+                cmd = [self.bin_path[0], self.bin_path[1], "call", tool, json.dumps(args)]
+            else:
+                cmd = [self.bin_path, "call", tool, json.dumps(args)]
+            
             result = subprocess.run(
-                [self.bin_path, "call", tool, json.dumps(args)],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_s,
@@ -92,8 +104,9 @@ class GBrainClient:
 
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"gbrain {tool} timed out after {self.timeout_s}s")
-        except FileNotFoundError:
-            raise RuntimeError(f"gbrain binary not found: {self.bin_path}")
+        except FileNotFoundError as e:
+            bin_display = self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            raise RuntimeError(f"gbrain binary not found: {bin_display} ({e})")
 
     def _cli(self, args: list[str]) -> Any:
         """
@@ -109,8 +122,14 @@ class GBrainClient:
             RuntimeError: If the CLI call fails
         """
         try:
+            # Handle bin_path as either a string (in PATH) or a tuple (bun, script)
+            if isinstance(self.bin_path, tuple):
+                cmd = [self.bin_path[0], self.bin_path[1]] + args
+            else:
+                cmd = [self.bin_path] + args
+            
             result = subprocess.run(
-                [self.bin_path] + args,
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_s,
@@ -134,8 +153,9 @@ class GBrainClient:
 
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"gbrain {' '.join(args)} timed out after {self.timeout_s}s")
-        except FileNotFoundError:
-            raise RuntimeError(f"gbrain binary not found: {self.bin_path}")
+        except FileNotFoundError as e:
+            bin_display = self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            raise RuntimeError(f"gbrain binary not found: {bin_display} ({e})")
 
     # ===== Public API =====
 
