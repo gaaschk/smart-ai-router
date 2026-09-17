@@ -18,7 +18,7 @@
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
-		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<string>/Users/kevingaasch/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 		<key>NODE_ENV</key>
 		<string>production</string>
 		<key>PORT</key>

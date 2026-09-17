@@ -2,6 +2,30 @@
 
 This guide sets up GBrain on a Mac Mini to work alongside smart-ai-router as a unified AI backend for the Unified Dashboard.
 
+## Current State (as deployed on kevins-mac-mini.local)
+
+- **Engine:** PostgreSQL 16 (Homebrew), database `gbrain`, with `pgvector` built
+  from source against `postgresql@16` (the Homebrew `pgvector` bottle only
+  ships for pg17/pg18 — see "Building pgvector for Postgres 16" below).
+- **Embeddings:** OpenRouter (`openrouter:openai/text-embedding-3-small`,
+  1536 dims), reusing the same `OPENROUTER_API_KEY` the smart-ai-router
+  already uses for chat. No separate OpenAI/Voyage key needed. The key is
+  persisted in `~/.gbrain/config.json` (`openrouter_api_key`), not an env var.
+- **PATH:** `~/.bun/bin` (where `bun install -g` puts the `gbrain` binary) is
+  exported in both `~/.zshenv` (all shells, including non-interactive SSH/
+  launchd) and `~/.zshrc`.
+- **Knowledge:** Populated via `gbrain import <markdown-dir>` (writes to the
+  `pages`/`content_chunks` tables, which is what `gbrain query`/`search` —
+  and therefore the smart-ai-router's RAG path — actually reads). Note:
+  `gbrain remember`/`recall` write to a **separate** `facts` table that is
+  NOT read by `query`/`search` — use `import` (or the `remember` tool's
+  sibling `extract_facts`/page-authoring flows) for anything that should be
+  retrievable via chat RAG.
+- Verified end-to-end: keyword search (`gbrain search`), vector/hybrid search
+  (`gbrain query`, confirmed via `cosine`/`evidence` fields in JSON output),
+  and full RAG through `POST /v1/chat/completions` on port 8001 (the model
+  correctly answered a question using only facts from imported GBrain pages).
+
 ## Architecture
 
 ```
@@ -333,10 +357,38 @@ psql -l  # List databases
 ```
 
 ### "No API key for embedding"
-GBrain can work without embeddings (keyword search only). If you want semantic search:
+GBrain can work without embeddings (keyword search only). If you want semantic search
+and you already have an `OPENROUTER_API_KEY` (as this deployment does — the
+smart-ai-router already needs one), you don't need a separate Voyage/OpenAI key:
+```bash
+gbrain config set openrouter_api_key "$OPENROUTER_API_KEY"
+gbrain init --force --url "$GBRAIN_DATABASE_URL" \
+  --embedding-model openrouter:openai/text-embedding-3-small \
+  --embedding-dimensions 1536
+gbrain embed --stale
+```
+Otherwise, any supported provider works (see `gbrain providers list` and
+`docs/integrations/embedding-providers.md` in the gbrain package):
 ```bash
 export VOYAGE_API_KEY=pa-...
 gbrain embed --stale
+```
+
+### Building pgvector for Postgres 16 (Homebrew bottle only supports pg17/pg18)
+
+`brew install pgvector` installs a bottle built against `postgresql@17`/`@18`.
+If the Mac Mini's Postgres is still on `postgresql@16` (e.g. because the
+`dashboard` database already lives there and an in-place major-version
+upgrade isn't worth the risk), `CREATE EXTENSION vector` fails with
+`extension "vector" is not available`. Build it from source against the
+`@16` headers instead:
+```bash
+cd /tmp
+git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git pgvector-build
+cd pgvector-build
+make PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config
+make install PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config
+psql -d gbrain -c "CREATE EXTENSION vector;"
 ```
 
 ### "GBrain: Timed out waiting for PGLite lock."
