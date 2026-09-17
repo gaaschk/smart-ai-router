@@ -3206,6 +3206,91 @@ function _keysMessage(text) {
 async function initMemoryPage() {
   const resultsDiv = document.getElementById('memory-results');
   resultsDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">Enter a query to search your knowledge base.</div>';
+  document.getElementById('memory-page-detail').style.display = 'none';
+  await fetchMemoryStats();
+  await fetchMemoryPages();
+}
+
+async function fetchMemoryStats() {
+  const statsDiv = document.getElementById('memory-stats');
+  try {
+    const r = await fetch(`${API}/gbrain/stats`);
+    if (!r.ok) {
+      statsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load stats (${r.status})</div>`;
+      return;
+    }
+    const s = await r.json();
+    const health = s.health || {};
+    const scoreColor = (health.brain_score || 0) >= 70 ? 'var(--success)' : (health.brain_score || 0) >= 40 ? 'var(--warning)' : 'var(--error)';
+
+    statsDiv.innerHTML = `
+      <div style="display:flex;gap:2rem;flex-wrap:wrap">
+        <div><div style="font-size:1.4rem;font-weight:700;color:var(--text)">${s.page_count ?? 0}</div><div style="font-size:0.7rem;color:var(--text-muted)">Pages</div></div>
+        <div><div style="font-size:1.4rem;font-weight:700;color:var(--text)">${s.chunk_count ?? 0}</div><div style="font-size:0.7rem;color:var(--text-muted)">Chunks</div></div>
+        <div><div style="font-size:1.4rem;font-weight:700;color:var(--text)">${s.link_count ?? 0}</div><div style="font-size:0.7rem;color:var(--text-muted)">Links</div></div>
+        <div><div style="font-size:1.4rem;font-weight:700;color:var(--text)">${s.tag_count ?? 0}</div><div style="font-size:0.7rem;color:var(--text-muted)">Tags</div></div>
+        <div><div style="font-size:1.4rem;font-weight:700;color:${scoreColor}">${health.brain_score ?? 0}/100</div><div style="font-size:0.7rem;color:var(--text-muted)">Brain Score</div></div>
+      </div>
+    `;
+  } catch(e) {
+    statsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+async function fetchMemoryPages() {
+  const pagesDiv = document.getElementById('memory-pages');
+  try {
+    const r = await fetch(`${API}/gbrain/pages?limit=50`);
+    if (!r.ok) {
+      pagesDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load pages (${r.status})</div>`;
+      return;
+    }
+    const pages = await r.json();
+    if (!Array.isArray(pages) || pages.length === 0) {
+      pagesDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">No pages yet. Import content with `gbrain import`.</div>';
+      return;
+    }
+
+    pagesDiv.innerHTML = pages.map(p => `
+      <div style="padding:0.6rem 0;border-bottom:1px solid var(--border);font-size:0.8rem;cursor:pointer" onclick="viewMemoryPage(${JSON.stringify(p.slug || '').replace(/"/g, '&quot;')})">
+        <span style="font-weight:600;color:var(--text)">${escapeHtml(p.title || p.slug || 'Untitled')}</span>
+        <span style="color:var(--text-muted);font-size:0.7rem;margin-left:0.5rem">${escapeHtml(p.type || '')}</span>
+        <span style="color:var(--text-muted);font-size:0.7rem;float:right">${escapeHtml(p.updated_at || '')}</span>
+      </div>
+    `).join('');
+  } catch(e) {
+    pagesDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+async function viewMemoryPage(slug) {
+  const detailDiv = document.getElementById('memory-page-detail');
+  detailDiv.style.display = '';
+  detailDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">Loading page...</div>';
+  try {
+    const r = await fetch(`${API}/gbrain/pages/${encodeURIComponent(slug)}`);
+    if (!r.ok) {
+      detailDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load page (${r.status})</div>`;
+      return;
+    }
+    const p = await r.json();
+    const tags = (p.tags || []).map(t => `<span style="background:var(--accent-soft);color:var(--accent-text);padding:0.15rem 0.5rem;border-radius:999px;font-size:0.7rem;margin-right:0.35rem">${escapeHtml(String(t))}</span>`).join('');
+    detailDiv.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start">
+        <div style="font-weight:600;font-size:0.95rem;color:var(--text)">${escapeHtml(p.title || slug)}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('memory-page-detail').style.display='none'">✕</button>
+      </div>
+      <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);margin:0.35rem 0">${escapeHtml(slug)}</div>
+      <div style="margin:0.5rem 0">${tags}</div>
+      <div style="font-size:0.8rem;color:var(--text-secondary);white-space:pre-wrap;max-height:250px;overflow-y:auto;margin:0.75rem 0">${escapeHtml((p.content || '').substring(0, 2000))}</div>
+      <div style="display:flex;gap:2rem;font-size:0.75rem;color:var(--text-muted)">
+        <div>Links: ${(p.links || []).length}</div>
+        <div>Backlinks: ${(p.backlinks || []).length}</div>
+      </div>
+    `;
+  } catch(e) {
+    detailDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
 }
 
 async function doSearchMemory() {
@@ -3247,6 +3332,7 @@ async function doSearchMemory() {
 async function initSkillsPage() {
   await fetchGBrainStatus();
   await fetchGBrainIntegrations();
+  await fetchGBrainJobCatalog();
   await fetchGBrainJobs();
 }
 
@@ -3323,7 +3409,7 @@ async function fetchGBrainJobs() {
     for (const job of jobs.slice(0, 20)) {
       html += `<div style="margin-bottom:0.75rem;padding:0.75rem;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.8rem">
         <div style="font-weight:600;color:var(--text)">${escapeHtml(job.name || 'Untitled Job')}</div>
-        <div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem">ID: <span style="font-family:var(--font-mono)">${escapeHtml((job.id || 'unknown').substring(0, 12))}</span></div>
+        <div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem">ID: <span style="font-family:var(--font-mono)">${escapeHtml(String(job.id ?? 'unknown').substring(0, 12))}</span></div>
         <div style="color:var(--text-secondary);font-size:0.75rem;margin-top:0.25rem">Status: ${escapeHtml(job.status || 'unknown')}</div>
       </div>`;
     }
@@ -3331,6 +3417,63 @@ async function fetchGBrainJobs() {
     jobDiv.innerHTML = html || '<div style="font-size:0.8rem;color:var(--text-muted)">No recent jobs.</div>';
   } catch(e) {
     document.getElementById('skills-jobs').innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+async function fetchGBrainJobCatalog() {
+  const catalogDiv = document.getElementById('skills-job-catalog');
+  try {
+    const r = await fetch(`${API}/gbrain/jobs/catalog`);
+    if (!r.ok) {
+      catalogDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load job catalog (${r.status})</div>`;
+      return;
+    }
+    const data = await r.json();
+    const jobs = data.jobs || [];
+    if (jobs.length === 0) {
+      catalogDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">No runnable jobs available.</div>';
+      return;
+    }
+
+    catalogDiv.innerHTML = jobs.map(job => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-bottom:1px solid var(--border);font-size:0.8rem">
+        <div>
+          <div style="font-weight:600;color:var(--text)">${escapeHtml(job.name)}</div>
+          <div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.15rem">${escapeHtml(job.description || '')}</div>
+        </div>
+        <button class="btn btn-sm btn-primary" id="run-job-${escapeHtml(job.id)}" onclick="runGBrainJob(${JSON.stringify(job.id)}, this)">Run</button>
+      </div>
+    `).join('');
+  } catch(e) {
+    catalogDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+async function runGBrainJob(name, buttonEl) {
+  const originalText = buttonEl.textContent;
+  buttonEl.disabled = true;
+  buttonEl.textContent = 'Starting…';
+  try {
+    const r = await fetch(`${API}/gbrain/jobs?${new URLSearchParams({ name })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    buttonEl.textContent = 'Started ✓';
+    await fetchGBrainJobs();
+  } catch(e) {
+    buttonEl.textContent = 'Failed';
+    console.error('Job submission failed:', e.message);
+    alert(`Failed to start job "${name}": ${e.message}`);
+  } finally {
+    setTimeout(() => {
+      buttonEl.disabled = false;
+      buttonEl.textContent = originalText;
+    }, 3000);
   }
 }
 
@@ -6002,6 +6145,10 @@ initDashboard();
   <h1 class="page-title">Knowledge Memory</h1>
   <p class="page-subtitle">Search your personal knowledge base powered by GBrain.</p>
 
+  <div id="memory-stats" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem">
+    <div style="font-size:0.8rem;color:var(--text-muted)">Loading brain stats...</div>
+  </div>
+
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
       <input type="text" id="memory-search-query" placeholder="Search your knowledge base..." 
@@ -6015,6 +6162,14 @@ initDashboard();
     <div id="memory-results" style="max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;background:var(--bg);color:var(--text-muted);font-size:0.85rem">
       Enter a query to search your knowledge base.
     </div>
+  </div>
+
+  <div class="section-title">Pages</div>
+  <div id="memory-pages" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem;max-height:400px;overflow-y:auto">
+    <div style="font-size:0.8rem;color:var(--text-muted)">Loading pages...</div>
+  </div>
+
+  <div id="memory-page-detail" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
   </div>
 </div>
 
@@ -6033,7 +6188,12 @@ initDashboard();
     <div style="font-size:0.8rem;color:var(--text-muted)">No integrations available.</div>
   </div>
 
-  <div class="section-title">Background Jobs</div>
+  <div class="section-title">Maintenance Jobs</div>
+  <div id="skills-job-catalog" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
+    <div style="font-size:0.8rem;color:var(--text-muted)">Loading job catalog...</div>
+  </div>
+
+  <div class="section-title">Recent Jobs</div>
   <div id="skills-jobs" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem">
     <div style="font-size:0.8rem;color:var(--text-muted)">No recent jobs.</div>
   </div>
