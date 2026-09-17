@@ -3282,7 +3282,7 @@ async function viewMemoryPage(slug) {
       </div>
       <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);margin:0.35rem 0">${escapeHtml(slug)}</div>
       <div style="margin:0.5rem 0">${tags}</div>
-      <div style="font-size:0.8rem;color:var(--text-secondary);white-space:pre-wrap;max-height:250px;overflow-y:auto;margin:0.75rem 0">${escapeHtml((p.content || '').substring(0, 2000))}</div>
+      <div style="font-size:0.8rem;color:var(--text-secondary);white-space:pre-wrap;max-height:250px;overflow-y:auto;margin:0.75rem 0">${escapeHtml((p.compiled_truth || p.content || '').substring(0, 2000))}</div>
       <div style="display:flex;gap:2rem;font-size:0.75rem;color:var(--text-muted)">
         <div>Links: ${(p.links || []).length}</div>
         <div>Backlinks: ${(p.backlinks || []).length}</div>
