@@ -75,15 +75,16 @@ def _is_admin(request: Request) -> bool:
 
 
 def _require_admin(request: Request) -> None:
-    """Guard key-management endpoints: only the admin identity may manage keys.
-
-    A per-user DB key must not be able to enumerate or revoke other users' keys.
+    """Guard admin-only surfaces (keys, providers, models catalog, sync, updates,
+    brain-wide GBrain ops). A per-user DB key authenticates but must not reach
+    operator controls — see the guest/user/admin access matrix in docs and the
+    UI's `data-admin` / `data-user` tab gating.
     """
     if _is_admin(request):
         return
     raise HTTPException(
         status_code=403,
-        detail="Key management requires an admin key (SMART_ROUTER_API_KEYS).",
+        detail="This endpoint requires an admin key (SMART_ROUTER_API_KEYS).",
     )
 
 
@@ -137,12 +138,17 @@ def route(body: RouteRequest, request: Request):
 
 @api_router.get("/models", response_model=list[ModelSpecResponse])
 def list_models(request: Request):
+    # Dashboard Models tab / catalog management — admin only. Chat clients use
+    # /v1/models (OpenAI-compatible), which stays available to any authenticated
+    # caller including guests when public chat is on.
+    _require_admin(request)
     cr = _router_instance(request)
     return [_to_response(s) for s in cr.all_models()]
 
 
 @api_router.get("/models/{model_id:path}", response_model=ModelSpecResponse)
 def get_model(model_id: str, request: Request):
+    _require_admin(request)
     cr = _router_instance(request)
     spec = cr.get_model(model_id)
     if spec is None:
@@ -252,7 +258,9 @@ async def sync(body: SyncRequest, request: Request):
 
     The catalog fetch is blocking I/O, so it runs in a worker thread rather than
     on the event loop; the profiling pass that follows is genuinely concurrent.
+    Admin-only: a per-user key must not be able to mutate the shared model matrix.
     """
+    _require_admin(request)
     cr = _router_instance(request)
     result = await run_in_threadpool(
         cr.sync,
@@ -464,12 +472,15 @@ def usage(request: Request, days: int = 30, hours: int | None = None):
 
 @api_router.get("/providers", response_model=list[ProviderResponse])
 def list_providers(request: Request):
+    # Provider configs include API keys — admin only.
+    _require_admin(request)
     cr = _router_instance(request)
     return [_to_provider_response(p) for p in cr.all_providers()]
 
 
 @api_router.get("/providers/{name}", response_model=ProviderResponse)
 def get_provider(name: str, request: Request):
+    _require_admin(request)
     cr = _router_instance(request)
     cfg = cr.get_provider(name)
     if cfg is None:
@@ -479,6 +490,7 @@ def get_provider(name: str, request: Request):
 
 @api_router.put("/providers/{name}", response_model=ProviderResponse)
 def upsert_provider(name: str, body: ProviderRequest, request: Request):
+    _require_admin(request)
     if name != body.name:
         raise HTTPException(
             status_code=422,
@@ -499,6 +511,7 @@ def upsert_provider(name: str, body: ProviderRequest, request: Request):
 
 @api_router.delete("/providers/{name}", status_code=204)
 def delete_provider(name: str, request: Request):
+    _require_admin(request)
     cr = _router_instance(request)
     found = cr.delete_provider(name)
     if not found:
@@ -638,13 +651,16 @@ def recreate_api_key(key_prefix: str, request: Request):
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 @api_router.get("/updates", response_model=UpdateStatusResponse)
-def get_update_status(fetch: bool = True):
+def get_update_status(request: Request, fetch: bool = True):
+    # Self-update status / apply can pull git and restart the process — admin only.
+    _require_admin(request)
     from smart_ai_router import updates
     return updates.source_update_status(fetch=fetch)
 
 
 @api_router.post("/updates/apply", response_model=ApplyUpdateResponse)
-def apply_update():
+def apply_update(request: Request):
+    _require_admin(request)
     from smart_ai_router import updates
     return updates.apply_source_update()
 

@@ -256,9 +256,11 @@ def test_a_broken_profiler_does_not_fail_the_sync(monkeypatch):
     assert d["profile_pending"] == 3
 
 
-def test_a_non_admin_sync_does_not_spend_money(monkeypatch):
-    """Refine is admin-only because it bills per model. A sync that quietly did
-    the same thing would be a way around that gate."""
+def test_a_non_admin_sync_is_rejected(monkeypatch):
+    """Sync mutates the shared model matrix (and used to quietly profile too).
+    Both halves are admin-only now — a per-user key gets 403 rather than a
+    catalog-only sync that still changed shared state.
+    """
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     seen = _fake_rating(monkeypatch)
@@ -268,11 +270,9 @@ def test_a_non_admin_sync_does_not_spend_money(monkeypatch):
     key = client.post("/api/keys", json={"user": "alice"},
                       headers={"Authorization": f"Bearer {_ADMIN}"}).json()["key"]
 
-    d = client.post("/api/sync", json={},
-                    headers={"Authorization": f"Bearer {key}"}).json()
-    assert d["added"] == 3            # the catalog sync itself still works
-    assert d["profiled"] is None
-    assert d["profile_pending"] == 3
+    r = client.post("/api/sync", json={},
+                    headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 403
     assert seen == []
 
 

@@ -158,10 +158,16 @@
   .whoami.admin { color: var(--accent); border-color: var(--accent); }
   .whoami .whoami-icon { font-size: 0.85em; opacity: 0.85; }
 
-  /* ── Guest (anonymous) mode ───────────────────────────────────────── */
-  /* One rule hides every admin surface, so a page an anonymous visitor sees is
-     the page they can actually use — no nav buttons that only lead to a 401. */
-  body.guest [data-admin] { display: none !important; }
+  /* ── Role-based chrome ────────────────────────────────────────────── */
+  /* Guest: only Chat (and guest banner). User: Chat + Usage + Memory.
+     Admin: everything. `data-admin` = admin-only; `data-user` = user+admin.
+     `body.guest` is set for anonymous visitors; `body.role-user` for
+     operator-issued / self-serve per-user keys that are not admin. */
+  body.guest [data-admin],
+  body.guest [data-user],
+  body.role-chat-only [data-admin],
+  body.role-chat-only [data-user] { display: none !important; }
+  body.role-user [data-admin] { display: none !important; }
   .guest-banner {
     display: none;
     margin: 0 1rem 0.75rem;
@@ -1240,17 +1246,17 @@
     <div class="logo-icon">R</div>
     <span class="logo-text">smart-ai-router</span>
   </div>
-  <!-- data-admin marks chrome an anonymous visitor never sees: with public chat
-       on, the page loads without a key and the whole dashboard would otherwise be
-       a wall of 401s. Chat is the only thing left standing. -->
+  <!-- data-admin = admin-only chrome; data-user = visible to authenticated
+       non-admin users (Usage + Memory). Guests see neither. Chat has neither
+       attribute so every role reaches it. -->
   <nav>
     <button class="active" data-admin onclick="showPage('dashboard')">Dashboard</button>
     <button id="nav-chat" onclick="showPage('chat')">Chat</button>
     <button data-admin onclick="showPage('models')">Models</button>
-    <button data-admin onclick="showPage('usage')">Usage</button>
+    <button data-user onclick="showPage('usage')">Usage</button>
     <button data-admin onclick="showPage('reports')">Reports</button>
     <button data-admin onclick="showPage('providers')">Providers</button>
-    <button data-admin onclick="showPage('memory')">Memory</button>
+    <button data-user onclick="showPage('memory')">Memory</button>
     <button data-admin onclick="showPage('skills')">Skills</button>
     <button data-admin onclick="showPage('keys')">Keys</button>
     <button data-admin onclick="showPage('settings')">Settings</button>
@@ -2387,14 +2393,25 @@ async function initDashboard() {
   // Auth is required, we have no key, and the gate is offering to mint one. Firing
   // the dashboard fetches now would stack a browser key prompt on top of it.
   if (_signupGateOpen) return;
-  // A self-issued key gets the chat page and nothing else, same as a guest: every
-  // other tab is admin-gated and would only 403 at its holder.
   const me = await fetchWhoAmI();
+  // Self-serve (`u:`) keys stay chat-only — same posture as a guest for the
+  // operator surfaces. They minted their own key; they haven't been granted a
+  // Memory/Usage seat the way an operator-issued user has.
   if (me && me.self_serve) {
+    document.body.classList.add('role-chat-only');
     loadWhoAmI();
     showChatOnly();
     return;
   }
+  // Operator-issued per-user key: Chat + Usage + Memory. Skip the admin-only
+  // bootstrap fetches (models catalog, providers, updates) — they would 403.
+  if (me && me.kind === 'user' && !me.is_admin) {
+    document.body.classList.add('role-user');
+    loadWhoAmI();
+    showChatOnly();
+    return;
+  }
+  // Admin / first-run open mode: full dashboard.
   await fetchModels();
   loadWhoAmI();
   fetchProviders();
@@ -3252,6 +3269,12 @@ async function fetchMemoryStats() {
   const statsDiv = document.getElementById('memory-stats');
   try {
     const r = await fetch(`${API}/gbrain/stats`);
+    // Brain-wide stats are admin-only; regular users just browse their own
+    // source via /pages below, so a 403 here is expected — not an error.
+    if (r.status === 403) {
+      statsDiv.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted)">Your personal memory — pages and search below are scoped to your account.</div>`;
+      return;
+    }
     if (!r.ok) {
       statsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load stats (${r.status})</div>`;
       return;
