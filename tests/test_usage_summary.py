@@ -84,6 +84,36 @@ def test_scoped_user_sees_only_own_rows_and_no_by_user():
     assert models == {"openrouter/gpt-4", "ollama/llama3"}
 
 
+def test_by_key_groups_by_user_and_key_prefix():
+    store = SqliteStore(":memory:")
+    _seed(store)
+    by_key = {r["key"]: r for r in store.usage_summary()["by_key"]}
+    # _seed's key_prefix is user[:4], so alice's two rows share one prefix.
+    assert by_key["alice · alic"]["requests"] == 2
+    assert by_key["bob · bob"]["requests"] == 1
+
+
+def test_by_key_distinguishes_multiple_keys_for_the_same_user():
+    store = SqliteStore(":memory:")
+    store.record_usage(_rec("alice", "openrouter/gpt-4", "2026-07-01T10:00:00+00:00"))
+    rec2 = _rec("alice", "openrouter/gpt-4", "2026-07-01T11:00:00+00:00")
+    rec2.key_prefix = "alt-key-prefix"
+    store.record_usage(rec2)
+    by_key = {r["key"]: r for r in store.usage_summary()["by_key"]}
+    assert by_key["alice · alic"]["requests"] == 1
+    assert by_key["alice · alt-key-prefix"]["requests"] == 1
+
+
+def test_by_key_is_present_and_scoped_for_a_non_admin_user():
+    store = SqliteStore(":memory:")
+    _seed(store)
+    summary = store.usage_summary(user="alice")
+    # Unlike by_user, by_key is always present -- just scoped to the caller.
+    by_key = {r["key"]: r for r in summary["by_key"]}
+    assert set(by_key) == {"alice · alic"}
+    assert by_key["alice · alic"]["requests"] == 2
+
+
 def test_since_ts_bounds_the_window():
     store = SqliteStore(":memory:")
     _seed(store)

@@ -220,6 +220,16 @@ class UsageSummaryResponse(BaseModel):
         ),
     )
     by_user: list[UsageGroupRow] | None = None
+    by_key: list[UsageGroupRow] = Field(
+        default_factory=list,
+        description=(
+            "per-API-key spend, keyed as \"{user} · {key_prefix}\". Unlike "
+            "by_user this is always present and already scoped: an admin sees "
+            "every key, a per-user caller sees only their own key(s) -- useful "
+            "when one identity holds several keys (e.g. one per device/"
+            "integration) and needs to tell them apart."
+        ),
+    )
     overhead: UsageOverhead = Field(default_factory=UsageOverhead)
 
 

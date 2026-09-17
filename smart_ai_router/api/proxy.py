@@ -14,7 +14,7 @@ and route on the resulting profile; they differ only in the candidate pool:
 Supported provider prefixes in the routed model value:
   openrouter/<vendor>/<model>  -> https://openrouter.ai/api/v1
   ollama/<model>               -> stored ollama base_url (default http://localhost:11434)
-  bedrock/<model>              -> https://bedrock-runtime.{region}.amazonaws.com/v1
+  bedrock/<model>              -> https://bedrock-runtime.{region}.amazonaws.com/openai/v1
 """
 from __future__ import annotations
 
@@ -256,10 +256,15 @@ def _supports_cache_control(routed_model: str) -> bool:
     its id names precisely.
 
     OpenRouter only. Bedrock also serves Claude and also has prompt caching, but
-    through its own `cachePoint` shape, and whether our OpenAI-compatible path to
-    it honors `cache_control` is unverified — same call as `structured_outputs` in
-    sync.py, where the safe direction is to not claim a capability rather than to
-    trust one.
+    AWS's OpenAI-compatible Chat Completions docs never mention `cache_control`
+    or `cachePoint` — those only appear under the native Converse API
+    (`cachePoint`, a standalone content block) and the native Anthropic
+    Messages/InvokeModel API (`cache_control`, inside a content block). Nothing
+    suggests the OpenAI-shaped body this proxy sends passes it through, so this
+    stays Bedrock-excluded — the same call as `structured_outputs` in sync.py,
+    where the safe direction is to not claim a capability rather than to trust
+    one. Not live-tested against a real Bedrock account (only doc research);
+    revisit if that ever becomes possible.
 
     ponytail: an id substring, not a stored capability. The honest signal is
     OpenRouter's per-model `pricing.input_cache_read`, which sync doesn't keep —
@@ -647,11 +652,20 @@ def _refine_target(cr) -> ClassifierTarget | None:
 
 
 def _bedrock_base(cr) -> tuple[str, str] | None:
-    """Return (base_url, api_key) for the stored bedrock provider, or None."""
+    """Return (base_url, api_key) for the stored bedrock provider, or None.
+
+    `/openai/v1` — not the bare `/v1` this used to send — because that's the
+    path AWS's docs now document as the canonical OpenAI-compatible route on
+    `bedrock-runtime` (a plain `/v1/chat/completions` shows up only as a
+    legacy override in some SDK docs, never as the default). Unverified
+    against a live account here (the stored bedrock provider's key is a
+    placeholder), so re-check against a real account if requests start
+    404ing instead of routing.
+    """
     for p in cr.all_providers():
         if p.kind == "bedrock" and p.api_key:
             region = p.base_url.strip() or "us-east-1"
-            return f"https://bedrock-runtime.{region}.amazonaws.com/v1", p.api_key
+            return f"https://bedrock-runtime.{region}.amazonaws.com/openai/v1", p.api_key
     return None
 
 

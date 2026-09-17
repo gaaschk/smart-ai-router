@@ -730,6 +730,16 @@ class SqliteStore(MatrixStore):
                 if user is None
                 else None
             )
+            # Per-API-key breakdown (distinct from by_user): a single user
+            # identity can hold several keys (e.g. one per device/integration),
+            # and key_prefix is what's actually authenticated on each request.
+            # Grouped by (user, key_prefix) so the same prefix under different
+            # users -- vanishingly unlikely given prefixes are random, but not
+            # impossible -- doesn't get silently merged.
+            by_key = _agg(
+                f"(user || ' · ' || key_prefix) AS key, {_sums}",
+                "GROUP BY user, key_prefix ORDER BY cost_usd DESC, requests DESC",
+            )
             oh_total = _agg(_sums, overhead=True)[0]
             oh_by_kind = _agg(
                 f"kind AS key, {_sums}",
@@ -760,6 +770,10 @@ class SqliteStore(MatrixStore):
             "by_day": _keyed(by_day),
             "by_domain": _keyed(by_domain),
             "by_classifier": _keyed(by_classifier),
+            # Unlike by_user, by_key is safe to always include: the WHERE
+            # clause above already scopes every aggregate to `user` when one
+            # is given, so a per-user key only ever sees its own key(s) here.
+            "by_key": _keyed(by_key),
             "overhead": {
                 "totals": _row(oh_total),
                 "by_kind": _keyed(oh_by_kind),
