@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 # always lands on the same brain and two different users can't collide.
 _SOURCE_SLUG_RE = re.compile(r"[^a-z0-9-]+")
 
+# _call()/_cli() append `source_id` as a literal argv element after `--source`.
+# subprocess.run() with a list (never shell=True) already rules out shell
+# injection, but an *unvalidated* value could still be misread as another CLI
+# flag by gbrain's own arg parser (e.g. a source id of "--help" or "-x"), which
+# is a real command-line-manipulation vector even without a shell involved --
+# CodeQL's uncontrolled-command-line check flags exactly this. Every source_id
+# reaching _call() is expected to already be either "" or the output of
+# source_id_for_user() (which only ever emits this charset), so this is a
+# defense-in-depth assertion, not the primary sanitizer -- see
+# source_id_for_user() for where the untrusted string is actually shaped.
+#
+# Must start AND end with an alphanumeric character: a bare `[a-z0-9-]{1,32}`
+# class would still accept "--help" or "-x" (every one of those characters is
+# individually allowed), which is exactly the flag-injection shape this check
+# exists to block. Requiring alnum on both ends rules that out.
+_VALID_SOURCE_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$")
+
 
 def source_id_for_user(user: str) -> str:
     """The per-user GBrain source id for `user`, or "" for the shared/global brain.
@@ -141,6 +158,11 @@ class GBrainClient:
             else:
                 cmd = [self.bin_path, "call", tool, json.dumps(args)]
             if source_id:
+                # Reject anything that isn't a well-formed source id *before* it
+                # reaches argv -- see _VALID_SOURCE_ID_RE for why this matters
+                # even with subprocess.run()'s list form (no shell involved).
+                if not _VALID_SOURCE_ID_RE.match(source_id):
+                    raise RuntimeError(f"invalid GBrain source id: {source_id!r}")
                 cmd += ["--source", source_id]
 
             result = subprocess.run(

@@ -86,6 +86,22 @@ def test_call_appends_source_flag_after_the_json_payload_when_given():
     assert cmd == ["gbrain", "call", "list_pages", '{"limit": 5}', "--source", "kevin-gaasch"]
 
 
+def test_call_rejects_a_malformed_source_id_before_it_reaches_argv():
+    # Defense in depth against CodeQL's uncontrolled-command-line class of
+    # finding: even though subprocess.run() here never uses a shell, an
+    # unvalidated source_id could still be misread as a flag (e.g. "--help")
+    # by gbrain's own arg parser. source_id_for_user() never produces this,
+    # but _call() must refuse it anyway rather than trust the caller.
+    client = _client_with_mocked_subprocess()
+    with patch("subprocess.run") as mock_run:
+        try:
+            client._call("list_pages", {}, source_id="--help")
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert "invalid" in str(e).lower()
+    mock_run.assert_not_called()
+
+
 def test_call_omits_source_flag_when_source_id_is_empty():
     client = _client_with_mocked_subprocess()
     fake_result = MagicMock(returncode=0, stdout="null", stderr="")
