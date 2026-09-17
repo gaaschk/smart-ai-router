@@ -155,31 +155,29 @@ async def gbrain_remember(title: str, content: str, entity: str = "api") -> dict
 
 
 @gbrain_router.get("/integrations")
-async def gbrain_integrations() -> dict[str, list[dict[str, Any]]]:
-    """
-    List available GBrain integrations (infra, senses, reflexes).
-    
-    The Python client doesn't yet support reading integrations,
-    so this returns an empty structure for now. This endpoint is here
-    for future expansion and to match the dashboard API.
-    """
-    return {
-        "infra": [],
-        "senses": [],
-        "reflexes": [],
-    }
+async def gbrain_integrations() -> dict[str, Any]:
+    """List available GBrain integrations (infra, senses, reflexes)."""
+    try:
+        gbrain = get_client()
+        integrations = gbrain.list_integrations()
+        return integrations if integrations else {"infra": [], "senses": [], "reflexes": []}
+    except Exception as e:
+        logger.error(f"Failed to list GBrain integrations: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list integrations: {e}")
 
 
 @gbrain_router.get("/jobs")
-async def gbrain_jobs(limit: int = 10) -> list[dict[str, Any]]:
-    """
-    List recent background jobs (minions).
-    
-    The Python client doesn't yet support job listing,
-    so this returns an empty list for now. This endpoint is here
-    for future expansion and to match the dashboard API.
-    """
-    return []
+async def gbrain_jobs(
+    limit: int = 10, status: str = "", queue: str = "", name: str = ""
+) -> list[dict[str, Any]]:
+    """List background jobs (Minions queue) with optional filters."""
+    try:
+        gbrain = get_client()
+        jobs = gbrain.list_jobs(status=status, queue=queue, name=name, limit=limit)
+        return jobs if jobs else []
+    except Exception as e:
+        logger.error(f"Failed to list GBrain jobs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {e}")
 
 
 @gbrain_router.post("/jobs")
