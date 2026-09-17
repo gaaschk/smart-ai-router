@@ -11,11 +11,54 @@ operations still serialize at the subprocess level via the event loop.
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# GBrain source ids are constrained to [a-z0-9-]{1,32} (immutable citation key —
+# see `gbrain sources --help`). request.state.user is not: "admin" is fine, but
+# "anon:<session>" has a colon, a self-serve id is "u:<hex>", and an
+# operator-chosen user label could be anything typed into the Keys page. This
+# maps any of those deterministically onto a valid source id, so the same user
+# always lands on the same brain and two different users can't collide.
+_SOURCE_SLUG_RE = re.compile(r"[^a-z0-9-]+")
+
+
+def source_id_for_user(user: str) -> str:
+    """The per-user GBrain source id for `user`, or "" for the shared/global brain.
+
+    "" is returned for admin and for the empty/open-mode identity -- both keep
+    the pre-isolation behavior of reading/writing the brain's default source,
+    which is what already holds the project's own imported documentation (see
+    docs/gbrain-deployment.md). Giving admin a *second*, empty, per-admin source
+    would silently break the existing RAG-over-project-docs behavior for the
+    identity most likely to be testing it.
+
+    Every other identity (a per-user key, `anon:<session>`, `u:<self-serve>`)
+    gets its own source, slugified from the raw identity string. Deterministic
+    (same input -> same output) so isolation doesn't depend on storing a mapping
+    anywhere -- the identity string itself *is* the lookup key.
+    """
+    user = (user or "").strip()
+    if not user or user == "admin":
+        return ""
+    slug = _SOURCE_SLUG_RE.sub("-", user.lower()).strip("-")
+    if not slug:
+        # Nothing alnum survived (e.g. a user made entirely of punctuation) --
+        # fall back to a stable hash so the identity still gets *a* source
+        # rather than silently sharing the global one.
+        import hashlib
+        slug = hashlib.sha1(user.encode()).hexdigest()[:16]
+    if len(slug) > 32:
+        # Truncate, but keep a hash suffix so two long labels that agree on
+        # their first 23 characters don't collide onto the same source.
+        import hashlib
+        h = hashlib.sha1(user.encode()).hexdigest()[:8]
+        slug = f"{slug[:23]}-{h}"
+    return slug
 
 # Built-in Minions job types safe to submit on demand from a web UI.
 # `shell` is deliberately excluded to match the Node dashboard's policy --
@@ -72,13 +115,18 @@ class GBrainClient:
             "Install via: bun install -g github:garrytan/gbrain"
         )
 
-    def _call(self, tool: str, args: dict[str, Any]) -> Any:
+    def _call(self, tool: str, args: dict[str, Any], source_id: str = "") -> Any:
         """
-        Execute a GBrain CLI call via `gbrain call <tool> '<json>'`.
+        Execute a GBrain CLI call via `gbrain call <tool> '<json>' [--source <id>]`.
 
         Args:
             tool: Tool name (e.g., 'query', 'search', 'remember')
             args: JSON-serializable arguments dict
+            source_id: Optional GBrain source to scope this call to (per-user
+                isolation -- see source_id_for_user()). "" scopes to the brain's
+                default source, matching pre-isolation behavior. Must come
+                *after* the JSON payload on the command line -- gbrain rejects
+                it before the payload for `call` (unlike `sources` subcommands).
 
         Returns:
             Parsed JSON response from GBrain
@@ -92,7 +140,9 @@ class GBrainClient:
                 cmd = [self.bin_path[0], self.bin_path[1], "call", tool, json.dumps(args)]
             else:
                 cmd = [self.bin_path, "call", tool, json.dumps(args)]
-            
+            if source_id:
+                cmd += ["--source", source_id]
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -173,30 +223,80 @@ class GBrainClient:
 
     # ===== Public API =====
 
-    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def ensure_source(self, source_id: str, name: str = "") -> bool:
+        """Register `source_id` as a GBrain source if it doesn't exist yet.
+
+        Idempotent: `sources_add` on an existing id returns a "already
+        registered" error (not an exception from gbrain -- it's printed to
+        stdout/stderr and gbrain still exits 0 for it in some paths, but we
+        treat any RuntimeError here as "probably already exists" and move on),
+        so callers can call this on every request without checking first.
+        `federated: false` keeps a per-user source out of the default
+        cross-source search -- see gbrain_client.py module docs and
+        docs/gbrain-deployment.md for why that matters for isolation.
+        """
+        if not source_id:
+            return True
+        try:
+            self._call(
+                "sources_add",
+                {"id": source_id, "name": name or source_id, "federated": False},
+            )
+            return True
+        except RuntimeError as e:
+            # Idempotent by design: "already registered" is the expected path
+            # on every request after the first for a given user. Only log at
+            # debug so this isn't noisy on the hot path.
+            logger.debug(f"GBrain ensure_source({source_id}): {e}")
+            return True
+
+    def search(
+        self, query: str, limit: int = 10, source_id: str = ""
+    ) -> list[dict[str, Any]]:
         """Keyword (full-text) search — fast, no LLM involved."""
         try:
-            results = self._call("search", {"query": query, "limit": limit})
+            results = self._call(
+                "search", {"query": query, "limit": limit}, source_id=source_id
+            )
             return results if isinstance(results, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain search failed: {e}")
             return []
 
     def hybrid_query(
-        self, query: str, limit: int = 10, expand: bool = True
+        self,
+        query: str,
+        limit: int = 10,
+        expand: bool = True,
+        source_id: str = "",
     ) -> list[dict[str, Any]]:
         """Hybrid vector + keyword search with query expansion — the 'smart' search."""
         try:
-            results = self._call("query", {"query": query, "limit": limit, "expand": expand})
+            results = self._call(
+                "query",
+                {"query": query, "limit": limit, "expand": expand},
+                source_id=source_id,
+            )
             return results if isinstance(results, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain hybrid search failed: {e}")
             return []
 
     def remember(
-        self, title: str, content: str, entity: str = "chat-learnings"
+        self,
+        title: str,
+        content: str,
+        entity: str = "chat-learnings",
+        source_id: str = "",
+        provenance: str = "smart-ai-router chat",
     ) -> Optional[dict[str, Any]]:
-        """Save a fact/learning to the brain."""
+        """Save a fact/learning to the brain.
+
+        `provenance` is a required field on the underlying `remember` tool
+        (free text describing where the fact came from) -- omitting it is a
+        hard error, not a default-filled optional, so a caller-overridable
+        value with a sane default is passed on every call.
+        """
         try:
             result = self._call(
                 "remember",
@@ -204,7 +304,9 @@ class GBrainClient:
                     "fact": f"{title}\n\n{content}",
                     "visibility": "private",
                     "entity": entity,
+                    "provenance": provenance,
                 },
+                source_id=source_id,
             )
             return result
         except RuntimeError as e:
@@ -212,7 +314,12 @@ class GBrainClient:
             return None
 
     def get_stats(self) -> dict[str, Any]:
-        """Brain-wide stats: page/chunk/link/tag counts, pages by type."""
+        """Brain-wide stats: page/chunk/link/tag counts, pages by type.
+
+        Not source-scoped -- GBrain's get_stats always reports across the
+        whole brain regardless of --source (verified against a live instance;
+        see docs/gbrain-deployment.md).
+        """
         try:
             result = self._call("get_stats", {})
             return result if isinstance(result, dict) else {}
@@ -221,7 +328,10 @@ class GBrainClient:
             return {}
 
     def get_health(self) -> dict[str, Any]:
-        """Brain health score: embed coverage, stale/orphan pages, dead links, etc."""
+        """Brain health score: embed coverage, stale/orphan pages, dead links, etc.
+
+        Not source-scoped, same as get_stats.
+        """
         try:
             result = self._call("get_health", {})
             return result if isinstance(result, dict) else {}
@@ -230,7 +340,7 @@ class GBrainClient:
             return {}
 
     def list_pages(
-        self, type: str = "", tag: str = "", limit: int = 50
+        self, type: str = "", tag: str = "", limit: int = 50, source_id: str = ""
     ) -> list[dict[str, Any]]:
         """List pages, optionally filtered by type/tag -- the browsable page index."""
         try:
@@ -239,43 +349,49 @@ class GBrainClient:
                 params["type"] = type
             if tag:
                 params["tag"] = tag
-            result = self._call("list_pages", params)
+            result = self._call("list_pages", params, source_id=source_id)
             return result if isinstance(result, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain list_pages failed: {e}")
             return []
 
-    def get_page(self, slug: str, fuzzy: bool = False) -> Optional[dict[str, Any]]:
+    def get_page(
+        self, slug: str, fuzzy: bool = False, source_id: str = ""
+    ) -> Optional[dict[str, Any]]:
         """Fetch a single page by slug."""
         try:
-            result = self._call("get_page", {"slug": slug, "fuzzy": fuzzy})
+            result = self._call(
+                "get_page", {"slug": slug, "fuzzy": fuzzy}, source_id=source_id
+            )
             return result if isinstance(result, dict) else None
         except RuntimeError as e:
             logger.warning(f"GBrain get_page failed: {e}")
             return None
 
-    def get_tags(self, slug: str) -> list[str]:
+    def get_tags(self, slug: str, source_id: str = "") -> list[str]:
         """Tags attached to a page."""
         try:
-            result = self._call("get_tags", {"slug": slug})
+            result = self._call("get_tags", {"slug": slug}, source_id=source_id)
             return result if isinstance(result, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain get_tags failed: {e}")
             return []
 
-    def get_links(self, slug: str) -> list[Any]:
+    def get_links(self, slug: str, source_id: str = "") -> list[Any]:
         """Outgoing links from a page."""
         try:
-            result = self._call("get_links", {"slug": slug})
+            result = self._call("get_links", {"slug": slug}, source_id=source_id)
             return result if isinstance(result, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain get_links failed: {e}")
             return []
 
-    def get_backlinks(self, slug: str) -> list[Any]:
+    def get_backlinks(self, slug: str, source_id: str = "") -> list[Any]:
         """Pages that link to this page."""
         try:
-            result = self._call("get_backlinks", {"slug": slug})
+            result = self._call(
+                "get_backlinks", {"slug": slug}, source_id=source_id
+            )
             return result if isinstance(result, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain get_backlinks failed: {e}")
@@ -379,16 +495,30 @@ def get_client(bin_path: str = "gbrain", timeout_ms: int = 30000) -> GBrainClien
 class _DummyGBrainClient:
     """Fallback client when GBrain is not available. Always returns empty results."""
 
-    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def ensure_source(self, source_id: str, name: str = "") -> bool:
+        return True
+
+    def search(
+        self, query: str, limit: int = 10, source_id: str = ""
+    ) -> list[dict[str, Any]]:
         return []
 
     def hybrid_query(
-        self, query: str, limit: int = 10, expand: bool = True
+        self,
+        query: str,
+        limit: int = 10,
+        expand: bool = True,
+        source_id: str = "",
     ) -> list[dict[str, Any]]:
         return []
 
     def remember(
-        self, title: str, content: str, entity: str = "chat-learnings"
+        self,
+        title: str,
+        content: str,
+        entity: str = "chat-learnings",
+        source_id: str = "",
+        provenance: str = "smart-ai-router chat",
     ) -> Optional[dict[str, Any]]:
         return None
 
@@ -398,19 +528,23 @@ class _DummyGBrainClient:
     def get_health(self) -> dict[str, Any]:
         return {}
 
-    def list_pages(self, type: str = "", tag: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    def list_pages(
+        self, type: str = "", tag: str = "", limit: int = 50, source_id: str = ""
+    ) -> list[dict[str, Any]]:
         return []
 
-    def get_page(self, slug: str, fuzzy: bool = False) -> Optional[dict[str, Any]]:
+    def get_page(
+        self, slug: str, fuzzy: bool = False, source_id: str = ""
+    ) -> Optional[dict[str, Any]]:
         return None
 
-    def get_tags(self, slug: str) -> list[str]:
+    def get_tags(self, slug: str, source_id: str = "") -> list[str]:
         return []
 
-    def get_links(self, slug: str) -> list[Any]:
+    def get_links(self, slug: str, source_id: str = "") -> list[Any]:
         return []
 
-    def get_backlinks(self, slug: str) -> list[Any]:
+    def get_backlinks(self, slug: str, source_id: str = "") -> list[Any]:
         return []
 
     def list_integrations(self) -> dict[str, Any]:

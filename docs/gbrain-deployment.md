@@ -70,28 +70,75 @@ having `gbrain` on `PATH`.
 what `gbrain query`/`search` — and therefore the router's RAG path — reads.
 
 `gbrain remember "..."` writes to a **separate** `facts` table that `query`/
-`search` do **not** read. Use `import` (or an equivalent page-authoring flow)
-for anything that should be retrievable via chat RAG; `remember` is for
-quick, ad hoc facts surfaced elsewhere.
+`search` do **not** read (`gbrain recall` reads facts instead). Use `import`
+(or an equivalent page-authoring flow) for anything that should be
+retrievable via chat RAG; `remember` is for quick, ad hoc facts surfaced
+elsewhere — including the chat save-back below.
+
+## Per-user isolation (sources)
+
+GBrain's multi-tenancy primitive is the **source** (`gbrain sources add`):
+every page and fact carries a `source_id`, a default search only sees the
+`default` source, and passing `--source <id>` to `search`/`query`/`recall`/
+`list_pages`/`get_page`/`put_page`/`remember` scopes that call to one
+source exclusively. Sources are otherwise fully independent — nothing in a
+non-federated source shows up in an unscoped or differently-scoped call, and
+vice versa. Confirmed against a live instance: a page/fact written with
+`--source test-user-abc` was invisible to unscoped `list_pages`/`recall` and
+only appeared when the same `--source` flag was passed back. `get_stats`,
+`get_health`, `list_skills`, and the integrations/jobs surface are **not**
+source-scoped — there is one brain score and one job queue regardless of
+caller.
+
+`smart_ai_router/gbrain_client.source_id_for_user(user)` maps
+`request.state.user` onto a source id:
+
+- `"admin"` and the empty/open-mode identity → `""`, which resolves to the
+  brain's `default` source — the one holding this deployment's imported
+  project docs (see "How the router uses GBrain" below). This keeps
+  pre-isolation behavior for the identity most likely to be testing the
+  Memory tab; a second, empty, per-admin source would otherwise silently
+  break RAG-over-project-docs for the operator's own account.
+- Every other identity (a per-user API key, `anon:<session>`, a self-serve
+  `u:<hex>` account) gets its own slug, deterministically derived from the
+  raw identity string (lowercased, non-`[a-z0-9-]` runs collapsed to `-`,
+  truncated with a hash suffix past 32 chars). Same input always produces
+  the same source id — there's no separate mapping table to keep in sync.
+- The source is created lazily, on first write (`ensure_source`, which calls
+  `sources_add --federated false` and treats "already registered" as
+  success) — nothing is provisioned just because a user exists.
+
+This means two different API keys — or a signed-in user vs. an anonymous
+visitor — never see each other's remembered chat context or Memory-tab
+pages, and a per-user source's contents don't leak into the shared,
+admin-visible default brain (or vice versa).
 
 ## How the router uses GBrain (RAG)
 
-`smart_ai_router/api/proxy.py` calls into GBrain on every chat request:
+`smart_ai_router/api/proxy.py` calls into GBrain on every chat request,
+scoped to the caller's own source (see above):
 
 1. The user's latest message is queried against GBrain's hybrid search
-   (`gbrain_client.hybrid_query`).
+   (`gbrain_client.hybrid_query(..., source_id=...)`).
 2. Any retrieved context is injected as a system message ahead of the user's
    messages.
-3. After the response streams back, the Q&A exchange is asynchronously
-   saved back into GBrain via `remember`.
+3. After a whole (non-partial) response finishes, the Q&A exchange is
+   asynchronously saved back via `remember(..., source_id=...)` —
+   fire-and-forget, so a save-back failure never affects the reply already
+   sent to the client. Skipped for empty exchanges and for the shared
+   default source (`source_id == ""`): auto-saving every admin/open-mode
+   chat turn into the same space that holds curated project docs would
+   pollute retrieval for everyone reading that source, unlike a per-user
+   source where the exchange only ever surfaces back to its own owner.
 
 This means every client of the router (built-in web UI, or any external
-OpenAI-compatible client) automatically benefits from GBrain's knowledge base
-with no client-side changes. The built-in web UI's **Memory** and **Skills**
-tabs (`http://localhost:8001/`) call `/api/gbrain/*`
-(`smart_ai_router/api/gbrain_routes.py`) to expose GBrain search, page
-browsing, stats/health, integrations, and job submission directly in the
-same UI as chat and usage — there is no separate dashboard app.
+OpenAI-compatible client) automatically benefits from GBrain's knowledge
+base — scoped to its own identity — with no client-side changes. The
+built-in web UI's **Memory** and **Skills** tabs (`http://localhost:8001/`)
+call `/api/gbrain/*` (`smart_ai_router/api/gbrain_routes.py`), which applies
+the same per-caller source scoping to search, page browsing, and remember;
+stats/health/integrations/jobs stay brain-wide (unscoped) since GBrain
+itself doesn't scope those. There is no separate dashboard app.
 
 ## Troubleshooting
 
@@ -121,3 +168,15 @@ switching to Postgres (as this deployment does) removes the limitation.
 **Query/search returns nothing despite `remember` calls succeeding** — see
 "Pages vs. facts" above; `remember` doesn't populate what `query`/`search`
 read. Use `gbrain import`.
+
+**`Missing required parameter: provenance`** — `remember`'s `provenance`
+field (free text describing where the fact came from) is required by the
+tool, not optional with a server-side default. `gbrain_client.py`'s
+`remember()` always sends one (`"smart-ai-router chat (<user>)"` for the
+save-back path); pass a custom string if calling the tool directly.
+
+**A GBrain CLI flag placed before the JSON payload is ignored or rejected**
+— for `gbrain call <tool> '<json>'`, flags like `--source <id>` must come
+*after* the JSON argument, not before it (unlike `gbrain sources add`, which
+takes its flags in the usual position). `gbrain_client.py`'s `_call()`
+always appends `--source` last for this reason.

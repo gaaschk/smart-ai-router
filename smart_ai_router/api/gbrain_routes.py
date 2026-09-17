@@ -3,19 +3,42 @@
 Exposes GBrain memory, skills, and integrations to the web UI dashboard.
 Mirrors the dashboard backend's GBrain API surface so the Python dashboard
 can display the same features.
+
+Memory (pages/search/remember) is per-caller isolated: each identity in
+`request.state.user` maps to its own GBrain source via
+`source_id_for_user()`, the same mapping the chat proxy's RAG path uses (see
+proxy.py). Admin and open-mode (`""`/`"admin"`) resolve to `""`, which reads
+the brain's default source -- the one holding this deployment's imported
+project docs (see docs/gbrain-deployment.md) -- preserving the pre-isolation
+behavior for the identity most likely to be testing this page. Every other
+caller gets their own source, created on first write.
+
+Brain-wide operations (stats, health, integrations, jobs) are NOT
+source-scoped by GBrain itself -- there is one brain score, one job queue --
+so they stay global regardless of caller identity.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from smart_ai_router.gbrain_client import RUNNABLE_JOBS, get_client as get_gbrain
+from smart_ai_router.gbrain_client import (
+    RUNNABLE_JOBS,
+    get_client as get_gbrain,
+    source_id_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
 gbrain_router = APIRouter(prefix="/api/gbrain", tags=["gbrain"])
+
+
+def _caller_source(request: Request) -> str:
+    """This request's GBrain source id -- "" for admin/open-mode, a per-user
+    slug otherwise. See module docstring."""
+    return source_id_for_user(getattr(request.state, "user", "") or "")
 
 
 @gbrain_router.get("/health")
@@ -70,7 +93,9 @@ async def gbrain_stats() -> dict[str, Any]:
 
 
 @gbrain_router.get("/search")
-async def gbrain_search(q: str = "", mode: str = "hybrid", limit: int = 10) -> list[dict[str, Any]]:
+async def gbrain_search(
+    request: Request, q: str = "", mode: str = "hybrid", limit: int = 10
+) -> list[dict[str, Any]]:
     """
     Search GBrain knowledge base.
     
@@ -84,12 +109,15 @@ async def gbrain_search(q: str = "", mode: str = "hybrid", limit: int = 10) -> l
     
     try:
         gbrain = get_gbrain()
+        source_id = _caller_source(request)
         
         if mode == "keyword":
-            results = gbrain.search(q.strip(), limit)
+            results = gbrain.search(q.strip(), limit, source_id=source_id)
         else:
             # hybrid mode (default)
-            results = gbrain.hybrid_query(q.strip(), limit, expand=True)
+            results = gbrain.hybrid_query(
+                q.strip(), limit, expand=True, source_id=source_id
+            )
         
         # Normalize results to match dashboard API format
         normalized = []
@@ -108,11 +136,15 @@ async def gbrain_search(q: str = "", mode: str = "hybrid", limit: int = 10) -> l
 
 
 @gbrain_router.get("/pages")
-async def gbrain_pages(type: str = "", tag: str = "", limit: int = 50) -> list[dict[str, Any]]:
+async def gbrain_pages(
+    request: Request, type: str = "", tag: str = "", limit: int = 50
+) -> list[dict[str, Any]]:
     """List pages, optionally filtered by type/tag -- the browsable page index."""
     try:
         gbrain = get_gbrain()
-        pages = gbrain.list_pages(type=type, tag=tag, limit=limit)
+        pages = gbrain.list_pages(
+            type=type, tag=tag, limit=limit, source_id=_caller_source(request)
+        )
         return pages if pages else []
     except Exception as e:
         logger.error(f"Failed to list GBrain pages: {e}")
@@ -120,7 +152,7 @@ async def gbrain_pages(type: str = "", tag: str = "", limit: int = 50) -> list[d
 
 
 @gbrain_router.get("/pages/{slug:path}")
-async def gbrain_page(slug: str) -> dict[str, Any]:
+async def gbrain_page(slug: str, request: Request) -> dict[str, Any]:
     """
     Get a specific GBrain page by slug, plus its tags, outgoing links, and
     backlinks. `slug:path` so slugs containing '/' (e.g. "src/tests/readme")
@@ -128,13 +160,14 @@ async def gbrain_page(slug: str) -> dict[str, Any]:
     """
     try:
         gbrain = get_gbrain()
-        page = gbrain.get_page(slug)
+        source_id = _caller_source(request)
+        page = gbrain.get_page(slug, source_id=source_id)
         if not page:
             raise HTTPException(status_code=404, detail=f"Page not found: {slug}")
 
-        tags = gbrain.get_tags(slug)
-        links = gbrain.get_links(slug)
-        backlinks = gbrain.get_backlinks(slug)
+        tags = gbrain.get_tags(slug, source_id=source_id)
+        links = gbrain.get_links(slug, source_id=source_id)
+        backlinks = gbrain.get_backlinks(slug, source_id=source_id)
 
         return {
             **page,
@@ -150,14 +183,22 @@ async def gbrain_page(slug: str) -> dict[str, Any]:
 
 
 @gbrain_router.post("/remember")
-async def gbrain_remember(title: str, content: str, entity: str = "api") -> dict[str, Any]:
-    """Save a fact/learning to GBrain."""
+async def gbrain_remember(
+    request: Request, title: str, content: str, entity: str = "api"
+) -> dict[str, Any]:
+    """Save a fact/learning to the caller's own GBrain source."""
     if not title or not content:
         raise HTTPException(status_code=400, detail="title and content are required")
     
     try:
         gbrain = get_gbrain()
-        result = gbrain.remember(title, content, entity)
+        source_id = _caller_source(request)
+        if source_id:
+            gbrain.ensure_source(source_id)
+        result = gbrain.remember(
+            title, content, entity, source_id=source_id,
+            provenance=f"web UI ({getattr(request.state, 'user', '') or 'admin'})",
+        )
         return {"ok": True, "result": result}
     except Exception as e:
         logger.error(f"Failed to save to GBrain: {e}")

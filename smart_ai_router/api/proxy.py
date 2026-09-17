@@ -40,6 +40,7 @@ from smart_ai_router.agent_loop import run_agent_loop
 from smart_ai_router.classifier import classify_profile, is_actionable
 from smart_ai_router.fileref import FileRefError, contains_image, resolve_file_refs
 from smart_ai_router.gbrain_client import get_client as get_gbrain
+from smart_ai_router.gbrain_client import source_id_for_user
 from smart_ai_router.llm_classifier import (
     ClassifierTarget,
     classifier_fallback_model,
@@ -480,6 +481,12 @@ class _StreamUsageScanner:
         # streamed reply can be observed at all. Used by turn capture; harmless
         # (a few hundred bytes) when capture is off.
         self._calls: dict[int, dict] = {}
+        # Full reply text, for the GBrain save-back (see _schedule_gbrain_save_back).
+        # A second accumulator alongside _content_len rather than deriving one
+        # from the other, because content_len exists for a cheap token estimate
+        # and losing that cheap-path property to hold a growing string would be
+        # a needless behavior change for callers that only want the count.
+        self._content_parts: list[str] = []
 
     def feed(self, chunk: bytes) -> None:
         """Feed one raw network chunk. Parses only whole lines; a partial
@@ -508,6 +515,7 @@ class _StreamUsageScanner:
                         piece = delta.get("content")
                         if isinstance(piece, str):
                             self._content_len += len(piece)
+                            self._content_parts.append(piece)
                         for frag in delta.get("tool_calls") or []:
                             self._feed_call(frag)
 
@@ -532,6 +540,11 @@ class _StreamUsageScanner:
     def content_len(self) -> int:
         """Characters of prose streamed (not stored anywhere — see capture.py)."""
         return self._content_len
+
+    @property
+    def content_text(self) -> str:
+        """The full assembled reply text, for the GBrain save-back."""
+        return "".join(self._content_parts)
 
     def tool_calls(self) -> list[dict]:
         """The reassembled calls, in index order and in the shape a non-streamed
@@ -955,7 +968,7 @@ def list_models():
 
 
 def _enrich_with_gbrain_context(
-    messages: list[dict[str, Any]], prompt_text: str
+    messages: list[dict[str, Any]], prompt_text: str, source_id: str = ""
 ) -> list[dict[str, Any]]:
     """
     Retrieve relevant context from GBrain and prepend it to the message list.
@@ -967,6 +980,10 @@ def _enrich_with_gbrain_context(
     Args:
         messages: Incoming message list from the client
         prompt_text: Extracted last user message for context retrieval
+        source_id: GBrain source to search — "" for the shared/default brain
+            (admin, open-mode), a per-user slug otherwise. See
+            gbrain_client.source_id_for_user(). A source with nothing written
+            to it yet simply returns no results, same as an empty brain.
 
     Returns:
         Message list with GBrain context prepended as a system message
@@ -976,7 +993,9 @@ def _enrich_with_gbrain_context(
 
     try:
         gbrain = get_gbrain()
-        results = gbrain.hybrid_query(prompt_text, limit=5, expand=True)
+        results = gbrain.hybrid_query(
+            prompt_text, limit=5, expand=True, source_id=source_id
+        )
 
         if not results:
             return messages  # No context found
@@ -999,7 +1018,8 @@ def _enrich_with_gbrain_context(
 
         print(
             f"[proxy] gbrain context: {len(results)} chunks, "
-            f"{len(context_text)} chars",
+            f"{len(context_text)} chars"
+            + (f", source={source_id}" if source_id else ""),
             file=sys.stderr,
             flush=True,
         )
@@ -1013,6 +1033,46 @@ def _enrich_with_gbrain_context(
     except Exception as e:
         print(f"[proxy] gbrain context retrieval failed: {e}", file=sys.stderr, flush=True)
         return messages  # Return unchanged on any error
+
+
+def _schedule_gbrain_save_back(
+    user: str, source_id: str, prompt_text: str, reply_text: str
+) -> None:
+    """Fire-and-forget: remember this Q&A exchange in the caller's GBrain source.
+
+    Runs after the response has already been sent to the client — nothing here
+    may affect the reply or its latency, so failures are logged and swallowed,
+    never raised. `ensure_source` is called first because a per-user source
+    doesn't exist until something writes to it, and `remember` does not
+    auto-create one (verified against a live instance; see
+    docs/gbrain-deployment.md). Skipped entirely for empty exchanges (nothing
+    worth remembering) and for the shared/default source (`source_id == ""`):
+    the admin/open-mode brain already holds curated project docs — see
+    docs/gbrain-deployment.md — and auto-saving every chat turn into that same
+    space would pollute retrieval for everyone sharing it, unlike a per-user
+    source where the exchange only ever surfaces back to its own owner.
+    """
+    if not source_id or not prompt_text or not reply_text:
+        return
+
+    async def _run() -> None:
+        try:
+            gbrain = get_gbrain()
+            await asyncio.to_thread(gbrain.ensure_source, source_id)
+            title = prompt_text[:120]
+            content = f"Q: {prompt_text}\n\nA: {reply_text}"
+            await asyncio.to_thread(
+                gbrain.remember,
+                title,
+                content,
+                "chat-learnings",
+                source_id,
+                f"smart-ai-router chat ({user})" if user else "smart-ai-router chat",
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort, never surfaces to the caller
+            print(f"[proxy] gbrain save-back failed: {e}", file=sys.stderr, flush=True)
+
+    asyncio.create_task(_run())
 
 
 @proxy_router.post("/v1/chat/completions")
@@ -1326,9 +1386,12 @@ async def chat_completions(request: Request):
     
     # Enrich with GBrain context (personal knowledge retrieval-augmented generation).
     # This injects relevant knowledge from the user's brain before routing to the LLM.
-    # Best-effort; if retrieval fails, proceeds normally.
+    # Best-effort; if retrieval fails, proceeds normally. Scoped to this caller's
+    # own GBrain source — see source_id_for_user() — so one user's chats never
+    # surface another's private knowledge.
+    gbrain_source = source_id_for_user(user)
     forward_body["messages"] = _enrich_with_gbrain_context(
-        forward_body.get("messages") or [], prompt_text
+        forward_body.get("messages") or [], prompt_text, source_id=gbrain_source
     )
     
     # Search the web when the prompt turns on facts that move. Set on forward_body
@@ -1561,6 +1624,13 @@ async def chat_completions(request: Request):
                         tool_calls=scanner.tool_calls(),
                         content_len=scanner.content_len,
                     )
+                # Save this exchange back into the caller's own GBrain source —
+                # only for a whole reply, same reasoning as capture above (a
+                # partial answer isn't worth remembering as fact).
+                if drained and status < 400:
+                    _schedule_gbrain_save_back(
+                        user, gbrain_source, prompt_text, scanner.content_text
+                    )
 
             try:
                 async with httpx.AsyncClient(timeout=_timeout) as client:
@@ -1644,14 +1714,18 @@ async def chat_completions(request: Request):
             status=resp.status_code,
             profile=profile, classifier=classifier_used,
         )
-        if capture_this and isinstance(data, dict):
+        if isinstance(data, dict):
             choice = (data.get("choices") or [{}])[0]
             msg = (choice or {}).get("message") or {}
-            _capture.record(
-                lane=capture_lane, routed_model=routed_model,
-                messages=forward_body.get("messages") or [],
-                tools=forward_body.get("tools"),
-                tool_calls=msg.get("tool_calls") or [],
-                content_len=len(msg.get("content") or ""),
+            if capture_this:
+                _capture.record(
+                    lane=capture_lane, routed_model=routed_model,
+                    messages=forward_body.get("messages") or [],
+                    tools=forward_body.get("tools"),
+                    tool_calls=msg.get("tool_calls") or [],
+                    content_len=len(msg.get("content") or ""),
+                )
+            _schedule_gbrain_save_back(
+                user, gbrain_source, prompt_text, msg.get("content") or ""
             )
         return JSONResponse(content=data, headers=routing_headers)
