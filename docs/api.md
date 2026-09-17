@@ -58,6 +58,21 @@ Authentication is optional until at least one key exists. There are two kinds of
 
 The wire protocol is unchanged: every client still sends `Authorization: Bearer <key>`, so `claudish-smart` and any OpenAI-compatible client work as-is.
 
+### Roles (guest / user / admin)
+
+Three identities share the same UI and API, with different surfaces:
+
+| Surface | Guest (anon) | User (per-user key) | Admin (env key) |
+|---|---|---|---|
+| Chat | yes | yes | yes |
+| Report a bad reply | write | write | read + write |
+| Own usage | — | yes (scoped) | all users |
+| Memory (GBrain pages/search/remember) | — | own source only | default/shared brain |
+| Skills / jobs / integrations | — | — | yes (brain-wide) |
+| Dashboard, Models, Providers, Keys, Settings, Sync, Updates | — | — | yes |
+
+Guests are only admitted when public chat is on (see below). Self-serve (`u:`) keys minted via signup stay chat-only — they are not granted Usage/Memory the way an operator-issued user is. `/api/whoami` reports `kind` (`admin` / `user` / `anon` / `open`) and `is_admin` so the UI can hide the right tabs (`data-admin` / `data-user` in `index.html`).
+
 ```bash
 # Mint a per-user key (admin only). The plaintext key is returned ONCE —
 # only its SHA-256 hash is stored, so save it now; it can never be re-shown.
