@@ -11,3 +11,4 @@ for what it is and how to install it; this is the reference.
   classifier, model profiles, capability flags, prompt caching, cost tiers.
 - **[Configuration](configuration.md)** — settings, the store, environment variables.
 - **[Service management](operations.md)** — the macOS LaunchAgent, Pull & Restart.
+- **[GBrain deployment](gbrain-deployment.md)** — how the Mac Mini's GBrain instance is set up and how RAG uses it.
