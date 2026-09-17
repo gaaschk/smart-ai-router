@@ -3246,7 +3246,8 @@ async function doSearchMemory() {
 // ── GBrain Skills ───────────────────────────────────────────────────────────
 async function initSkillsPage() {
   await fetchGBrainStatus();
-  // In the future: fetch integrations and jobs
+  await fetchGBrainIntegrations();
+  await fetchGBrainJobs();
 }
 
 async function fetchGBrainStatus() {
@@ -3262,6 +3263,74 @@ async function fetchGBrainStatus() {
     }
   } catch(e) {
     document.getElementById('skills-status').innerHTML = `<span style="color:var(--error)">✗ Could not connect: ${e.message}</span>`;
+  }
+}
+
+async function fetchGBrainIntegrations() {
+  try {
+    const r = await fetch(`${API}/gbrain/integrations`);
+    if (!r.ok) {
+      document.getElementById('skills-integrations').innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load integrations (${r.status})</div>`;
+      return;
+    }
+    const data = await r.json();
+    const intDiv = document.getElementById('skills-integrations');
+    
+    if (!data || (Object.keys(data).length === 0)) {
+      intDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">No integrations available.</div>';
+      return;
+    }
+    
+    let html = '';
+    const categories = ['infra', 'senses', 'reflexes'];
+    for (const cat of categories) {
+      const items = data[cat] || [];
+      if (items.length === 0) continue;
+      
+      html += `<div style="margin-bottom:1.5rem"><div style="font-weight:600;color:var(--accent-text);margin-bottom:0.75rem;text-transform:capitalize">${cat}</div>`;
+      for (const item of items) {
+        html += `<div style="margin-bottom:0.75rem;padding:0.75rem;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.8rem">
+          <div style="font-weight:600;color:var(--text)">${escapeHtml(item.name)}</div>
+          <div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem">${escapeHtml(item.description || '')}</div>
+          <div style="color:var(--accent-text);font-size:0.75rem;margin-top:0.25rem">Status: <span style="color:${item.status === 'configured' ? 'var(--success)' : 'var(--text-secondary)'}">${item.status || 'available'}</span></div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    
+    intDiv.innerHTML = html || '<div style="font-size:0.8rem;color:var(--text-muted)">No integrations available.</div>';
+  } catch(e) {
+    document.getElementById('skills-integrations').innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
+  }
+}
+
+async function fetchGBrainJobs() {
+  try {
+    const r = await fetch(`${API}/gbrain/jobs`);
+    if (!r.ok) {
+      document.getElementById('skills-jobs').innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load jobs (${r.status})</div>`;
+      return;
+    }
+    const jobs = await r.json();
+    const jobDiv = document.getElementById('skills-jobs');
+    
+    if (!Array.isArray(jobs) || jobs.length === 0) {
+      jobDiv.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted)">No recent jobs.</div>';
+      return;
+    }
+    
+    let html = '';
+    for (const job of jobs.slice(0, 20)) {
+      html += `<div style="margin-bottom:0.75rem;padding:0.75rem;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.8rem">
+        <div style="font-weight:600;color:var(--text)">${escapeHtml(job.name || 'Untitled Job')}</div>
+        <div style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem">ID: <span style="font-family:var(--font-mono)">${escapeHtml((job.id || 'unknown').substring(0, 12))}</span></div>
+        <div style="color:var(--text-secondary);font-size:0.75rem;margin-top:0.25rem">Status: ${escapeHtml(job.status || 'unknown')}</div>
+      </div>`;
+    }
+    
+    jobDiv.innerHTML = html || '<div style="font-size:0.8rem;color:var(--text-muted)">No recent jobs.</div>';
+  } catch(e) {
+    document.getElementById('skills-jobs').innerHTML = `<div style="color:var(--error);font-size:0.8rem">Error: ${e.message}</div>`;
   }
 }
 
