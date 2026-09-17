@@ -54,7 +54,7 @@ class GBrainClient:
 
     def _call(self, tool: str, args: dict[str, Any]) -> Any:
         """
-        Execute a GBrain CLI call.
+        Execute a GBrain CLI call via `gbrain call <tool> '<json>'`.
 
         Args:
             tool: Tool name (e.g., 'query', 'search', 'remember')
@@ -92,6 +92,48 @@ class GBrainClient:
 
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"gbrain {tool} timed out after {self.timeout_s}s")
+        except FileNotFoundError:
+            raise RuntimeError(f"gbrain binary not found: {self.bin_path}")
+
+    def _cli(self, args: list[str]) -> Any:
+        """
+        Execute a GBrain CLI command directly (e.g., integrations list --json).
+
+        Args:
+            args: Full command args after 'gbrain' (e.g., ['integrations', 'list', '--json'])
+
+        Returns:
+            Parsed JSON response from GBrain
+
+        Raises:
+            RuntimeError: If the CLI call fails
+        """
+        try:
+            result = subprocess.run(
+                [self.bin_path] + args,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_s,
+            )
+
+            if result.returncode != 0:
+                stderr_msg = (result.stderr or result.stdout or "").strip()
+                raise RuntimeError(
+                    f"gbrain {' '.join(args)} failed: {stderr_msg or 'unknown error'}"
+                )
+
+            output = result.stdout.strip()
+            if not output:
+                return None
+
+            # Try to parse as JSON; if not JSON, return the string
+            try:
+                return json.loads(output)
+            except json.JSONDecodeError:
+                return output
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"gbrain {' '.join(args)} timed out after {self.timeout_s}s")
         except FileNotFoundError:
             raise RuntimeError(f"gbrain binary not found: {self.bin_path}")
 
@@ -134,6 +176,38 @@ class GBrainClient:
         except RuntimeError as e:
             logger.warning(f"GBrain remember failed: {e}")
             return None
+
+    def list_integrations(self) -> dict[str, Any]:
+        """List available GBrain integrations (infra, senses, reflexes)."""
+        try:
+            result = self._cli(["integrations", "list", "--json"])
+            # Result is a dict with 'infra', 'senses', 'reflexes' keys
+            return result if isinstance(result, dict) else {}
+        except RuntimeError as e:
+            logger.warning(f"GBrain integrations list failed: {e}")
+            return {}
+
+    def list_jobs(
+        self,
+        status: str = "",
+        queue: str = "",
+        name: str = "",
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """List background jobs (Minions queue)."""
+        try:
+            params: dict[str, Any] = {"limit": limit}
+            if status:
+                params["status"] = status
+            if queue:
+                params["queue"] = queue
+            if name:
+                params["name"] = name
+            result = self._call("list_jobs", params)
+            return result if isinstance(result, list) else []
+        except RuntimeError as e:
+            logger.warning(f"GBrain list_jobs failed: {e}")
+            return []
 
 
 # Singleton instance
