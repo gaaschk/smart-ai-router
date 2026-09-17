@@ -158,7 +158,7 @@ async def gbrain_remember(title: str, content: str, entity: str = "api") -> dict
 async def gbrain_integrations() -> dict[str, Any]:
     """List available GBrain integrations (infra, senses, reflexes)."""
     try:
-        gbrain = get_client()
+        gbrain = get_gbrain()
         integrations = gbrain.list_integrations()
         return integrations if integrations else {"infra": [], "senses": [], "reflexes": []}
     except Exception as e:
@@ -172,7 +172,7 @@ async def gbrain_jobs(
 ) -> list[dict[str, Any]]:
     """List background jobs (Minions queue) with optional filters."""
     try:
-        gbrain = get_client()
+        gbrain = get_gbrain()
         jobs = gbrain.list_jobs(status=status, queue=queue, name=name, limit=limit)
         return jobs if jobs else []
     except Exception as e:
