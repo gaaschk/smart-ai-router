@@ -17,6 +17,20 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# Built-in Minions job types safe to submit on demand from a web UI.
+# `shell` is deliberately excluded to match the Node dashboard's policy --
+# the MCP layer itself rejects it, and we don't want an arbitrary-command
+# trigger reachable from a browser anyway.
+RUNNABLE_JOBS: dict[str, str] = {
+    "sync": "Incrementally sync a git repo into the brain",
+    "embed": "Generate/refresh embeddings for semantic search",
+    "lint": "Catch LLM artifacts, placeholder dates, and bad frontmatter",
+    "import": "Import a markdown directory into the brain",
+    "extract": "Extract links and/or timeline entries from page content",
+    "backlinks": "Find and fix missing back-links across the brain",
+    "autopilot-cycle": "Run one overnight-maintenance enrichment cycle now",
+}
+
 
 class GBrainClient:
     """Subprocess-based client for GBrain CLI."""
@@ -197,6 +211,76 @@ class GBrainClient:
             logger.warning(f"GBrain remember failed: {e}")
             return None
 
+    def get_stats(self) -> dict[str, Any]:
+        """Brain-wide stats: page/chunk/link/tag counts, pages by type."""
+        try:
+            result = self._call("get_stats", {})
+            return result if isinstance(result, dict) else {}
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_stats failed: {e}")
+            return {}
+
+    def get_health(self) -> dict[str, Any]:
+        """Brain health score: embed coverage, stale/orphan pages, dead links, etc."""
+        try:
+            result = self._call("get_health", {})
+            return result if isinstance(result, dict) else {}
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_health failed: {e}")
+            return {}
+
+    def list_pages(
+        self, type: str = "", tag: str = "", limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List pages, optionally filtered by type/tag -- the browsable page index."""
+        try:
+            params: dict[str, Any] = {"limit": limit}
+            if type:
+                params["type"] = type
+            if tag:
+                params["tag"] = tag
+            result = self._call("list_pages", params)
+            return result if isinstance(result, list) else []
+        except RuntimeError as e:
+            logger.warning(f"GBrain list_pages failed: {e}")
+            return []
+
+    def get_page(self, slug: str, fuzzy: bool = False) -> Optional[dict[str, Any]]:
+        """Fetch a single page by slug."""
+        try:
+            result = self._call("get_page", {"slug": slug, "fuzzy": fuzzy})
+            return result if isinstance(result, dict) else None
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_page failed: {e}")
+            return None
+
+    def get_tags(self, slug: str) -> list[str]:
+        """Tags attached to a page."""
+        try:
+            result = self._call("get_tags", {"slug": slug})
+            return result if isinstance(result, list) else []
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_tags failed: {e}")
+            return []
+
+    def get_links(self, slug: str) -> list[Any]:
+        """Outgoing links from a page."""
+        try:
+            result = self._call("get_links", {"slug": slug})
+            return result if isinstance(result, list) else []
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_links failed: {e}")
+            return []
+
+    def get_backlinks(self, slug: str) -> list[Any]:
+        """Pages that link to this page."""
+        try:
+            result = self._call("get_backlinks", {"slug": slug})
+            return result if isinstance(result, list) else []
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_backlinks failed: {e}")
+            return []
+
     def list_integrations(self) -> dict[str, Any]:
         """List available GBrain integrations (infra, senses, reflexes)."""
         try:
@@ -205,6 +289,15 @@ class GBrainClient:
             return result if isinstance(result, dict) else {}
         except RuntimeError as e:
             logger.warning(f"GBrain integrations list failed: {e}")
+            return {}
+
+    def get_integration_status(self, integration_id: str) -> dict[str, Any]:
+        """Status + secrets + heartbeat for one integration."""
+        try:
+            result = self._cli(["integrations", "status", integration_id, "--json"])
+            return result if isinstance(result, dict) else {}
+        except RuntimeError as e:
+            logger.warning(f"GBrain integration status failed: {e}")
             return {}
 
     def list_jobs(
@@ -228,6 +321,42 @@ class GBrainClient:
         except RuntimeError as e:
             logger.warning(f"GBrain list_jobs failed: {e}")
             return []
+
+    def get_job(self, job_id: int) -> Optional[dict[str, Any]]:
+        """Fetch a single job's status/result by id."""
+        try:
+            result = self._call("get_job", {"id": job_id})
+            return result if isinstance(result, dict) else None
+        except RuntimeError as e:
+            logger.warning(f"GBrain get_job failed: {e}")
+            return None
+
+    def submit_job(
+        self,
+        name: str,
+        data: Optional[dict[str, Any]] = None,
+        queue: str = "",
+        priority: Optional[int] = None,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Submit a background job to the Minions queue.
+
+        Only a fixed allow-list of built-in job types is exposed to callers
+        (see RUNNABLE_JOBS) -- `shell` is deliberately excluded, matching the
+        Node dashboard's policy: we don't want an arbitrary-command trigger
+        reachable from a web UI.
+        """
+        try:
+            args: dict[str, Any] = {"name": name, "data": data or {}}
+            if queue:
+                args["queue"] = queue
+            if priority is not None:
+                args["priority"] = priority
+            result = self._call("submit_job", args)
+            return result if isinstance(result, dict) else None
+        except RuntimeError as e:
+            logger.warning(f"GBrain submit_job failed: {e}")
+            return None
 
 
 # Singleton instance
@@ -260,5 +389,49 @@ class _DummyGBrainClient:
 
     def remember(
         self, title: str, content: str, entity: str = "chat-learnings"
+    ) -> Optional[dict[str, Any]]:
+        return None
+
+    def get_stats(self) -> dict[str, Any]:
+        return {}
+
+    def get_health(self) -> dict[str, Any]:
+        return {}
+
+    def list_pages(self, type: str = "", tag: str = "", limit: int = 50) -> list[dict[str, Any]]:
+        return []
+
+    def get_page(self, slug: str, fuzzy: bool = False) -> Optional[dict[str, Any]]:
+        return None
+
+    def get_tags(self, slug: str) -> list[str]:
+        return []
+
+    def get_links(self, slug: str) -> list[Any]:
+        return []
+
+    def get_backlinks(self, slug: str) -> list[Any]:
+        return []
+
+    def list_integrations(self) -> dict[str, Any]:
+        return {}
+
+    def get_integration_status(self, integration_id: str) -> dict[str, Any]:
+        return {}
+
+    def list_jobs(
+        self, status: str = "", queue: str = "", name: str = "", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def get_job(self, job_id: int) -> Optional[dict[str, Any]]:
+        return None
+
+    def submit_job(
+        self,
+        name: str,
+        data: Optional[dict[str, Any]] = None,
+        queue: str = "",
+        priority: Optional[int] = None,
     ) -> Optional[dict[str, Any]]:
         return None

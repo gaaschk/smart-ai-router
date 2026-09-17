@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from smart_ai_router.gbrain_client import get_client as get_gbrain
+from smart_ai_router.gbrain_client import RUNNABLE_JOBS, get_client as get_gbrain
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +20,17 @@ gbrain_router = APIRouter(prefix="/api/gbrain", tags=["gbrain"])
 
 @gbrain_router.get("/health")
 async def gbrain_health() -> dict[str, Any]:
-    """Check GBrain status and return stats."""
+    """Check GBrain status and return its health/brain-score."""
     try:
         gbrain = get_gbrain()
-        
-        # Try to get stats as a health check
-        stats_result = gbrain.hybrid_query("health", limit=1)
-        
+        health = gbrain.get_health()
+        if not health:
+            return {"status": "degraded", "available": False, "error": "GBrain returned no health data"}
         return {
             "status": "ok",
             "available": True,
-            "brain_score": 75,  # Placeholder; could call a dedicated GBrain endpoint
+            "brain_score": health.get("brain_score", 0),
+            "health": health,
         }
     except Exception as e:
         logger.warning(f"GBrain health check failed: {e}")
@@ -46,18 +46,23 @@ async def gbrain_stats() -> dict[str, Any]:
     """Get GBrain statistics (pages, chunks, links, brain score)."""
     try:
         gbrain = get_gbrain()
-        
-        # Call GBrain's get_stats method if available
-        # For now, return placeholder stats since the Python client doesn't
-        # have a dedicated stats endpoint yet
+        stats = gbrain.get_stats()
+        health = gbrain.get_health()
         return {
-            "page_count": 0,
-            "chunk_count": 0,
-            "link_count": 0,
+            "page_count": stats.get("page_count", 0),
+            "chunk_count": stats.get("chunk_count", 0),
+            "link_count": stats.get("link_count", 0),
+            "tag_count": stats.get("tag_count", 0),
+            "embedded_count": stats.get("embedded_count", 0),
+            "pages_by_type": stats.get("pages_by_type", {}),
             "health": {
-                "brain_score": 0,
-                "status": "offline",
-            }
+                "brain_score": health.get("brain_score", 0),
+                "status": "ok" if health else "offline",
+                "embed_coverage": health.get("embed_coverage", 0),
+                "stale_pages": health.get("stale_pages", 0),
+                "orphan_pages": health.get("orphan_pages", 0),
+                "dead_links": health.get("dead_links", 0),
+            },
         }
     except Exception as e:
         logger.error(f"Failed to fetch GBrain stats: {e}")
@@ -103,37 +108,42 @@ async def gbrain_search(q: str = "", mode: str = "hybrid", limit: int = 10) -> l
 
 
 @gbrain_router.get("/pages")
-async def gbrain_pages(limit: int = 50) -> list[dict[str, Any]]:
-    """List all GBrain pages (top N by update date)."""
+async def gbrain_pages(type: str = "", tag: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    """List pages, optionally filtered by type/tag -- the browsable page index."""
     try:
         gbrain = get_gbrain()
-        
-        # The Python client doesn't yet have a listPages method,
-        # so this returns an empty list for now. This endpoint is here
-        # for future expansion and to match the dashboard API.
-        return []
+        pages = gbrain.list_pages(type=type, tag=tag, limit=limit)
+        return pages if pages else []
     except Exception as e:
         logger.error(f"Failed to list GBrain pages: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list pages: {e}")
 
 
-@gbrain_router.get("/pages/{slug}")
+@gbrain_router.get("/pages/{slug:path}")
 async def gbrain_page(slug: str) -> dict[str, Any]:
-    """Get a specific GBrain page by slug."""
+    """
+    Get a specific GBrain page by slug, plus its tags, outgoing links, and
+    backlinks. `slug:path` so slugs containing '/' (e.g. "src/tests/readme")
+    still route here instead of 404ing on the first segment.
+    """
     try:
         gbrain = get_gbrain()
-        
-        # The Python client doesn't yet have a getPage method,
-        # so this returns a placeholder. This endpoint is here for
-        # future expansion and to match the dashboard API.
+        page = gbrain.get_page(slug)
+        if not page:
+            raise HTTPException(status_code=404, detail=f"Page not found: {slug}")
+
+        tags = gbrain.get_tags(slug)
+        links = gbrain.get_links(slug)
+        backlinks = gbrain.get_backlinks(slug)
+
         return {
-            "title": slug,
-            "slug": slug,
-            "content": "",
-            "tags": [],
-            "links": [],
-            "backlinks": [],
+            **page,
+            "tags": tags,
+            "links": links,
+            "backlinks": backlinks,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch GBrain page {slug}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch page: {e}")
@@ -166,6 +176,32 @@ async def gbrain_integrations() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to list integrations: {e}")
 
 
+@gbrain_router.get("/integrations/{integration_id}/status")
+async def gbrain_integration_status(integration_id: str) -> dict[str, Any]:
+    """Status, configured secrets, and heartbeat for one integration."""
+    try:
+        gbrain = get_gbrain()
+        status = gbrain.get_integration_status(integration_id)
+        return status if status else {}
+    except Exception as e:
+        logger.error(f"Failed to fetch GBrain integration status for {integration_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch integration status: {e}")
+
+
+@gbrain_router.get("/jobs/catalog")
+async def gbrain_jobs_catalog() -> dict[str, Any]:
+    """
+    Built-in Minions job types safe to submit on demand from this UI.
+    Mirrors the Node dashboard's RUNNABLE_JOBS allow-list.
+    """
+    return {
+        "jobs": [
+            {"id": name, "name": name, "description": description}
+            for name, description in RUNNABLE_JOBS.items()
+        ]
+    }
+
+
 @gbrain_router.get("/jobs")
 async def gbrain_jobs(
     limit: int = 10, status: str = "", queue: str = "", name: str = ""
@@ -180,13 +216,44 @@ async def gbrain_jobs(
         raise HTTPException(status_code=500, detail=f"Failed to list jobs: {e}")
 
 
+@gbrain_router.get("/jobs/{job_id}")
+async def gbrain_job(job_id: int) -> dict[str, Any]:
+    """Fetch a single job's status/result by id."""
+    try:
+        gbrain = get_gbrain()
+        job = gbrain.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        return job
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch GBrain job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch job: {e}")
+
+
 @gbrain_router.post("/jobs")
 async def gbrain_submit_job(name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """
-    Submit a background job to GBrain.
-    
-    The Python client doesn't yet support job submission,
-    so this is a placeholder. This endpoint is here for
-    future expansion and to match the dashboard API.
+    Submit a background job to GBrain's Minions queue.
+
+    Only the fixed RUNNABLE_JOBS allow-list may be submitted here -- `shell`
+    is deliberately excluded, matching the Node dashboard's policy: we don't
+    want an arbitrary-command trigger reachable from a web UI.
     """
-    raise HTTPException(status_code=501, detail="Job submission not yet supported in Python client")
+    if name not in RUNNABLE_JOBS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported job \"{name}\". Allowed: {', '.join(RUNNABLE_JOBS)}",
+        )
+    try:
+        gbrain = get_gbrain()
+        job = gbrain.submit_job(name, params or {})
+        if not job:
+            raise HTTPException(status_code=502, detail="GBrain did not return a job record")
+        return job
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to submit GBrain job {name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit job: {e}")
