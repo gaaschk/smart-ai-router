@@ -4,12 +4,13 @@ set -e
 export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 REPO_DIR="$HOME/ProjectHome/smart-ai-router"
+GBRAIN_KNOWLEDGE_DIR="$HOME/gbrain-knowledge"
 
-echo "🚀 Starting Unified Dashboard Services"
+echo "🚀 Starting Smart-AI-Router"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Kill any existing processes
-killall python node serve npm 2>/dev/null || true
+# Kill any existing process
+killall python 2>/dev/null || true
 sleep 1
 
 # 1. Start smart-ai-router
@@ -21,42 +22,29 @@ ROUTER_PID=$!
 echo "   PID: $ROUTER_PID"
 sleep 3
 
-# 2. Start dashboard backend
-echo "2️⃣  Starting Dashboard Backend on port 5050..."
-cd "$REPO_DIR/dashboard/backend"
-npm start > /tmp/dashboard-backend.log 2>&1 &
-BACKEND_PID=$!
-echo "   PID: $BACKEND_PID"
-sleep 3
-
-# 3. Start dashboard frontend
-echo "3️⃣  Starting Dashboard Frontend on port 5173..."
-cd "$REPO_DIR/dashboard/frontend"
-serve -s dist -l 5173 > /tmp/dashboard-frontend.log 2>&1 &
-FRONTEND_PID=$!
-echo "   PID: $FRONTEND_PID"
-sleep 2
+# 2. Refresh GBrain's copy of the project docs so RAG answers stay current.
+#    $GBRAIN_KNOWLEDGE_DIR mirrors README.md + docs/*.md (see
+#    docs/gbrain-deployment.md); re-import is a no-op for unchanged files.
+if [ -d "$GBRAIN_KNOWLEDGE_DIR" ] && command -v gbrain >/dev/null 2>&1; then
+    echo "2️⃣  Refreshing GBrain project docs..."
+    cp "$REPO_DIR/README.md" "$GBRAIN_KNOWLEDGE_DIR/readme.md"
+    mkdir -p "$GBRAIN_KNOWLEDGE_DIR/docs"
+    cp "$REPO_DIR"/docs/*.md "$GBRAIN_KNOWLEDGE_DIR/docs/"
+    gbrain import "$GBRAIN_KNOWLEDGE_DIR" --no-embed >> /tmp/smart-router.log 2>&1 || true
+    gbrain embed --stale >> /tmp/smart-router.log 2>&1 || true
+else
+    echo "2️⃣  Skipping GBrain doc refresh ($GBRAIN_KNOWLEDGE_DIR or gbrain binary not found)"
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ All services started!"
+echo "✅ Service started!"
 echo ""
-echo "Access the dashboard:"
-echo "  🌐 http://kevins-mac-mini.local:5173"
-echo ""
-echo "Admin Credentials:"
-echo "  📧 admin@dashboard.local"
-echo "  🔐 ChangeMe2026!Secure"
-echo ""
-echo "Service Ports:"
-echo "  • Dashboard Frontend: 5173"
-echo "  • Dashboard Backend:  5050"
-echo "  • Smart-AI-Router:    8001"
+echo "Access smart-ai-router:"
+echo "  🌐 http://kevins-mac-mini.local:8001"
 echo ""
 echo "Logs:"
-echo "  • Router:   /tmp/smart-router.log"
-echo "  • Backend:  /tmp/dashboard-backend.log"
-echo "  • Frontend: /tmp/dashboard-frontend.log"
+echo "  • Router: /tmp/smart-router.log"
 echo ""
-echo "To stop services: killall python node serve npm"
+echo "To stop: killall python"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
