@@ -1,12 +1,13 @@
 #!/bin/bash
 #
-# Unified Dashboard Services Installation Script
+# Smart-AI-Router Service Installation Script
 #
-# This script installs and loads all dashboard services as macOS background processes.
+# This script installs and loads the smart-ai-router service as a macOS background process.
+# (The unified dashboard has been retired in favor of the built-in Python web UI at :8001.)
 #
 # Usage:
 #   ./install.sh
-#   ./install.sh --uninstall  (to remove all services)
+#   ./install.sh --uninstall  (to remove the service)
 #
 
 set -e
@@ -16,14 +17,10 @@ LAUNCHD_DIR="$HOME/Library/LaunchAgents"
 
 # Service files
 SERVICES=(
-    "com.dashboard.backend.plist"
-    "com.dashboard.frontend.plist"
     "com.smart-ai-router.plist"
 )
 
 SERVICE_LABELS=(
-    "com.dashboard.backend"
-    "com.dashboard.frontend"
     "com.smart-ai-router"
 )
 
@@ -76,8 +73,8 @@ function uninstall() {
 }
 
 function install() {
-    print_header "Installing Dashboard Services"
-
+    print_header "Installing Smart-AI-Router Service"
+    
     # Check if launchd directory exists
     if [ ! -d "$LAUNCHD_DIR" ]; then
         mkdir -p "$LAUNCHD_DIR"
@@ -138,30 +135,16 @@ function install() {
         print_warning "Smart-AI-Router (port 8001) is not responding yet - it may still be starting"
     fi
 
-    # Test backend
-    if curl -s http://localhost:5050/health &>/dev/null; then
-        print_success "Dashboard Backend (port 5050) is responding"
-    else
-        print_warning "Dashboard Backend (port 5050) is not responding yet - it may still be starting"
-    fi
-
-    # Test frontend
-    if curl -s http://localhost:5173 &>/dev/null; then
-        print_success "Dashboard Frontend (port 5173) is responding"
-    else
-        print_warning "Dashboard Frontend (port 5173) is not responding yet - it may still be starting"
-    fi
-
     print_header "Installation Complete!"
-    echo -e "Services have been installed and loaded. They will start automatically on boot.\n"
+    echo -e "Service has been installed and loaded. It will start automatically on boot.\n"
     echo -e "Next steps:"
-    echo -e "  1. Wait 10-15 seconds for services to fully start"
-    echo -e "  2. Open your browser to: ${GREEN}http://localhost:5173${NC}"
-    echo -e "  3. Sign in with your admin credentials\n"
+    echo -e "  1. Wait 10-15 seconds for the service to fully start"
+    echo -e "  2. Open your browser to: ${GREEN}http://localhost:8001${NC}"
+    echo -e "  3. Use your admin API key to authenticate\n"
     echo -e "Useful commands:"
-    echo -e "  Check status:    ${BLUE}launchctl list | grep -E 'dashboard|smartrouter'${NC}"
-    echo -e "  View logs:       ${BLUE}tail -f /var/log/dashboard-backend.log${NC}"
-    echo -e "  Stop service:    ${BLUE}launchctl stop com.dashboard.backend${NC}"
+    echo -e "  Check status:    ${BLUE}launchctl list com.smart-ai-router${NC}"
+    echo -e "  View logs:       ${BLUE}tail -f ~/Library/Logs/dashboard/smartrouter.log${NC}"
+    echo -e "  Stop service:    ${BLUE}launchctl stop com.smart-ai-router${NC}"
     echo -e "  Uninstall:       ${BLUE}$0 --uninstall${NC}\n"
 }
 

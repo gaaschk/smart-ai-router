@@ -1710,6 +1710,24 @@
         </table>
       </div>
     </div>
+
+    <!-- Per-API-key breakdown — always present (already scoped to the caller),
+         hidden only when there's nothing to show. Distinct from "by user"
+         because one identity can hold several keys (e.g. per device). -->
+    <div class="usage-section" id="usage-by-key-section" style="display:none">
+      <div class="section-title">By API key</div>
+      <p class="page-subtitle" style="margin-top:-0.5rem">
+        Which key made these requests — useful when one user holds several keys.
+      </p>
+      <div style="overflow-x:auto">
+        <table class="models-table">
+          <thead><tr>
+            <th>User · key</th><th>Requests</th><th>Tokens</th><th>Cost (USD)</th>
+          </tr></thead>
+          <tbody id="usage-by-key"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <div class="usage-empty" id="usage-empty" style="display:none">
@@ -2476,7 +2494,7 @@ async function fetchUsage() {
   } catch (e) {
     console.error(e);
     // Treat a failure like empty so the page isn't left showing stale dashes.
-    renderUsage({ totals: {}, by_model: [], by_day: [], by_domain: [], by_classifier: [] });
+    renderUsage({ totals: {}, by_model: [], by_day: [], by_domain: [], by_classifier: [], by_key: [] });
   } finally {
     if (spin) spin.style.display = 'none';
   }
@@ -2567,6 +2585,25 @@ function renderUsage(data) {
         </tr>`).join('');
   } else {
     userSection.style.display = 'none';
+  }
+
+  // By API key — always present, but only worth showing once there's more
+  // than one key's worth of history (otherwise it's a lone row duplicating
+  // the headline totals).
+  const keySection = document.getElementById('usage-by-key-section');
+  const byKey = (data.by_key || []).filter(row => row.requests > 0);
+  if (byKey.length > 1) {
+    keySection.style.display = 'block';
+    document.getElementById('usage-by-key').innerHTML =
+      byKey.map(row => `
+        <tr>
+          <td>${escapeHtml(row.key || '(open)')}</td>
+          <td>${_fmtInt(row.requests)}</td>
+          <td>${_fmtInt(_tokens(row))}</td>
+          <td>${_fmtCost(row.cost_usd)}</td>
+        </tr>`).join('');
+  } else {
+    keySection.style.display = 'none';
   }
 }
 
