@@ -163,6 +163,23 @@ def test_an_unmeasured_model_is_exempt(monkeypatch):
     assert decision.slow_excluded == 0
 
 
+def test_overhead_rows_are_timed_but_do_not_set_the_average():
+    # Triage runs in front of every request, so its latency is worth recording —
+    # but a few dozen tokens of JSON under a 256-token cap is mostly cold load, and
+    # letting that set the routing average would condemn the classifier's model.
+    store = _store(_coder("m"))
+    store.record_usage(UsageRecord(
+        kind="classify", user="u", routed_model="m",
+        completion_tokens=40, latency_ms=8_000,
+    ))
+    assert _tps(store, "m") == 0.0
+    # Not via recent_usage(), which is the rate limiter's counter and excludes
+    # overhead on purpose — the row is there, it just isn't user traffic.
+    row = store._conn.execute(
+        "SELECT latency_ms FROM usage_log WHERE kind = 'classify'").fetchone()
+    assert row["latency_ms"] == 8_000
+
+
 # ── Expiry: the floor must not be a one-way ratchet ───────────────────────────
 # A model the floor excludes receives no traffic, so it can never re-measure
 # itself. Without an expiry, one bad afternoon on a provider — or a figure from a

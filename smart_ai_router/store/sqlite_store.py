@@ -627,6 +627,13 @@ class SqliteStore(MatrixStore):
             return
         if usage.completion_tokens < _TPS_MIN_TOKENS or not usage.routed_model:
             return
+        # Overhead rows are timed too (triage blocks every request, so its latency
+        # is worth seeing) but they must not set the routing average. A classify
+        # call emits a few dozen tokens of JSON under a 256-token cap, so it is
+        # mostly load and time-to-first-token — the same distortion _TPS_MIN_TOKENS
+        # guards against, just above the threshold.
+        if (usage.kind or _PROXY_KIND) != _PROXY_KIND:
+            return
         tps = usage.completion_tokens / (usage.latency_ms / 1000.0)
         with self._lock:
             # COALESCE handles the pre-migration NULL; the CASE is the EWMA, with
