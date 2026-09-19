@@ -18,6 +18,7 @@ profile, which reproduces the old single-bar behavior exactly.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from smart_ai_router import settings as _settings
@@ -153,6 +154,42 @@ def _price(spec: ModelSpec) -> float:
     about them; ordering between those stays the tier's business.
     """
     return blended_rate(spec.cost_input, spec.cost_output)
+
+
+def _cost_quality_bias() -> float:
+    """Operator preference between price and headroom, 0.0-1.0. 0 = cheapest."""
+    return max(0, min(100, _settings.get_int("cost_quality_bias"))) / 100.0
+
+
+def _rank_by_bias(
+    pool: list[ModelSpec], requirements: dict[str, float], bias: float
+) -> list[ModelSpec]:
+    """Order `pool` by a blend of price and headroom, cheapest-leaning at low bias.
+
+    Both axes are normalized against this pool rather than compared raw, because
+    they are not remotely commensurable: on a live 323-model qualified pool the
+    price spread was $0 to $487.50 per 1M tokens while the margin spread was 0.000
+    to 0.300 (margin is bounded by the profiler's 0.98 ceiling minus the bar). A
+    raw `price - k * margin` score is therefore a step function — no k changes the
+    pick until one suddenly buys the most expensive model in the catalog.
+
+    Price is normalized on a log scale, so the distance from $0.05 to $0.50 counts
+    like the distance from $5 to $50. On a linear scale every model under a dollar
+    collapses into the same point, which is exactly the range where the
+    interesting choices are.
+    """
+    top_margin = max(_margin(s, requirements) for s in pool)
+    top_price = max(_price(s) for s in pool)
+    log_ceiling = math.log1p(top_price) or 1.0
+
+    def score(spec: ModelSpec) -> tuple[float, str]:
+        cheapness = math.log1p(_price(spec)) / log_ceiling
+        shortfall = 1.0 - (_margin(spec, requirements) / top_margin if top_margin else 1.0)
+        # `spec.value` keeps the order stable when two models score identically,
+        # which is common among the free local models.
+        return ((1.0 - bias) * cheapness + bias * shortfall, spec.value)
+
+    return sorted(pool, key=score)
 
 
 def _margin(spec: ModelSpec, requirements: dict[str, float]) -> float:
@@ -451,7 +488,14 @@ def _select(
             if spacious:
                 output_deprioritized = len(qualified) - len(spacious)
                 roomy = spacious
-        roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
+        # Bias 0 keeps the tier-first order exactly, so a deployment that never
+        # touches the setting sees no change: the blend below ranks on real price
+        # and would reorder within a tier even at bias 0.
+        bias = _cost_quality_bias()
+        if bias <= 0:
+            roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
+        else:
+            roomy = _rank_by_bias(roomy, requirements, bias)
         return _decision(roomy[0], True, len(qualified))
 
     # Nothing is genuinely qualified. Take the model that falls shortest on the

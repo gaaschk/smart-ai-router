@@ -81,6 +81,20 @@ def _reject_negative(value: str) -> None:
         raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
+def _reject_outside_percent(value: str) -> None:
+    """Refuse a percentage outside 0-100.
+
+    The router clamps rather than trusting this, but a typed 500 means the
+    operator believes something the slider cannot do, and silently clamping hides
+    that from them.
+    """
+    try:
+        if not 0 <= float(value) <= 100:
+            raise ValueError("must be between 0 and 100")
+    except ValueError as exc:
+        raise ValueError(f"expects 0-100 ({exc})") from None
+
+
 def _expect_owner_slash_name(value: str) -> None:
     """Refuse anything that isn't `owner/name`.
 
@@ -591,6 +605,26 @@ SPECS: tuple[SettingSpec, ...] = (
         "openai/gpt-audio sounds better and is roughly $1.70. Both bill audio "
         "tokens, which the usage page reads from the provider rather than from "
         "the text rate.",
+    ),
+    SettingSpec(
+        key="cost_quality_bias",
+        env="SMART_ROUTER_COST_QUALITY_BIAS",
+        type="int",
+        default=0,
+        label="Prefer capability over cost (%)",
+        group="Routing",
+        help="How much to pay for headroom among models that ALL already clear "
+        "the prompt's bar. 0 (the default) is strict cheapest-first: the coarse "
+        "cost tier decides, so a free local model beats a $0.31 cloud one no "
+        "matter how much stronger the cloud model is — which is how a slow local "
+        "model wins work it only barely qualifies for. 100 ignores price and "
+        "takes the most capable. In between, price and headroom are weighed "
+        "together, price on a log scale because the catalog spans $0 to $487 per "
+        "1M tokens while headroom spans 0.00 to 0.30. Try 30-40 if local models "
+        "are winning too much. Note this buys measured *capability*, not speed — "
+        "nothing in the catalog measures tokens/sec — but the practical effect is "
+        "to move work off your own hardware and onto hosted models.",
+        validate=_reject_outside_percent,
     ),
     SettingSpec(
         key="orchestrator_canary_model",
