@@ -625,6 +625,24 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="tps_staleness_days",
+        env="SMART_ROUTER_TPS_STALENESS_DAYS",
+        type="int",
+        default=30,
+        label="Forget measured speeds older than (days)",
+        group="Routing",
+        help="How long a measured throughput figure stays trusted. Past this it is "
+        "discarded and the model goes back to being unmeasured — which the "
+        "throughput floor exempts — so it gets traffic again and re-measures "
+        "itself. This is what stops the floor being a one-way ratchet: a model it "
+        "excludes receives no requests, so nothing would ever redeem it, and one "
+        "bad afternoon on a provider would look identical to a permanently slow "
+        "model. It is also why changing machines needs no detection — the figures "
+        "the old hardware produced simply expire. 0 disables expiry, which trusts "
+        "a measurement forever; don't, unless you never change anything.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="assumed_local_tps",
         env="SMART_ROUTER_ASSUMED_LOCAL_TPS",
         type="int",

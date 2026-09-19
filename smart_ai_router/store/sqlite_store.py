@@ -264,6 +264,18 @@ class SqliteStore(MatrixStore):
                 # the one column the catalog does not own, and a sync must not
                 # reset it. Omission is what preserves it — see record_usage.
                 ("observed_tps", "REAL DEFAULT 0.0"),
+                # When that measurement was last updated, so the router can tell a
+                # current reading from a stale one. Same omission from
+                # upsert_model, for the same reason.
+                #
+                # This is what keeps the throughput floor from being a one-way
+                # ratchet: an excluded model is never called, so it can never
+                # re-measure itself, and without an expiry a single bad afternoon
+                # would demote it permanently. DEFAULT '' reads as "unknown age",
+                # which is treated as stale — the safe direction, since it means a
+                # model is re-measured rather than judged on a figure of unknown
+                # vintage.
+                ("observed_tps_at", "TEXT DEFAULT ''"),
             ):
                 try:
                     self._conn.execute(
@@ -601,7 +613,9 @@ class SqliteStore(MatrixStore):
         and must not be re-scanned on every request, and a lifetime mean would take
         thousands of rows to forget a provider's bad afternoon. `_TPS_ALPHA` at 0.2
         means the last ~5 calls dominate, so a model that becomes slow is demoted
-        within a handful of requests and recovers just as quickly.
+        within a handful of requests. Recovery is *not* symmetric — a model the
+        floor excludes stops receiving the traffic that would redeem it — which is
+        what `observed_tps_at` and the staleness window exist to fix.
 
         Skipped unless the call actually generated something over a real interval.
         A 3-token reply is all overhead and would read as absurdly slow; anything
@@ -623,8 +637,11 @@ class SqliteStore(MatrixStore):
                 """UPDATE models SET observed_tps = CASE
                        WHEN COALESCE(observed_tps, 0.0) <= 0.0 THEN ?
                        ELSE (1 - ?) * observed_tps + ? * ?
-                   END WHERE value = ?""",
-                (tps, _TPS_ALPHA, _TPS_ALPHA, tps, usage.routed_model),
+                   END,
+                   observed_tps_at = ?
+                   WHERE value = ?""",
+                (tps, _TPS_ALPHA, _TPS_ALPHA, tps, _utcnow_iso(),
+                 usage.routed_model),
             )
             self._conn.commit()
 
@@ -1355,6 +1372,7 @@ class SqliteStore(MatrixStore):
             cost_output=row["cost_output"] or 0.0,
             agentic=cls._num_column(row, "agentic"),
             observed_tps=cls._num_column(row, "observed_tps"),
+            observed_tps_at=cls._column(row, "observed_tps_at"),
             structured_outputs=cls._bool_column(row, "structured_outputs"),
             reasoning=cls._bool_column(row, "reasoning"),
             competence={

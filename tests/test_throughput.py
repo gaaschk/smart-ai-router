@@ -13,6 +13,10 @@ real traffic. These tests pin the three properties that make observing it safe:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
 from smart_ai_router.models import ModelSpec, UsageRecord
 from smart_ai_router.router import select
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -39,6 +43,14 @@ def _last(store):
 
 def _tps(store, model):
     return next(s.observed_tps for s in store.all_models() if s.value == model)
+
+
+def _age(store, model, *, days):
+    """Backdate a model's measurement, so expiry is testable without sleeping."""
+    when = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    store._conn.execute(
+        "UPDATE models SET observed_tps_at = ? WHERE value = ?", (when, model))
+    store._conn.commit()
 
 
 def _coder(name, cost=0, **kw):
@@ -125,6 +137,15 @@ def test_a_model_measured_slow_loses_to_a_faster_one(monkeypatch):
     assert "too slow" in decision.explain()
 
 
+def test_the_floor_names_itself_when_it_empties_the_pool(monkeypatch):
+    # Otherwise the 422 reads "run sync()" for a catalog that synced fine, and the
+    # operator goes looking in the wrong place for a floor they set themselves.
+    store = _store(_coder("slow"))
+    _call(store, "slow", completion_tokens=200, latency_ms=20_000)
+    with pytest.raises(RuntimeError, match="1 excluded as slower than"):
+        _practitioner(store, 50, monkeypatch)
+
+
 def test_the_floor_is_off_by_default(monkeypatch):
     store = _store(_coder("slow", cost=0), _coder("fast", cost=5))
     _call(store, "slow", completion_tokens=200, latency_ms=10_000)
@@ -140,6 +161,55 @@ def test_an_unmeasured_model_is_exempt(monkeypatch):
     decision = _practitioner(store, 100, monkeypatch)
     assert decision.model == "never-tried"
     assert decision.slow_excluded == 0
+
+
+# ── Expiry: the floor must not be a one-way ratchet ───────────────────────────
+# A model the floor excludes receives no traffic, so it can never re-measure
+# itself. Without an expiry, one bad afternoon on a provider — or a figure from a
+# machine you no longer own — condemns a model permanently.
+
+def test_a_measurement_is_recorded_with_its_date():
+    store = _store(_coder("m"))
+    _call(store, "m", completion_tokens=200, latency_ms=1_000)
+    at = next(s.observed_tps_at for s in store.all_models() if s.value == "m")
+    assert at.startswith(str(datetime.now(timezone.utc).year))
+
+
+def test_a_demoted_model_becomes_reachable_again_once_stale(monkeypatch):
+    # The ratchet, broken: same slow measurement, only older, and the model is back
+    # in the pool where traffic can prove it either way.
+    store = _store(_coder("slow"), _coder("fast", cost=5))
+    _call(store, "slow", completion_tokens=200, latency_ms=20_000)  # 10 tps
+    assert _practitioner(store, 50, monkeypatch).model == "fast"
+    _age(store, "slow", days=45)
+    decision = _practitioner(store, 50, monkeypatch)
+    assert decision.model == "slow"
+    assert decision.slow_excluded == 0
+
+
+def test_a_fresh_measurement_is_still_trusted(monkeypatch):
+    store = _store(_coder("slow"), _coder("fast", cost=5))
+    _call(store, "slow", completion_tokens=200, latency_ms=20_000)
+    _age(store, "slow", days=3)
+    assert _practitioner(store, 50, monkeypatch).model == "fast"
+
+
+def test_expiry_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_TPS_STALENESS_DAYS", "0")
+    store = _store(_coder("slow"), _coder("fast", cost=5))
+    _call(store, "slow", completion_tokens=200, latency_ms=20_000)
+    _age(store, "slow", days=4000)
+    assert _practitioner(store, 50, monkeypatch).model == "fast"
+
+
+def test_a_measurement_of_unknown_age_is_treated_as_stale(monkeypatch):
+    # Rows written before the column. Re-measuring is cheap; routing for a month
+    # around a figure of unknown vintage is not.
+    store = _store(_coder("slow"))
+    _call(store, "slow", completion_tokens=200, latency_ms=20_000)
+    store._conn.execute("UPDATE models SET observed_tps_at = '' WHERE value = 'slow'")
+    store._conn.commit()
+    assert _practitioner(store, 50, monkeypatch).slow_excluded == 0
 
 
 # ── The local prior ───────────────────────────────────────────────────────────
@@ -173,6 +243,18 @@ def test_a_real_measurement_beats_the_assumption(monkeypatch):
     decision = _practitioner(store, 50, monkeypatch)
     assert decision.model == "ollama/fast"
     assert decision.slow_excluded == 0
+
+
+def test_the_assumption_returns_when_the_measurement_ages_out(monkeypatch):
+    # The hardware-change case. The old machine's figures expire, and the operator's
+    # prior covers the gap until the new machine has produced its own.
+    monkeypatch.setenv("SMART_ROUTER_ASSUMED_LOCAL_TPS", "15")
+    store = _store(_coder("ollama/fast", provider="ollama"),
+                   _coder("openrouter/hosted", cost=5, provider="openrouter"))
+    _call(store, "ollama/fast", completion_tokens=200, latency_ms=1_000)
+    assert _practitioner(store, 50, monkeypatch).model == "ollama/fast"
+    _age(store, "ollama/fast", days=45)
+    assert _practitioner(store, 50, monkeypatch).model == "openrouter/hosted"
 
 
 def test_the_assumption_is_inert_without_a_floor(monkeypatch):

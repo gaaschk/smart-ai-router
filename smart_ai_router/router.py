@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from smart_ai_router import settings as _settings
 from smart_ai_router.models import ModelSpec
@@ -408,6 +409,7 @@ def _select(
     _agent_deny = _agent_denylisted() if agent_mode else ()
     min_tps: float = max(0.0, float(_settings.get_int("min_tokens_per_second")))
     assumed_local_tps: float = max(0.0, float(_settings.get_int("assumed_local_tps")))
+    stale_days: int = max(0, _settings.get_int("tps_staleness_days"))
     agentic_excluded = 0
     slow_excluded = 0
     output_deprioritized = 0
@@ -422,12 +424,31 @@ def _select(
         """
         return spec.agentic <= 0.0 or spec.agentic >= min_agentic
 
+    def _stale(measured_at: str) -> bool:
+        """Whether a measurement is too old to route on.
+
+        An unparseable or missing stamp counts as stale: those are rows written
+        before the column existed, and the safe reading of a figure whose age we
+        cannot establish is to go and take a fresh one.
+        """
+        if stale_days <= 0:
+            return False
+        try:
+            when = datetime.fromisoformat(measured_at)
+        except ValueError:
+            return True
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - when).days >= stale_days
+
     def _known_tps(spec: ModelSpec) -> float:
         """Best tokens/sec estimate available for this model, 0.0 = no idea.
 
-        A measurement always beats the assumption, so `assumed_local_tps` decides
-        only the first call to a local model — and the measurement that call
-        produces retires it permanently for that model.
+        A fresh measurement always beats the assumption, so `assumed_local_tps`
+        decides the first call to a local model and then steps aside. It steps back
+        in if that measurement ages out, which is the behavior you want across a
+        hardware change: the stale figures expire and the prior covers the gap
+        until new ones form.
 
         The assumption is offered for local models alone because that is the one
         place a prior is defensible without measuring: local decode is bounded by
@@ -439,7 +460,7 @@ def _select(
         roughly like a 3B), so a formula would be most confidently wrong exactly
         where it mattered.
         """
-        if spec.observed_tps > 0.0:
+        if spec.observed_tps > 0.0 and not _stale(spec.observed_tps_at):
             return spec.observed_tps
         if assumed_local_tps > 0.0 and spec.provider == "ollama":
             return assumed_local_tps
@@ -500,6 +521,15 @@ def _select(
                 f" ({agentic_excluded} excluded as measured below the "
                 f"{min_agentic:.2f} tool-loop floor)"
                 if agentic_excluded
+                else ""
+            )
+            # Same reason the tool-loop floor names itself here: a configured floor
+            # that empties the pool is not a catalog problem, and "run sync()" sends
+            # the operator to fix something that isn't broken.
+            + (
+                f" ({slow_excluded} excluded as slower than the "
+                f"{min_tps:.0f} tokens/sec floor)"
+                if slow_excluded
                 else ""
             )
             + ". Run sync() to populate the matrix."

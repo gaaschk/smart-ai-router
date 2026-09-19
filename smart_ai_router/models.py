@@ -73,6 +73,16 @@ class ModelSpec:
     # manages, and a hosted model's figure moves with the provider's load. No
     # catalog can tell us this, which is why it was the one axis the router was
     # structurally unable to see.
+    observed_tps_at: str = ""
+    # ISO-8601 UTC of the last measurement, "" = never / unknown age.
+    #
+    # Needed because the floor that reads `observed_tps` is one-way on its own: an
+    # excluded model gets no traffic, so it cannot re-measure itself, so a bad
+    # afternoon — or a machine it used to run on — would condemn it forever. A
+    # measurement therefore expires (router: tps_staleness_days), and the model
+    # goes back to being unmeasured-and-exempt until real traffic says otherwise.
+    # This is also why a hardware upgrade needs no detection: the figures it
+    # invalidated time out and re-form on their own.
     competence: dict[str, float] = field(default_factory=dict)
     # competence keys: "coding" | "docs" | "reasoning" | "general"  → 0.0–1.0
     # Legacy summary of `profile`, derived by profiler.legacy_competence() so the
