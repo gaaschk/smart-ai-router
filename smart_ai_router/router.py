@@ -407,6 +407,7 @@ def _select(
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
     min_tps: float = max(0.0, float(_settings.get_int("min_tokens_per_second")))
+    assumed_local_tps: float = max(0.0, float(_settings.get_int("assumed_local_tps")))
     agentic_excluded = 0
     slow_excluded = 0
     output_deprioritized = 0
@@ -421,17 +422,40 @@ def _select(
         """
         return spec.agentic <= 0.0 or spec.agentic >= min_agentic
 
-    def _fast_enough(spec: ModelSpec) -> bool:
-        """Whether this model has been measured too slow to be worth routing to.
+    def _known_tps(spec: ModelSpec) -> float:
+        """Best tokens/sec estimate available for this model, 0.0 = no idea.
 
-        Same convention as `_drives_loops`: `observed_tps == 0.0` means never
-        measured, so it passes. That is what makes the floor self-populating rather
-        than a chicken-and-egg problem — an unmeasured model stays reachable, gets
-        picked on price, and measures itself on the way through. Only models with
-        real evidence against them are removed, and a demoted model is one good
-        run away from coming back (see _TPS_ALPHA).
+        A measurement always beats the assumption, so `assumed_local_tps` decides
+        only the first call to a local model — and the measurement that call
+        produces retires it permanently for that model.
+
+        The assumption is offered for local models alone because that is the one
+        place a prior is defensible without measuring: local decode is bounded by
+        the host's memory bandwidth, which is an order of magnitude under a
+        datacenter GPU's, and that gap is a property of the machine rather than of
+        any particular weights. There is deliberately no size-derived estimate on
+        top of it — parameter count looks like it should predict speed and doesn't,
+        since an MoE reads only its active experts per token (a 30B-A3B decodes
+        roughly like a 3B), so a formula would be most confidently wrong exactly
+        where it mattered.
         """
-        return spec.observed_tps <= 0.0 or spec.observed_tps >= min_tps
+        if spec.observed_tps > 0.0:
+            return spec.observed_tps
+        if assumed_local_tps > 0.0 and spec.provider == "ollama":
+            return assumed_local_tps
+        return 0.0
+
+    def _fast_enough(spec: ModelSpec) -> bool:
+        """Whether this model is too slow to be worth routing to.
+
+        Same convention as `_drives_loops`: an unknown rate passes. That is what
+        makes the floor self-populating rather than a chicken-and-egg problem — an
+        unmeasured model stays reachable, gets picked on price, and measures itself
+        on the way through. Only models with evidence against them are removed, and
+        a demoted model is one good run away from coming back (see _TPS_ALPHA).
+        """
+        tps = _known_tps(spec)
+        return tps <= 0.0 or tps >= min_tps
 
     def _eligible(spec: ModelSpec) -> bool:
         nonlocal agentic_excluded, slow_excluded

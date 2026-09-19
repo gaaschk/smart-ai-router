@@ -140,3 +140,45 @@ def test_an_unmeasured_model_is_exempt(monkeypatch):
     decision = _practitioner(store, 100, monkeypatch)
     assert decision.model == "never-tried"
     assert decision.slow_excluded == 0
+
+
+# ── The local prior ───────────────────────────────────────────────────────────
+# "My hardware is the slow part" is knowledge the operator has and no catalog
+# does, so they can assert it for unmeasured *local* models and skip paying for
+# the first slow call. A measurement outranks it the moment one exists.
+
+def test_the_local_assumption_can_exclude_a_never_called_model(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_ASSUMED_LOCAL_TPS", "15")
+    store = _store(_coder("ollama/big", provider="ollama"),
+                   _coder("openrouter/hosted", cost=5, provider="openrouter"))
+    decision = _practitioner(store, 50, monkeypatch)
+    assert decision.model == "openrouter/hosted"
+    assert decision.slow_excluded == 1
+
+
+def test_the_assumption_does_not_touch_hosted_models(monkeypatch):
+    # The prior is about this machine, so it has no standing over a model that
+    # doesn't run on it.
+    monkeypatch.setenv("SMART_ROUTER_ASSUMED_LOCAL_TPS", "15")
+    store = _store(_coder("openrouter/unmeasured", provider="openrouter"))
+    assert _practitioner(store, 50, monkeypatch).model == "openrouter/unmeasured"
+
+
+def test_a_real_measurement_beats_the_assumption(monkeypatch):
+    # The assumption is pessimistic on purpose. It must not outlive the evidence —
+    # otherwise a hardware upgrade could never show up in the routing.
+    monkeypatch.setenv("SMART_ROUTER_ASSUMED_LOCAL_TPS", "15")
+    store = _store(_coder("ollama/fast", provider="ollama"))
+    _call(store, "ollama/fast", completion_tokens=200, latency_ms=1_000)  # 200 tps
+    decision = _practitioner(store, 50, monkeypatch)
+    assert decision.model == "ollama/fast"
+    assert decision.slow_excluded == 0
+
+
+def test_the_assumption_is_inert_without_a_floor(monkeypatch):
+    # Two knobs, and neither does anything alone: this one only supplies a number
+    # for the floor to compare against.
+    monkeypatch.setenv("SMART_ROUTER_ASSUMED_LOCAL_TPS", "15")
+    store = _store(_coder("ollama/big", provider="ollama"),
+                   _coder("openrouter/hosted", cost=5, provider="openrouter"))
+    assert _practitioner(store, 0, monkeypatch).model == "ollama/big"

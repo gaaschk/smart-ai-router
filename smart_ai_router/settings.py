@@ -625,6 +625,26 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="assumed_local_tps",
+        env="SMART_ROUTER_ASSUMED_LOCAL_TPS",
+        type="int",
+        default=0,
+        label="Assumed speed of unmeasured local models (tokens/sec)",
+        group="Routing",
+        help="What to assume a local (Ollama) model generates at before it has "
+        "been measured here. 0 (the default) assumes nothing and lets the "
+        "throughput floor exempt it until it has been called once. Set this when "
+        "you already know your own hardware is the slow part: local decode speed "
+        "is bounded by memory bandwidth, and a workstation's is an order of "
+        "magnitude below a datacenter GPU's, so 'local is slower' is a safe prior "
+        "in a way that no per-model catalog figure would be. A real measurement "
+        "always wins over this number — it only fills the gap before one exists, "
+        "which is why it costs nothing to set it pessimistically. Read a starting "
+        "value off the Speed column in Models rather than guessing, and revisit it "
+        "if you change machines.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="cost_quality_bias",
         env="SMART_ROUTER_COST_QUALITY_BIAS",
         type="int",
