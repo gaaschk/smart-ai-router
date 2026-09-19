@@ -219,6 +219,10 @@ class RouteDecision:
     qualified: bool
     eligible_count: int             # models that passed the hard filters
     qualified_count: int            # of those, how many cleared every field bar
+    slow_excluded: int = 0
+    # Models removed by the throughput floor. Same reason as `agentic_excluded`:
+    # measured slowness appears in no score, so without this the pick looks
+    # arbitrary.
     agentic_excluded: int = 0
     # Models dropped by the tool-loop floor (see taxonomy.AGENTIC_FLOOR). Reported
     # separately from eligible_count because this filter is the one exclusion that
@@ -270,6 +274,8 @@ class RouteDecision:
             clauses += (
                 f"; {self.agentic_excluded} skipped as measured weak at tool loops"
             )
+        if self.slow_excluded:
+            clauses += f"; {self.slow_excluded} skipped as measured too slow"
         if self.output_deprioritized:
             clauses += (
                 f"; {self.output_deprioritized} cheaper but capped too low to "
@@ -400,7 +406,9 @@ def _select(
     _exclude = exclude or set()
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
+    min_tps: float = max(0.0, float(_settings.get_int("min_tokens_per_second")))
     agentic_excluded = 0
+    slow_excluded = 0
     output_deprioritized = 0
 
     def _drives_loops(spec: ModelSpec) -> bool:
@@ -413,8 +421,20 @@ def _select(
         """
         return spec.agentic <= 0.0 or spec.agentic >= min_agentic
 
+    def _fast_enough(spec: ModelSpec) -> bool:
+        """Whether this model has been measured too slow to be worth routing to.
+
+        Same convention as `_drives_loops`: `observed_tps == 0.0` means never
+        measured, so it passes. That is what makes the floor self-populating rather
+        than a chicken-and-egg problem — an unmeasured model stays reachable, gets
+        picked on price, and measures itself on the way through. Only models with
+        real evidence against them are removed, and a demoted model is one good
+        run away from coming back (see _TPS_ALPHA).
+        """
+        return spec.observed_tps <= 0.0 or spec.observed_tps >= min_tps
+
     def _eligible(spec: ModelSpec) -> bool:
-        nonlocal agentic_excluded
+        nonlocal agentic_excluded, slow_excluded
         if spec.value in _exclude:
             return False
         if _deny and any(d in spec.value.lower() for d in _deny):
@@ -432,6 +452,12 @@ def _select(
             # scores, so a caller left wondering why a model it expected did not
             # win — or why nothing was eligible — needs it named.
             agentic_excluded += 1
+            return False
+        if min_tps > 0 and not _fast_enough(spec):
+            # Counted for the same reason as the agentic floor: a model missing
+            # from the pool for a reason that appears in no score is otherwise
+            # indistinguishable from one that simply lost on price.
+            slow_excluded += 1
             return False
         if needs_vision and not spec.vision:
             return False
@@ -464,6 +490,7 @@ def _select(
             eligible_count=len(eligible),
             qualified_count=qualified_count,
             agentic_excluded=agentic_excluded,
+            slow_excluded=slow_excluded,
             output_deprioritized=output_deprioritized,
         )
 

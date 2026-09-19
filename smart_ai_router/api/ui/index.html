@@ -1541,6 +1541,10 @@
                  knowledge, and it is the one score most of the catalog has no
                  measurement for. -->
             <th onclick="sortModels('agentic')" title="Measured ability to hold a multi-step tool loop together. Blank = never measured, which the router treats as exempt.">Tool loop</th>
+            <!-- The only column measured here rather than imported: throughput is
+                 a property of this host and this provider's load, not of the
+                 model, so no catalog can supply it. -->
+            <th onclick="sortModels('observed_tps')" title="Completion tokens/sec this model has actually delivered here, averaged over real traffic. Blank = never called yet, which the router treats as exempt so it stays reachable long enough to be measured.">Speed</th>
             <th title="Who judged this model, and how many taxonomy fields they called out: S = specialty, W = weak, U = unsuited. Click a cell for the note and every field score.">Profile</th>
             <th onclick="sortModels('reliability')">Reliability</th>
           </tr>
@@ -2831,6 +2835,13 @@ function _agenticCell(m) {
     : `<span style="font-size:0.75rem">${pct}%</span>`;
 }
 
+function _speedCell(m) {
+  const v = m.observed_tps || 0;
+  // Same reading as Tool loop: blank means nobody has called it yet, not slow.
+  if (v <= 0) return '<span style="color:var(--text-muted)" title="never called here — nothing has been measured to hold against it">—</span>';
+  return `<span style="font-size:0.75rem" title="moving average of delivered completion tokens/sec">${v.toFixed(0)} t/s</span>`;
+}
+
 // Full id plus the flags that have no column of their own, on hover. The chips
 // above filter on these; this is how you read them for a row you're looking at.
 function _modelTitle(m) {
@@ -2894,6 +2905,7 @@ function renderModels() {
       <td><span class="badge-pill ${m.vision ? 'badge-yes' : 'badge-no'}">${m.vision ? 'yes' : '—'}</span></td>
       <td><div class="competence-bar"><div class="bar"><div class="bar-fill ${compClass}" style="width:${compPct}%"></div></div><span style="font-size:0.7rem;color:var(--text-muted)">${compPct}%</span></div></td>
       <td>${_agenticCell(m)}</td>
+      <td>${_speedCell(m)}</td>
       <td class="profile-cell" data-model="${escapeHtml(m.value)}"
           onclick="openProfileModal(this.dataset.model)"
           title="${escapeHtml(counts.title)} — click for the note and all 16 field scores">

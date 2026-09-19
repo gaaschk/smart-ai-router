@@ -705,6 +705,7 @@ def _to_response(spec) -> ModelSpecResponse:
         cost_input=spec.cost_input,
         cost_output=spec.cost_output,
         agentic=spec.agentic,
+        observed_tps=spec.observed_tps,
         competence=spec.competence,
         profile=spec.profile,
         description=spec.description,

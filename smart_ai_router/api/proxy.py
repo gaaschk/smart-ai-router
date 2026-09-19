@@ -24,6 +24,7 @@ import json
 import random
 import re
 import sys
+import time
 from typing import Any, AsyncIterator
 
 import httpx
@@ -872,7 +873,8 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                complexity: str, usage: dict | None, status: int,
                tokens_estimated: bool = False,
                profile: PromptProfile | None = None,
-               classifier: str = "") -> None:
+               classifier: str = "",
+               started: float = 0.0) -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
@@ -890,6 +892,12 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     reported in X-Classifier: the chain degrades silently, so the only way to
     notice that every request is being profiled by the keyword fallback is to
     count.
+
+    `started` is a time.monotonic() stamp taken just before the provider call, so
+    the recorded latency is the dispatch and nothing else. Passed in rather than
+    measured here because for a stream the call isn't over until the last chunk
+    lands, and this runs at that point — which is what makes
+    completion_tokens/latency the model's real delivered throughput.
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
@@ -923,6 +931,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             tokens_estimated=tokens_estimated,
             profile=profile.to_dict() if profile is not None else None,
             classifier=classifier,
+            latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
@@ -1504,6 +1513,12 @@ async def chat_completions(request: Request):
     # time-to-first-token and long generations.
     _timeout = httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=600.0)
 
+    # Everything above is ours — classification, routing, body rewriting — and
+    # none of it belongs in a figure meant to describe how fast the *model* is.
+    # So the clock starts here, at the last line before any of the three dispatch
+    # paths below.
+    dispatch_started = time.monotonic()
+
     # 4a. Agent mode: run the tool-calling loop server-side, executing the
     # filesystem tools against the caller's workspace and streaming tool
     # activity + the final answer back as SSE. The loop reuses this same
@@ -1547,7 +1562,8 @@ async def chat_completions(request: Request):
 
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
                    complexity=complexity, usage=None, status=200,
-                   profile=profile, classifier=classifier_used)
+                   profile=profile, classifier=classifier_used,
+                   started=dispatch_started)
 
         def _register_file(data: bytes, filename: str, mime: str) -> str:
             """Register an agent-created file in the Files API, owned by the
@@ -1612,6 +1628,7 @@ async def chat_completions(request: Request):
                     complexity=complexity, usage=usage,
                     status=status, tokens_estimated=estimated,
                     profile=profile, classifier=classifier_used,
+                    started=dispatch_started,
                 )
                 # Only a whole reply is a usable reference: a client that
                 # disconnected mid-stream leaves a half-built tool call, which
@@ -1713,6 +1730,7 @@ async def chat_completions(request: Request):
             usage=data.get("usage") if isinstance(data, dict) else None,
             status=resp.status_code,
             profile=profile, classifier=classifier_used,
+            started=dispatch_started,
         )
         if isinstance(data, dict):
             choice = (data.get("choices") or [{}])[0]

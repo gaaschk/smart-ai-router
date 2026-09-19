@@ -607,6 +607,24 @@ SPECS: tuple[SettingSpec, ...] = (
         "the text rate.",
     ),
     SettingSpec(
+        key="min_tokens_per_second",
+        env="SMART_ROUTER_MIN_TOKENS_PER_SECOND",
+        type="int",
+        default=0,
+        label="Throughput floor (tokens/sec)",
+        group="Routing",
+        help="Skip models this deployment has measured generating slower than "
+        "this. 0 (the default) is off. Throughput is measured from your own "
+        "traffic rather than read from a catalog, because it is not a property of "
+        "the model alone — the same local weights run at whatever speed this "
+        "machine manages. A model with no measurement yet is never skipped, so "
+        "the floor cannot lock out a model before it has had a chance to prove "
+        "itself; it only removes ones with real evidence against them, and a "
+        "demoted model returns after a few good runs. Useful when a free local "
+        "model keeps winning on price and then takes a minute to answer.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="cost_quality_bias",
         env="SMART_ROUTER_COST_QUALITY_BIAS",
         type="int",
