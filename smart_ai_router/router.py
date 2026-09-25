@@ -18,7 +18,9 @@ profile, which reproduces the old single-bar behavior exactly.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from smart_ai_router import settings as _settings
 from smart_ai_router.models import ModelSpec
@@ -155,6 +157,42 @@ def _price(spec: ModelSpec) -> float:
     return blended_rate(spec.cost_input, spec.cost_output)
 
 
+def _cost_quality_bias() -> float:
+    """Operator preference between price and headroom, 0.0-1.0. 0 = cheapest."""
+    return max(0, min(100, _settings.get_int("cost_quality_bias"))) / 100.0
+
+
+def _rank_by_bias(
+    pool: list[ModelSpec], requirements: dict[str, float], bias: float
+) -> list[ModelSpec]:
+    """Order `pool` by a blend of price and headroom, cheapest-leaning at low bias.
+
+    Both axes are normalized against this pool rather than compared raw, because
+    they are not remotely commensurable: on a live 323-model qualified pool the
+    price spread was $0 to $487.50 per 1M tokens while the margin spread was 0.000
+    to 0.300 (margin is bounded by the profiler's 0.98 ceiling minus the bar). A
+    raw `price - k * margin` score is therefore a step function — no k changes the
+    pick until one suddenly buys the most expensive model in the catalog.
+
+    Price is normalized on a log scale, so the distance from $0.05 to $0.50 counts
+    like the distance from $5 to $50. On a linear scale every model under a dollar
+    collapses into the same point, which is exactly the range where the
+    interesting choices are.
+    """
+    top_margin = max(_margin(s, requirements) for s in pool)
+    top_price = max(_price(s) for s in pool)
+    log_ceiling = math.log1p(top_price) or 1.0
+
+    def score(spec: ModelSpec) -> tuple[float, str]:
+        cheapness = math.log1p(_price(spec)) / log_ceiling
+        shortfall = 1.0 - (_margin(spec, requirements) / top_margin if top_margin else 1.0)
+        # `spec.value` keeps the order stable when two models score identically,
+        # which is common among the free local models.
+        return ((1.0 - bias) * cheapness + bias * shortfall, spec.value)
+
+    return sorted(pool, key=score)
+
+
 def _margin(spec: ModelSpec, requirements: dict[str, float]) -> float:
     """How much room this model has on its *weakest* required field.
 
@@ -182,6 +220,10 @@ class RouteDecision:
     qualified: bool
     eligible_count: int             # models that passed the hard filters
     qualified_count: int            # of those, how many cleared every field bar
+    slow_excluded: int = 0
+    # Models removed by the throughput floor. Same reason as `agentic_excluded`:
+    # measured slowness appears in no score, so without this the pick looks
+    # arbitrary.
     agentic_excluded: int = 0
     # Models dropped by the tool-loop floor (see taxonomy.AGENTIC_FLOOR). Reported
     # separately from eligible_count because this filter is the one exclusion that
@@ -233,6 +275,8 @@ class RouteDecision:
             clauses += (
                 f"; {self.agentic_excluded} skipped as measured weak at tool loops"
             )
+        if self.slow_excluded:
+            clauses += f"; {self.slow_excluded} skipped as measured too slow"
         if self.output_deprioritized:
             clauses += (
                 f"; {self.output_deprioritized} cheaper but capped too low to "
@@ -363,7 +407,11 @@ def _select(
     _exclude = exclude or set()
     _deny = _denylisted()
     _agent_deny = _agent_denylisted() if agent_mode else ()
+    min_tps: float = max(0.0, float(_settings.get_int("min_tokens_per_second")))
+    assumed_local_tps: float = max(0.0, float(_settings.get_int("assumed_local_tps")))
+    stale_days: int = max(0, _settings.get_int("tps_staleness_days"))
     agentic_excluded = 0
+    slow_excluded = 0
     output_deprioritized = 0
 
     def _drives_loops(spec: ModelSpec) -> bool:
@@ -376,8 +424,62 @@ def _select(
         """
         return spec.agentic <= 0.0 or spec.agentic >= min_agentic
 
+    def _stale(measured_at: str) -> bool:
+        """Whether a measurement is too old to route on.
+
+        An unparseable or missing stamp counts as stale: those are rows written
+        before the column existed, and the safe reading of a figure whose age we
+        cannot establish is to go and take a fresh one.
+        """
+        if stale_days <= 0:
+            return False
+        try:
+            when = datetime.fromisoformat(measured_at)
+        except ValueError:
+            return True
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - when).days >= stale_days
+
+    def _known_tps(spec: ModelSpec) -> float:
+        """Best tokens/sec estimate available for this model, 0.0 = no idea.
+
+        A fresh measurement always beats the assumption, so `assumed_local_tps`
+        decides the first call to a local model and then steps aside. It steps back
+        in if that measurement ages out, which is the behavior you want across a
+        hardware change: the stale figures expire and the prior covers the gap
+        until new ones form.
+
+        The assumption is offered for local models alone because that is the one
+        place a prior is defensible without measuring: local decode is bounded by
+        the host's memory bandwidth, which is an order of magnitude under a
+        datacenter GPU's, and that gap is a property of the machine rather than of
+        any particular weights. There is deliberately no size-derived estimate on
+        top of it — parameter count looks like it should predict speed and doesn't,
+        since an MoE reads only its active experts per token (a 30B-A3B decodes
+        roughly like a 3B), so a formula would be most confidently wrong exactly
+        where it mattered.
+        """
+        if spec.observed_tps > 0.0 and not _stale(spec.observed_tps_at):
+            return spec.observed_tps
+        if assumed_local_tps > 0.0 and spec.provider == "ollama":
+            return assumed_local_tps
+        return 0.0
+
+    def _fast_enough(spec: ModelSpec) -> bool:
+        """Whether this model is too slow to be worth routing to.
+
+        Same convention as `_drives_loops`: an unknown rate passes. That is what
+        makes the floor self-populating rather than a chicken-and-egg problem — an
+        unmeasured model stays reachable, gets picked on price, and measures itself
+        on the way through. Only models with evidence against them are removed, and
+        a demoted model is one good run away from coming back (see _TPS_ALPHA).
+        """
+        tps = _known_tps(spec)
+        return tps <= 0.0 or tps >= min_tps
+
     def _eligible(spec: ModelSpec) -> bool:
-        nonlocal agentic_excluded
+        nonlocal agentic_excluded, slow_excluded
         if spec.value in _exclude:
             return False
         if _deny and any(d in spec.value.lower() for d in _deny):
@@ -395,6 +497,12 @@ def _select(
             # scores, so a caller left wondering why a model it expected did not
             # win — or why nothing was eligible — needs it named.
             agentic_excluded += 1
+            return False
+        if min_tps > 0 and not _fast_enough(spec):
+            # Counted for the same reason as the agentic floor: a model missing
+            # from the pool for a reason that appears in no score is otherwise
+            # indistinguishable from one that simply lost on price.
+            slow_excluded += 1
             return False
         if needs_vision and not spec.vision:
             return False
@@ -415,6 +523,15 @@ def _select(
                 if agentic_excluded
                 else ""
             )
+            # Same reason the tool-loop floor names itself here: a configured floor
+            # that empties the pool is not a catalog problem, and "run sync()" sends
+            # the operator to fix something that isn't broken.
+            + (
+                f" ({slow_excluded} excluded as slower than the "
+                f"{min_tps:.0f} tokens/sec floor)"
+                if slow_excluded
+                else ""
+            )
             + ". Run sync() to populate the matrix."
         )
 
@@ -427,6 +544,7 @@ def _select(
             eligible_count=len(eligible),
             qualified_count=qualified_count,
             agentic_excluded=agentic_excluded,
+            slow_excluded=slow_excluded,
             output_deprioritized=output_deprioritized,
         )
 
@@ -451,7 +569,14 @@ def _select(
             if spacious:
                 output_deprioritized = len(qualified) - len(spacious)
                 roomy = spacious
-        roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
+        # Bias 0 keeps the tier-first order exactly, so a deployment that never
+        # touches the setting sees no change: the blend below ranks on real price
+        # and would reorder within a tier even at bias 0.
+        bias = _cost_quality_bias()
+        if bias <= 0:
+            roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
+        else:
+            roomy = _rank_by_bias(roomy, requirements, bias)
         return _decision(roomy[0], True, len(qualified))
 
     # Nothing is genuinely qualified. Take the model that falls shortest on the

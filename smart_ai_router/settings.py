@@ -81,6 +81,20 @@ def _reject_negative(value: str) -> None:
         raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
+def _reject_outside_percent(value: str) -> None:
+    """Refuse a percentage outside 0-100.
+
+    The router clamps rather than trusting this, but a typed 500 means the
+    operator believes something the slider cannot do, and silently clamping hides
+    that from them.
+    """
+    try:
+        if not 0 <= float(value) <= 100:
+            raise ValueError("must be between 0 and 100")
+    except ValueError as exc:
+        raise ValueError(f"expects 0-100 ({exc})") from None
+
+
 def _expect_owner_slash_name(value: str) -> None:
     """Refuse anything that isn't `owner/name`.
 
@@ -591,6 +605,82 @@ SPECS: tuple[SettingSpec, ...] = (
         "openai/gpt-audio sounds better and is roughly $1.70. Both bill audio "
         "tokens, which the usage page reads from the provider rather than from "
         "the text rate.",
+    ),
+    SettingSpec(
+        key="min_tokens_per_second",
+        env="SMART_ROUTER_MIN_TOKENS_PER_SECOND",
+        type="int",
+        default=0,
+        label="Throughput floor (tokens/sec)",
+        group="Routing",
+        help="Skip models this deployment has measured generating slower than "
+        "this. 0 (the default) is off. Throughput is measured from your own "
+        "traffic rather than read from a catalog, because it is not a property of "
+        "the model alone — the same local weights run at whatever speed this "
+        "machine manages. A model with no measurement yet is never skipped, so "
+        "the floor cannot lock out a model before it has had a chance to prove "
+        "itself; it only removes ones with real evidence against them, and a "
+        "demoted model returns after a few good runs. Useful when a free local "
+        "model keeps winning on price and then takes a minute to answer.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="tps_staleness_days",
+        env="SMART_ROUTER_TPS_STALENESS_DAYS",
+        type="int",
+        default=30,
+        label="Forget measured speeds older than (days)",
+        group="Routing",
+        help="How long a measured throughput figure stays trusted. Past this it is "
+        "discarded and the model goes back to being unmeasured — which the "
+        "throughput floor exempts — so it gets traffic again and re-measures "
+        "itself. This is what stops the floor being a one-way ratchet: a model it "
+        "excludes receives no requests, so nothing would ever redeem it, and one "
+        "bad afternoon on a provider would look identical to a permanently slow "
+        "model. It is also why changing machines needs no detection — the figures "
+        "the old hardware produced simply expire. 0 disables expiry, which trusts "
+        "a measurement forever; don't, unless you never change anything.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="assumed_local_tps",
+        env="SMART_ROUTER_ASSUMED_LOCAL_TPS",
+        type="int",
+        default=0,
+        label="Assumed speed of unmeasured local models (tokens/sec)",
+        group="Routing",
+        help="What to assume a local (Ollama) model generates at before it has "
+        "been measured here. 0 (the default) assumes nothing and lets the "
+        "throughput floor exempt it until it has been called once. Set this when "
+        "you already know your own hardware is the slow part: local decode speed "
+        "is bounded by memory bandwidth, and a workstation's is an order of "
+        "magnitude below a datacenter GPU's, so 'local is slower' is a safe prior "
+        "in a way that no per-model catalog figure would be. A real measurement "
+        "always wins over this number — it only fills the gap before one exists, "
+        "which is why it costs nothing to set it pessimistically. Read a starting "
+        "value off the Speed column in Models rather than guessing, and revisit it "
+        "if you change machines.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="cost_quality_bias",
+        env="SMART_ROUTER_COST_QUALITY_BIAS",
+        type="int",
+        default=0,
+        label="Prefer capability over cost (%)",
+        group="Routing",
+        help="How much to pay for headroom among models that ALL already clear "
+        "the prompt's bar. 0 (the default) is strict cheapest-first: the coarse "
+        "cost tier decides, so a free local model beats a $0.31 cloud one no "
+        "matter how much stronger the cloud model is — which is how a slow local "
+        "model wins work it only barely qualifies for. 100 ignores price and "
+        "takes the most capable. In between, price and headroom are weighed "
+        "together, price on a log scale because the catalog spans $0 to $487 per "
+        "1M tokens while headroom spans 0.00 to 0.30. Try 30-40 if local models "
+        "are winning too much. Note this buys measured *capability*, not speed — "
+        "nothing in the catalog measures tokens/sec — but the practical effect is "
+        "to move work off your own hardware and onto hosted models.",
+        validate=_reject_outside_percent,
     ),
     SettingSpec(
         key="orchestrator_canary_model",

@@ -372,6 +372,79 @@ def test_same_tier_picks_the_genuinely_cheaper_model():
     assert decision.model == "claude-sonnet-5"
 
 
+# ── cost:quality bias ─────────────────────────────────────────────────────────
+
+# The live complaint: a free local model that clears the bar by 0.00 beat a
+# $0.31/1M hosted model that cleared it by 0.30, because the coarse cost tier is
+# the primary sort key. Free won, and it was slow.
+_SLOW_LOCAL = ModelSpec(
+    "ollama/slow-local", cost=0, cost_input=0.0, cost_output=0.0, reliability=1.0,
+    profile={"software_engineering": 0.68},
+)
+_CHEAP_HOSTED = ModelSpec(
+    "openrouter/openai/gpt-5-nano", cost=1, cost_input=0.125, cost_output=0.375,
+    reliability=1.0, profile={"software_engineering": 0.98},
+)
+# Present so the pool's price ceiling is realistic. It matters: both axes are
+# normalized against the pool, so in a two-model pool where each wins one axis
+# the crossover sits at exactly 50% and the knob reads as a coin flip. Against a
+# real ceiling the log scale puts $0.31 and $0 almost on top of each other, which
+# is why a *low* bias is enough to buy a lot of headroom.
+_DEAR_FRONTIER = ModelSpec(
+    "openrouter/anthropic/claude-sonnet-5", cost=5, cost_input=2.0, cost_output=10.0,
+    reliability=1.0, profile={"software_engineering": 0.95},
+)
+
+
+def _practitioner(store, bias, monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_COST_QUALITY_BIAS", str(bias))
+    return select(
+        store, needs_tools=False,
+        profile=_p(("software_engineering", "practitioner")),
+    ).model
+
+
+def test_bias_zero_keeps_strict_cheapest_first(monkeypatch):
+    # Default behavior must not move: an existing deployment that never opens the
+    # Settings page keeps the pick it had.
+    store = _store_with(_SLOW_LOCAL, _CHEAP_HOSTED, _DEAR_FRONTIER)
+    assert _practitioner(store, 0, monkeypatch) == "ollama/slow-local"
+
+
+def test_bias_buys_headroom_from_a_barely_qualifying_free_model(monkeypatch):
+    # The pick that matters: not the dearest model, the one whose headroom is
+    # nearly free. Free-and-barely-adequate loses to $0.31-and-best.
+    store = _store_with(_SLOW_LOCAL, _CHEAP_HOSTED, _DEAR_FRONTIER)
+    assert _practitioner(store, 40, monkeypatch) == "openrouter/openai/gpt-5-nano"
+    # And it does not take much: with an $8/1M model setting the ceiling the log
+    # scale puts $0.31 at 0.124 of the price range, so the crossover is ~11%.
+    assert _practitioner(store, 15, monkeypatch) == "openrouter/openai/gpt-5-nano"
+    assert _practitioner(store, 5, monkeypatch) == "ollama/slow-local"
+
+
+def test_full_bias_ignores_price(monkeypatch):
+    # At 100 the most capable wins even when it is the most expensive, which is
+    # the only way to tell the blend from a cheap-model preference.
+    dear_and_strong = ModelSpec(
+        "dear", cost=15, cost_input=100.0, cost_output=300.0, reliability=1.0,
+        profile={"software_engineering": 0.98},
+    )
+    store = _store_with(_SLOW_LOCAL, dear_and_strong)
+    assert _practitioner(store, 100, monkeypatch) == "dear"
+    assert _practitioner(store, 0, monkeypatch) == "ollama/slow-local"
+
+
+def test_bias_never_promotes_an_unqualified_model(monkeypatch):
+    # The blend ranks the qualified pool only. A strong-but-unqualified model must
+    # not be reachable by turning the knob up.
+    fails_the_bar = ModelSpec(
+        "fails", cost=15, cost_input=100.0, cost_output=300.0, reliability=1.0,
+        profile={"software_engineering": 0.50, "law_regulatory": 0.99},
+    )
+    store = _store_with(_SLOW_LOCAL, fails_the_bar)
+    assert _practitioner(store, 100, monkeypatch) == "ollama/slow-local"
+
+
 def test_equal_price_still_breaks_on_margin():
     # Price only outranks margin when the prices actually differ.
     dearer_but_stronger = ModelSpec(
