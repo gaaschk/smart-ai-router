@@ -83,6 +83,26 @@ class ModelSpec:
     # goes back to being unmeasured-and-exempt until real traffic says otherwise.
     # This is also why a hardware upgrade needs no detection: the figures it
     # invalidated time out and re-form on their own.
+    observed_tool_health: float = 0.0
+    # Share of tool-bearing turns this model answered *with something*, as an EWMA
+    # over real traffic. 1.0 = it has never stalled; low = handed tools, it returns
+    # neither a tool call nor a real reply. **0.0 means never measured**, the same
+    # convention as `agentic` and `observed_tps`.
+    #
+    # Deliberately a separate column from `agentic` rather than an update to it.
+    # `agentic` is the profiler's benchmark index and AGENTIC_FLOOR plus the
+    # orchestrator's 0.75 bar compare against *that* scale; folding a live
+    # compliance ratio into it would silently redefine every threshold that reads
+    # it. Two numbers that mean different things stay two columns.
+    #
+    # It measures stalls, not tool-call rate, because answering in prose while
+    # tools merely happen to be available is correct behavior — penalizing it would
+    # punish models for being asked a question instead of given a task. Only a
+    # reply that is neither a call nor an answer is unambiguously a failure.
+    observed_tool_health_at: str = ""
+    # ISO-8601 UTC of the last measurement, "" = never / unknown age. Same reason
+    # as `observed_tps_at`: a floor reading this is one-way on its own, so a
+    # measurement has to expire for an excluded model to ever be redeemed.
     competence: dict[str, float] = field(default_factory=dict)
     # competence keys: "coding" | "docs" | "reasoning" | "general"  → 0.0–1.0
     # Legacy summary of `profile`, derived by profiler.legacy_competence() so the
@@ -295,5 +315,16 @@ class UsageRecord:
     # and a model that is simply slow look identical once collapsed into one
     # number, and only one of them is worth routing around.
     latency_ms: int = 0
+    # Whether this call offered the model tools, and whether it stalled on them —
+    # returned neither a tool call nor a substantive reply. Together they are the
+    # sample that feeds ModelSpec.observed_tool_health; a call with no tools tells
+    # us nothing about tool health and is not counted.
+    #
+    # Observed rather than inferred: both proxy paths already reassemble tool calls
+    # for turn capture (the streaming scanner has to, since forwarded bytes are
+    # never buffered), so this costs nothing beyond keeping a boolean that was
+    # previously discarded whenever capture sampling didn't fire.
+    tools_offered: bool = False
+    tool_stalled: bool = False
     id: int = 0
     ts: str = ""

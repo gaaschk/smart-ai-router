@@ -921,7 +921,9 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                tokens_estimated: bool = False,
                profile: PromptProfile | None = None,
                classifier: str = "",
-               started: float = 0.0) -> None:
+               started: float = 0.0,
+               tools_offered: bool = False,
+               tool_calls: list | None = None) -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
@@ -945,6 +947,11 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     measured here because for a stream the call isn't over until the last chunk
     lands, and this runs at that point — which is what makes
     completion_tokens/latency the model's real delivered throughput.
+
+    `tools_offered` / `tool_calls` are the sample behind observed_tool_health. A
+    stall is a turn that was handed tools and came back with neither a tool call nor
+    a substantive reply — not merely one that answered in prose, which is correct
+    behavior when tools are available but the prompt was a question.
     """
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
@@ -979,6 +986,10 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             profile=profile.to_dict() if profile is not None else None,
             classifier=classifier,
             latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
+            tools_offered=tools_offered,
+            tool_stalled=tools_offered and not tool_calls and completion_tokens <= max(
+                0, _settings.get_int("tool_stall_max_tokens")
+            ),
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
@@ -1703,6 +1714,12 @@ async def chat_completions(request: Request):
                     status=status, tokens_estimated=estimated,
                     profile=profile, classifier=classifier_used,
                     started=dispatch_started,
+                    # Only a drained stream is a usable sample: a client that hung
+                    # up mid-reply leaves a half-built tool call, which would read
+                    # as a stall the model never committed. Same reason capture
+                    # below requires it. Not a sample, so not counted at all.
+                    tools_offered=drained and bool(forward_body.get("tools")),
+                    tool_calls=scanner.tool_calls(),
                 )
                 # Only a whole reply is a usable reference: a client that
                 # disconnected mid-stream leaves a half-built tool call, which
@@ -1792,12 +1809,14 @@ async def chat_completions(request: Request):
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
         data = resp.json()
-        if inject_note:
-            try:
-                msg = data["choices"][0]["message"]
-                msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
-            except (KeyError, IndexError, TypeError):
-                pass  # unexpected shape — return provider response unmodified
+        # Pulled out ahead of logging because the reply's tool calls are now part of
+        # what gets recorded, not only part of what gets captured. `msg` is a
+        # reference into `data`, so the note below still edits the response.
+        msg: dict = {}
+        if isinstance(data, dict):
+            msg = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+        if inject_note and msg:
+            msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
         _log_usage(
             cr, request,
             routed_model=routed_model, domain=domain, complexity=complexity,
@@ -1805,10 +1824,10 @@ async def chat_completions(request: Request):
             status=resp.status_code,
             profile=profile, classifier=classifier_used,
             started=dispatch_started,
+            tools_offered=bool(forward_body.get("tools")),
+            tool_calls=msg.get("tool_calls") or [],
         )
         if isinstance(data, dict):
-            choice = (data.get("choices") or [{}])[0]
-            msg = (choice or {}).get("message") or {}
             if capture_this:
                 _capture.record(
                     lane=capture_lane, routed_model=routed_model,
