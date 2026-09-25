@@ -276,6 +276,18 @@ class SqliteStore(MatrixStore):
                 # model is re-measured rather than judged on a figure of unknown
                 # vintage.
                 ("observed_tps_at", "TEXT DEFAULT ''"),
+                # Share of tool-bearing turns the model answered with *something*
+                # (ModelSpec.observed_tool_health), same EWMA and the same "0.0 =
+                # never measured, therefore exempt" convention. Also absent from
+                # upsert_model's DO UPDATE SET, for the same reason: the catalog
+                # cannot know how a model behaves against this deployment's
+                # clients, so a sync must not reset it.
+                ("observed_tool_health", "REAL DEFAULT 0.0"),
+                # Age of that reading, and the same escape from the one-way ratchet
+                # as observed_tps_at: a model the tool floor excludes stops getting
+                # the tool-bearing traffic that would redeem it, so the measurement
+                # has to expire on its own.
+                ("observed_tool_health_at", "TEXT DEFAULT ''"),
             ):
                 try:
                     self._conn.execute(
@@ -329,6 +341,24 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: did this call offer tools, and did the model stall
+            # on them (UsageRecord.tools_offered / tool_stalled). Kept per row for
+            # the same reason latency_ms is: the model's running average cannot
+            # answer "was it stalling *then*", so a provider having a bad hour and a
+            # model that simply cannot hold a tool loop collapse into one number,
+            # and only one of them is worth routing around. 0 for rows written
+            # before the columns, which reads as "no tools offered" — honest, since
+            # those rows genuinely never recorded it and so contribute no sample.
+            for _usage_col, _usage_decl in (
+                ("tools_offered", "INTEGER DEFAULT 0"),
+                ("tool_stalled", "INTEGER DEFAULT 0"),
+            ):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE usage_log ADD COLUMN {_usage_col} {_usage_decl}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # already exists
             # Additive migration: whether the admin identity may see this thread.
             # DEFAULT 1 backfills every existing chat as shared, which is both the
             # product default and the only honest read of history written before the
@@ -588,8 +618,9 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO usage_log (
                     ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
-                    tokens_estimated, profile_json, classifier, latency_ms
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tokens_estimated, profile_json, classifier, latency_ms,
+                    tools_offered, tool_stalled
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.kind or _PROXY_KIND,
                     usage.user, usage.key_prefix, usage.routed_model,
@@ -601,10 +632,13 @@ class SqliteStore(MatrixStore):
                     if usage.profile else "",
                     usage.classifier,
                     max(0, int(usage.latency_ms or 0)),
+                    1 if usage.tools_offered else 0,
+                    1 if usage.tool_stalled else 0,
                 ),
             )
             self._conn.commit()
         self._blend_throughput(usage)
+        self._blend_tool_health(usage)
 
     def _blend_throughput(self, usage: UsageRecord) -> None:
         """Fold this call's delivered tokens/sec into the model's running average.
@@ -648,6 +682,59 @@ class SqliteStore(MatrixStore):
                    observed_tps_at = ?
                    WHERE value = ?""",
                 (tps, _TPS_ALPHA, _TPS_ALPHA, tps, _utcnow_iso(),
+                 usage.routed_model),
+            )
+            self._conn.commit()
+
+    def _blend_tool_health(self, usage: UsageRecord) -> None:
+        """Fold this tool-bearing turn's outcome into the model's running average.
+
+        The sample is one bit — did the model answer with *something* — so the EWMA
+        settles toward the share of tool-bearing turns it did not stall on. Same
+        alpha as throughput, so the same "last ~5 calls dominate" applies: a model
+        that starts stalling is demoted within a handful of turns rather than after
+        a statistically respectable number of them, which is the right trade when
+        the alternative is spending two minutes per turn to find out.
+
+        Only tool-bearing proxy calls count. A turn with no tools cannot stall on
+        them, and counting it as a success would let ordinary chat traffic inflate
+        a model's health until the number said nothing about tool loops at all —
+        which for a local model serving mostly chat is exactly how it would earn a
+        clean record it has not tested.
+
+        Errors are excluded because a 500 from the provider is not the model
+        failing to hold a loop, and attributing it to the model would route around
+        a network problem by permanently demoting whatever was unlucky.
+        """
+        if not usage.tools_offered or usage.status >= 400 or not usage.routed_model:
+            return
+        if (usage.kind or _PROXY_KIND) != _PROXY_KIND:
+            return
+        health = 0.0 if usage.tool_stalled else 1.0
+        with self._lock:
+            # An unmeasured model blends from a prior of 1.0, not from 0.0, and
+            # *not* by adopting the first sample outright the way throughput does.
+            # Adopting it would be a trap here: this sample is one bit, so a model
+            # that stalls on its very first turn would land on exactly 0.0 — which
+            # this column defines as "never measured" — and every later stall would
+            # re-adopt 0.0 and leave it there. A model that always stalls would stay
+            # permanently exempt, which is precisely the case worth catching.
+            #
+            # The 1.0 prior also says the right thing: innocent until measured
+            # otherwise, matching the exemption the router already grants. Because
+            # the average only ever approaches zero asymptotically, any nonzero
+            # value means "measured" and 0.0 keeps meaning "never touched". At this
+            # alpha a consistently stalling model falls under 0.5 by its fourth
+            # tool-bearing turn, and a healthy one blends 1.0 into 1.0 and stays.
+            self._conn.execute(
+                """UPDATE models SET observed_tool_health =
+                       (1 - ?) * CASE
+                           WHEN COALESCE(observed_tool_health, 0.0) <= 0.0 THEN 1.0
+                           ELSE observed_tool_health
+                       END + ? * ?,
+                   observed_tool_health_at = ?
+                   WHERE value = ?""",
+                (_TPS_ALPHA, _TPS_ALPHA, health, _utcnow_iso(),
                  usage.routed_model),
             )
             self._conn.commit()
@@ -1257,6 +1344,8 @@ class SqliteStore(MatrixStore):
             classifier=(row["classifier"] or "")
             if "classifier" in row.keys() else "",
             latency_ms=int(cls._num_column(row, "latency_ms")),
+            tools_offered=cls._bool_column(row, "tools_offered"),
+            tool_stalled=cls._bool_column(row, "tool_stalled"),
         )
 
     @staticmethod
@@ -1380,6 +1469,8 @@ class SqliteStore(MatrixStore):
             agentic=cls._num_column(row, "agentic"),
             observed_tps=cls._num_column(row, "observed_tps"),
             observed_tps_at=cls._column(row, "observed_tps_at"),
+            observed_tool_health=cls._num_column(row, "observed_tool_health"),
+            observed_tool_health_at=cls._column(row, "observed_tool_health_at"),
             structured_outputs=cls._bool_column(row, "structured_outputs"),
             reasoning=cls._bool_column(row, "reasoning"),
             competence={

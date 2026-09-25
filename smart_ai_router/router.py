@@ -410,6 +410,9 @@ def _select(
     min_tps: float = max(0.0, float(_settings.get_int("min_tokens_per_second")))
     assumed_local_tps: float = max(0.0, float(_settings.get_int("assumed_local_tps")))
     stale_days: int = max(0, _settings.get_int("tps_staleness_days"))
+    # Stored as a percentage in settings (a floor of "70" reads better than "0.7"
+    # in the UI) and compared against the 0..1 average.
+    min_tool_health: float = max(0.0, _settings.get_int("min_tool_health") / 100.0)
     agentic_excluded = 0
     slow_excluded = 0
     output_deprioritized = 0
@@ -417,12 +420,29 @@ def _select(
     def _drives_loops(spec: ModelSpec) -> bool:
         """Whether this model may be handed a multi-step tool task.
 
-        `spec.agentic == 0.0` means never measured, not incapable — two thirds of
-        the catalog and every local model are in that position — so an unmeasured
-        model is admitted and judged on its fields like it always was. This only
-        removes models measured as unable to finish a multi-step task.
+        Two independent readings, because they come from different places and one
+        of them cannot see most of the catalog:
+
+        `spec.agentic` is the profiler's benchmark index. 0.0 means never measured,
+        not incapable — two thirds of the catalog and **every local model** are in
+        that position — so an unmeasured model is admitted and judged on its other
+        fields. That exemption is deliberate, but on its own it was a hole exactly
+        where it hurt: the models nobody benchmarks are the ones most likely to fail
+        a tool loop, so the filter removed measured-weak cloud models and then
+        handed the turn to an unmeasured local one because it was free.
+
+        `spec.observed_tool_health` closes it with evidence this deployment
+        gathered itself — the share of tool-bearing turns the model answered with
+        anything at all. Same 0.0-means-unmeasured convention, same expiry, and off
+        entirely until the operator sets a floor.
         """
-        return spec.agentic <= 0.0 or spec.agentic >= min_agentic
+        if spec.agentic > 0.0 and spec.agentic < min_agentic:
+            return False
+        if min_tool_health > 0.0:
+            health = spec.observed_tool_health
+            if health > 0.0 and not _stale(spec.observed_tool_health_at):
+                return health >= min_tool_health
+        return True
 
     def _stale(measured_at: str) -> bool:
         """Whether a measurement is too old to route on.

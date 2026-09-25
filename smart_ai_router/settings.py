@@ -663,6 +663,44 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="min_tool_health",
+        env="SMART_ROUTER_MIN_TOOL_HEALTH",
+        type="int",
+        default=0,
+        label="Tool-loop health floor (%)",
+        group="Routing",
+        help="Skip models that stall when handed tools, measured from your own "
+        "traffic. 0 (the default) is off — the figure is still measured and shown "
+        "in Models, so you can watch it before letting it route. A stall is a turn "
+        "that was given tools and came back with neither a tool call nor a real "
+        "answer; answering in prose is not a stall, since that is the right reply "
+        "to a question that merely happened to have tools attached. This exists "
+        "because the catalog's agentic index only covers models someone "
+        "benchmarked, and no local model is among them — so the tool-loop filter "
+        "was structurally blind to exactly the models most likely to fail. A model "
+        "with no measurement yet is never skipped, and a demoted one recovers "
+        "after a few clean turns or when its reading expires. 70 is a reasonable "
+        "first setting: it removes models that stall more often than not.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="tool_stall_max_tokens",
+        env="SMART_ROUTER_TOOL_STALL_MAX_TOKENS",
+        type="int",
+        default=96,
+        label="Count a tool turn as stalled below (tokens)",
+        group="Routing",
+        help="How short a reply has to be, with tools offered and no tool call "
+        "emitted, before it counts as a stall rather than a brief answer. This is "
+        "a calibration knob and the default is a starting point, not a truth: what "
+        "a stalled reply looks like depends on your clients, since a coding agent's "
+        "shortest useful turn is longer than a chat UI's. Raise it if models are "
+        "being blamed for terse answers; lower it if real stalls are slipping "
+        "through. The observed case that prompted it: a local 30B handed a planning "
+        "prompt returned 52 and 82 tokens, twice, after two minutes each.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="cost_quality_bias",
         env="SMART_ROUTER_COST_QUALITY_BIAS",
         type="int",
