@@ -663,6 +663,27 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="classifier_context_chars",
+        env="SMART_ROUTER_CLASSIFIER_CONTEXT_CHARS",
+        type="int",
+        default=4000,
+        label="Conversation context given to the classifier (characters)",
+        group="Routing",
+        help="How much of the earlier conversation the prompt classifier reads "
+        "along with the newest message. 0 profiles the last message alone, which "
+        "is right for a first turn and wrong for every turn after it: an agentic "
+        "session's user turns are routinely 'you do it' or 'continue', three words "
+        "that profile as trivial general knowledge while the implementation work "
+        "they refer to is invisible — so the hardest turn of a session gets routed "
+        "to the cheapest model in the catalog. Only user turns are included, never "
+        "the assistant's replies, so the classifier profiles the request and not "
+        "its own answer. Costs tokens on every request, since triage runs in front "
+        "of all of them: raise it if follow-ups are still under-routed, lower it if "
+        "classification latency starts showing up in replies. Too high on a client "
+        "that changes subject often will over-route — the old topic keeps voting.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="min_tool_health",
         env="SMART_ROUTER_MIN_TOOL_HEALTH",
         type="int",
