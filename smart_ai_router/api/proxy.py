@@ -618,18 +618,99 @@ class _StreamUsageScanner:
         )
 
 
+# The two headings that separate "what the conversation was about" from "what is
+# being asked now". Without them the classifier profiles the concatenation, and a
+# change of subject inherits the previous topic's difficulty.
+_CLASSIFY_CONTEXT_HEADING = (
+    "# Earlier in this conversation (context only, do not profile this)"
+)
+_CLASSIFY_REQUEST_HEADING = "# The request to profile"
+
+
+def _message_text(msg: dict) -> str:
+    """A message's text, whether it came as a string or as OpenAI content parts."""
+    content = msg.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
 def _extract_prompt(messages: list[dict]) -> str:
+    """The last user message — what the request is literally asking for.
+
+    This is the caller's own turn, used for GBrain retrieval and save-back where
+    the point is the question itself. For routing, see _classify_text: the last
+    turn alone is not enough to know how hard the *work* is.
+    """
     for msg in reversed(messages):
         if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return " ".join(
-                    part.get("text", "") for part in content
-                    if isinstance(part, dict) and part.get("type") == "text"
-                )
+            return _message_text(msg)
     return ""
+
+
+def _classify_text(messages: list[dict]) -> str:
+    """What the classifier profiles: the last user turn, plus earlier user turns
+    back to a character budget.
+
+    Profiling the last message alone is correct only for the first turn of a
+    conversation. After that, an agentic session's user turns are routinely "you do
+    it", "continue", "yes" — three words that profile as trivial general knowledge
+    while the tens of thousands of tokens of implementation work they refer to are
+    invisible. The router then hands the hardest turn of the session to the
+    cheapest model in the catalog, which is how a request to write a database
+    migration was profiled `general_knowledge @ surface` and answered by a local
+    model that invented the migration and the command to run it.
+
+    The context is **labelled** rather than concatenated, and that turned out to be
+    the whole ballgame. Handed one undifferentiated blob, the triage model profiles
+    all of it, so a genuine change of subject gets dragged back to the old topic —
+    measured on this deployment's own triage model, "unrelated: what's the capital
+    of France?" after a planning conversation profiled `general/trivial` alone and
+    `coding/hard` when the conversation was merely prepended. Telling the model
+    which part is the request restores it to `general/trivial`, 5/5, while the real
+    work follow-up stays `coding/hard`, 5/5.
+
+    User turns only. Including the assistant's replies would let the classifier
+    grade the answer rather than the request, and its code blocks would assert a
+    domain the user never asked for.
+
+    Budgeted, because triage sits in front of every request and its latency is
+    added to every reply — an unbounded conversation would put the whole history
+    through a local 8B on every turn. The last message is always included in full,
+    and with no earlier turns to add the text is returned bare, so a first turn
+    classifies byte-for-byte as it did before.
+    """
+    last = _extract_prompt(messages)
+    budget = max(0, _settings.get_int("classifier_context_chars"))
+    if not last or not budget:
+        return last
+    earlier: list[str] = []
+    skipped_last = False
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        if not skipped_last:
+            skipped_last = True  # the one _extract_prompt already returned
+            continue
+        # Tail of each turn: when a turn has to be cut, its end is the part that
+        # led to what came next.
+        chunk = _message_text(msg)[-budget:]
+        if not chunk:
+            continue
+        earlier.append(chunk)
+        budget -= len(chunk)
+        if budget <= 0:
+            break
+    if not earlier:
+        return last
+    earlier.reverse()
+    return (f"{_CLASSIFY_CONTEXT_HEADING}\n" + "\n\n".join(earlier)
+            + f"\n\n{_CLASSIFY_REQUEST_HEADING}\n{last}")
 
 
 def _ollama_base(cr) -> str:
@@ -1189,6 +1270,10 @@ async def chat_completions(request: Request):
     # (network error, timeout, malformed output). Profiling never blocks or fails
     # the request.
     prompt_text = _extract_prompt(messages)
+    # What routes is the conversation's demand, not this turn's word count — see
+    # _classify_text. GBrain keeps reading `prompt_text`, since retrieval and
+    # save-back are about the question the user actually asked.
+    classify_text = _classify_text(messages)
     if not prompt_text:
         profile = PromptProfile(domains=(DomainNeed("general_knowledge", "surface"),))
         classifier_used = "default"
@@ -1199,7 +1284,7 @@ async def chat_completions(request: Request):
         # classifier so the classifier stays store-free — see overhead.py.
         with _overhead.collect() as overhead_calls:
             chain_result = await classify_profile_two_speed(
-                prompt_text,
+                classify_text,
                 _classifier_targets(cr),
                 # Passed unevaluated: resolving the refine model routes, and the
                 # pass fires on a small minority of prompts. See
@@ -1214,7 +1299,7 @@ async def chat_completions(request: Request):
         if chain_result is not None:
             profile, classifier_used = chain_result
         else:
-            profile = classify_profile(prompt_text)
+            profile = classify_profile(classify_text)
             classifier_used = "keyword"
 
     # Legacy labels for the usage log, the X- headers, and the dashboard. Always
