@@ -618,6 +618,15 @@ class _StreamUsageScanner:
         )
 
 
+# The two headings that separate "what the conversation was about" from "what is
+# being asked now". Without them the classifier profiles the concatenation, and a
+# change of subject inherits the previous topic's difficulty.
+_CLASSIFY_CONTEXT_HEADING = (
+    "# Earlier in this conversation (context only, do not profile this)"
+)
+_CLASSIFY_REQUEST_HEADING = "# The request to profile"
+
+
 def _message_text(msg: dict) -> str:
     """A message's text, whether it came as a string or as OpenAI content parts."""
     content = msg.get("content", "")
@@ -657,6 +666,15 @@ def _classify_text(messages: list[dict]) -> str:
     migration was profiled `general_knowledge @ surface` and answered by a local
     model that invented the migration and the command to run it.
 
+    The context is **labelled** rather than concatenated, and that turned out to be
+    the whole ballgame. Handed one undifferentiated blob, the triage model profiles
+    all of it, so a genuine change of subject gets dragged back to the old topic —
+    measured on this deployment's own triage model, "unrelated: what's the capital
+    of France?" after a planning conversation profiled `general/trivial` alone and
+    `coding/hard` when the conversation was merely prepended. Telling the model
+    which part is the request restores it to `general/trivial`, 5/5, while the real
+    work follow-up stays `coding/hard`, 5/5.
+
     User turns only. Including the assistant's replies would let the classifier
     grade the answer rather than the request, and its code blocks would assert a
     domain the user never asked for.
@@ -664,7 +682,8 @@ def _classify_text(messages: list[dict]) -> str:
     Budgeted, because triage sits in front of every request and its latency is
     added to every reply — an unbounded conversation would put the whole history
     through a local 8B on every turn. The last message is always included in full,
-    so a first turn classifies exactly as it did before.
+    and with no earlier turns to add the text is returned bare, so a first turn
+    classifies byte-for-byte as it did before.
     """
     last = _extract_prompt(messages)
     budget = max(0, _settings.get_int("classifier_context_chars"))
@@ -687,8 +706,11 @@ def _classify_text(messages: list[dict]) -> str:
         budget -= len(chunk)
         if budget <= 0:
             break
+    if not earlier:
+        return last
     earlier.reverse()
-    return "\n\n".join([*earlier, last])
+    return (f"{_CLASSIFY_CONTEXT_HEADING}\n" + "\n\n".join(earlier)
+            + f"\n\n{_CLASSIFY_REQUEST_HEADING}\n{last}")
 
 
 def _ollama_base(cr) -> str:

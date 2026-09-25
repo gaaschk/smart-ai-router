@@ -41,7 +41,12 @@ from __future__ import annotations
 
 import pytest
 
-from smart_ai_router.api.proxy import _classify_text, _extract_prompt
+from smart_ai_router.api.proxy import (
+    _CLASSIFY_CONTEXT_HEADING,
+    _CLASSIFY_REQUEST_HEADING,
+    _classify_text,
+    _extract_prompt,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +83,25 @@ def test_a_short_follow_up_carries_the_conversations_work():
 def test_the_newest_turn_is_last_so_recency_still_reads():
     convo = _convo(("user", "first thing"), ("user", "second thing"))
     assert _classify_text(convo).endswith("second thing")
+
+
+def test_context_is_labelled_not_just_concatenated():
+    """The load-bearing detail, measured on the deployment's own triage model.
+
+    Handed one undifferentiated blob the classifier profiles all of it, so a change
+    of subject inherits the old topic's difficulty: "unrelated: what's the capital
+    of France?" after a planning conversation profiled ('general','trivial') alone
+    and ('coding','hard') with the conversation merely prepended. With the two
+    headings it is ('general','trivial') 5/5, while "you do it" after the same
+    conversation stays ('coding','hard') 5/5.
+    """
+    convo = _convo(("user", _PLAN), ("user", "you do it"))
+    text = _classify_text(convo)
+    assert _CLASSIFY_CONTEXT_HEADING in text
+    assert _CLASSIFY_REQUEST_HEADING in text
+    # The request has to come after its heading, or the label means nothing.
+    assert text.index(_CLASSIFY_REQUEST_HEADING) < text.index("you do it")
+    assert text.index(_CLASSIFY_CONTEXT_HEADING) < text.index(_PLAN)
 
 
 def test_assistant_replies_are_never_included():
@@ -127,7 +151,11 @@ def test_context_is_capped(monkeypatch):
     # The last turn in full, plus at most the budget of earlier context — not the
     # whole history, which would put 10k chars through a local 8B every request.
     assert text.endswith("go")
-    assert len(text) < 100 + len("go") + 10
+    # Measured on the history section alone: the budget governs what we send of the
+    # conversation, and the two fixed headings are not conversation.
+    history = text.split(_CLASSIFY_CONTEXT_HEADING)[1]
+    history = history.split(_CLASSIFY_REQUEST_HEADING)[0]
+    assert len(history.strip()) <= 100
 
 
 def test_the_tail_of_a_cut_turn_is_kept(monkeypatch):
