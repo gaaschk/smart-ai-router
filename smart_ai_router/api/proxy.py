@@ -70,6 +70,53 @@ _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # Model-name markers that force the orchestrator (Claude) path.
 _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 
+# Routing-mode names meaning "the whole catalog" — which is also what any
+# unrecognized name has always meant. Listed explicitly so `smart-openai` (a
+# vendor pin) can be told apart from `smart-opnai` (a typo): the typo has to fail
+# loudly, because silently widening to every vendor looks exactly like a pin that
+# worked, and the caller would never learn its restriction was ignored.
+_OPEN_POOL_NAMES = frozenset({
+    "smart", "smart-auto", "smart-all", "smart-router", "smart-worker",
+})
+
+
+def _pool_pin(requested_model: str) -> str:
+    """The vendor or family a `smart-<name>` request restricts the pool to.
+
+    "" means the open pool. Claudish sends `ll@smart-orchestrator`, so the routing
+    name is only the segment after the last "@".
+    """
+    name = requested_model.strip().lower().rsplit("@", 1)[-1]
+    if not name.startswith("smart-") or name in _OPEN_POOL_NAMES:
+        return ""
+    return name[len("smart-"):]
+
+
+def _vendor_tokens(spec: ModelSpec) -> set[str]:
+    """The names `spec` answers to as a vendor: its provider and id segments.
+
+    `openrouter/openai/gpt-5.6-sol` → {"openrouter", "openai"}; a one-segment id
+    like `ollama/gemma4:12b` has no vendor of its own, so the provider is it.
+    OpenRouter's `~vendor` variants are the same vendor under alternate routing.
+    """
+    parts = spec.value.lower().split("/")
+    tokens = {spec.provider.lower(), parts[0]}
+    if len(parts) > 2:
+        tokens.add(parts[1].lstrip("~"))
+    return tokens - {""}
+
+
+def _pinned_pool(pin: str, models: list[ModelSpec]) -> list[ModelSpec]:
+    """The models `pin` selects, by vendor if it names one and by substring if not.
+
+    The fallback is what makes the feature match how people actually name things:
+    `smart-grok` and `smart-sonnet` are the obvious requests, and neither is a
+    vendor — those models ship under x-ai and anthropic. Vendor first so an exact
+    vendor never loses to a coincidental substring elsewhere in the catalog.
+    """
+    return ([s for s in models if pin in _vendor_tokens(s)]
+            or [s for s in models if pin in s.value.lower()])
+
 def _default_max_tokens() -> int:
     """Output-token ceiling applied when a caller omits max_tokens.
 
@@ -952,18 +999,23 @@ def _headers(api_key: str) -> dict[str, str]:
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @proxy_router.get("/v1/models")
-def list_models():
-    """The model names a client may send — which is the two routing modes, not
-    the catalog.
+def list_models(request: Request):
+    """The model names a client may send — the routing modes, not the catalog.
 
     An editor that only speaks OpenAI (Cursor, Continue, Zed, aider) asks here
     before it will let you pick anything, and a 404 reads as a broken endpoint.
     But listing the catalog would be a lie: `model` in a completions body never
-    selects a model, it is overwritten with the router's pick, and the only part
-    of it that changes anything is whether it says "orchestrator". So this lists
-    exactly what a caller can decide. /api/models still serves the real catalog,
-    with the capability flags and prices this shape has nowhere to put.
+    selects a model, it is overwritten with the router's pick. So this lists
+    exactly what a caller can decide — the modes, plus one `smart-<vendor>` per
+    vendor present, since a pin the dropdown doesn't offer is a pin nobody finds.
+    Derived from the catalog rather than hardcoded so syncing a new provider
+    surfaces its vendors without a deploy. /api/models still serves the real
+    catalog, with the capability flags and prices this shape has nowhere to put.
     """
+    vendors = sorted({
+        v for s in request.app.state.capability_router.all_models()
+        for v in _vendor_tokens(s)
+    })
     return {
         "object": "list",
         "data": [
@@ -971,7 +1023,8 @@ def list_models():
             # a real timestamp would be invented — the modes ship with the code.
             {"id": name, "object": "model", "created": 0,
              "owned_by": "smart-ai-router"}
-            for name in ("smart-worker", _ORCHESTRATOR_MARKERS[0])
+            for name in ["smart-auto", _ORCHESTRATOR_MARKERS[0]]
+            + [f"smart-{v}" for v in vendors]
         ],
     }
 
@@ -1093,6 +1146,7 @@ async def chat_completions(request: Request):
     stream = bool(body.get("stream", False))
     requested_model = str(body.get("model", ""))
     is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
+    pool_pin = "" if is_orchestrator else _pool_pin(requested_model)
 
     # Agent mode: the client asks the assistant to use the filesystem tools
     # (read/write/bash over its per-user workspace). Signaled by a non-standard
@@ -1273,8 +1327,8 @@ async def chat_completions(request: Request):
         # escalates to Opus. Previously this branch ignored the profile and took
         # the cheapest Claude clearing a competence floor, which meant every
         # orchestrator request paid for a classification it then discarded.
-        pool = [s for s in cr.all_models() if _orchestrator_capable(s)]
-        if not pool:
+        candidates = [s for s in cr.all_models() if _orchestrator_capable(s)]
+        if not candidates:
             raise HTTPException(
                 status_code=422,
                 detail="Orchestrator mode requires a Claude model of generation "
@@ -1282,18 +1336,34 @@ async def chat_completions(request: Request):
                        " or newer. Configure a 'bedrock' provider or sync an "
                        "anthropic/claude model.",
             )
-        # A scoped key that can reach none of them cannot orchestrate. Checked
-        # against the pool rather than after the pick, so the error names the
-        # real cause instead of surfacing as a generic "no eligible model".
-        if scope is not None and not any(scope.permits(s) for s in pool):
+    elif pool_pin:
+        # `smart-<vendor>` pins the vendor and nothing else: the profile still
+        # picks *which* of that vendor's models, exactly as on the open pool. This
+        # is the general case the Claude-only lane above is a special case of —
+        # the lane stays separate only because it additionally enforces a minimum
+        # generation for loop stamina, which no vendor pin should imply.
+        candidates = _pinned_pool(pool_pin, cr.all_models())
+        if not candidates:
             raise HTTPException(
-                status_code=403,
-                detail="Your key's scope does not permit the Claude model "
-                       "required for orchestrator mode.",
+                status_code=422,
+                detail=f"No model in the catalog matches '{pool_pin}'. Use "
+                       "smart-auto for every vendor, or see /v1/models for the "
+                       "names this deployment can pin.",
             )
-        candidates = pool
     else:
         candidates = None
+
+    # A scoped key that can reach none of the pool cannot use it. Checked against
+    # the pool rather than after the pick, so the error names the real cause
+    # instead of surfacing as a generic "no eligible model".
+    if candidates is not None and scope is not None and not any(
+        scope.permits(s) for s in candidates
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Your key's scope does not permit any model in the "
+                   f"'{requested_model}' pool.",
+        )
 
     route_kw = dict(
         needs_tools=needs_tools,
@@ -1309,7 +1379,7 @@ async def chat_completions(request: Request):
     # ceiling and the profile's own bar all apply unchanged: a canary that isn't
     # eligible (RuntimeError) or doesn't clear the bar (`qualified` false) loses
     # the turn to Claude instead of degrading it.
-    canary = _canary_spec(cr) if candidates is not None else None
+    canary = _canary_spec(cr) if is_orchestrator else None
     decision = None
     if canary is not None:
         try:
@@ -1332,7 +1402,9 @@ async def chat_completions(request: Request):
 
     # Worker path escalated to Claude — no cheaper model cleared the quality bar.
     # Claude is the most expensive tier, so surface a note to the user.
-    claude_tier = (not is_orchestrator) and ("claude" in routed_model.lower())
+    # A pinned request is excluded for the same reason orchestrator mode is: the
+    # caller named the vendor, so "this cost you Claude money" is not news.
+    claude_tier = not (is_orchestrator or pool_pin) and "claude" in routed_model.lower()
 
     # Nothing available cleared every bar this prompt sets, so the pick is the
     # closest miss rather than a qualified model. This is the case the old router
@@ -1360,6 +1432,8 @@ async def chat_completions(request: Request):
     routed_spec = cr.get_model(routed_model)
 
     mode = "orchestrator" if is_orchestrator else profile.describe()
+    if pool_pin:
+        mode = f"[pin:{pool_pin} {len(candidates)}] {mode}"
     print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
           f"{' [CANARY]' if canary_used else ''}"
           f"{' [ESCALATED]' if claude_tier else ''}"

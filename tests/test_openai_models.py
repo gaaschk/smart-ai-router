@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from smart_ai_router.api.proxy import _ORCHESTRATOR_MARKERS
 from smart_ai_router.api.app import create_app
 from smart_ai_router.facade import CapabilityRouter
+from smart_ai_router.models import ModelSpec
 from smart_ai_router.store.sqlite_store import SqliteStore
 
 
@@ -37,14 +38,36 @@ def test_the_list_is_the_shape_an_openai_client_parses(client):
         assert m["object"] == "model"
 
 
-def test_it_offers_the_two_names_that_change_the_routing(client):
+def test_it_offers_the_modes_that_change_the_routing(client):
     ids = [m["id"] for m in client.get("/v1/models").json()["data"]]
     # Not the catalog: `model` in a completions body is overwritten with the
     # router's pick, so listing 200 model ids would promise a choice that does
-    # not exist. Orchestrator mode is the one thing a caller really selects.
+    # not exist. What a caller really selects is the pool — every vendor
+    # (smart-auto), Claude-only (smart-orchestrator), or one vendor.
     assert any(_ORCHESTRATOR_MARKERS[0] in i for i in ids)
-    assert any("worker" in i for i in ids)
+    assert "smart-auto" in ids
+    # An empty catalog has no vendors to pin, so the modes are all that is left.
     assert len(ids) == 2
+
+
+def test_it_offers_a_pin_for_every_vendor_in_the_catalog():
+    """A pin the dropdown never offers is a pin nobody discovers.
+
+    Derived from the catalog rather than hardcoded, so syncing a provider
+    surfaces its vendors with no deploy — and a vendor with no models is never
+    offered, since pinning it would 422.
+    """
+    store = SqliteStore(":memory:")
+    store.upsert_model(ModelSpec("openrouter/x-ai/grok-4.6", provider="openrouter"))
+    store.upsert_model(ModelSpec("ollama/qwen3-coder:30b", provider="ollama"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        c = TestClient(create_app(CapabilityRouter(store=store)))
+    ids = [m["id"] for m in c.get("/v1/models").json()["data"]]
+    assert "smart-x-ai" in ids
+    assert "smart-ollama" in ids
+    assert "smart-openrouter" in ids
+    assert "smart-anthropic" not in ids
 
 
 def test_every_name_offered_is_one_the_proxy_understands(client):
