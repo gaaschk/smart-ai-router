@@ -7,6 +7,10 @@ name = "smart-ai-router"
 version = "0.1.0"
 description = "Vendor-agnostic LLM capability router with live provider sync"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Kevin Gaasch", email = "kevingaasch@gmail.com" }
+]
 dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",

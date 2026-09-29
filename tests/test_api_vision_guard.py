@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Integration tests for the proxy's vision capability guard + file resolution.
 
 The locked no-vision-model behavior: if a request carries an image but no

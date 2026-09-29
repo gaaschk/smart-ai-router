@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Measured tool-loop health: the hole the benchmarked `agentic` index left open.
 
 `agentic` covers only models somebody benchmarked, and **no local model is among

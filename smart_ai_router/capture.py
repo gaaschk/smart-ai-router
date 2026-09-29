@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Sampled capture of real tool-loop turns, so a bakeoff can replay them.
 
 Why this exists: nothing in the store keeps a prompt. usage_log records tokens,

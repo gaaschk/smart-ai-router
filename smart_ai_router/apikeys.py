@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """API key minting and hashing helpers.
 
 Keys are shown to the operator exactly once, at creation time. Only the SHA-256

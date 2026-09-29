@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Tests for the capability layer — column-reduction over the model matrix."""
 from smart_ai_router.capabilities import compute_capabilities, reachable_models
 from smart_ai_router.models import ModelSpec

@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Bake off local Ollama models as the triage prompt profiler.
 
 Exercises the REAL code path — llm_classifier.classify_profile_llm — so the

@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Tests for the LLM profile classifier — parsing, schema, chain, two-speed.
 
 No network: every call either short-circuits before HTTP or goes through an

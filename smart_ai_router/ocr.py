@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Rasterize scanned/image-only PDFs to page images for vision models.
 
 A born-digital PDF has a text layer that extract.py pulls out cheaply. A

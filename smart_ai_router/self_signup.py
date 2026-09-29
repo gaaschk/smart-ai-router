@@ -1,3 +1,9 @@
+# This file is part of smart-ai-router.
+# smart-ai-router is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+
 """Self-issued API keys — an account with no identity behind it, bill capped.
 
 An anonymous session lives in one browser (see ``public_access.py``). The moment
