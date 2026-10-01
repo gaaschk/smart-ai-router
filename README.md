@@ -138,4 +138,5 @@ python -m smart_ai_router
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for the full text.
+Copyright (c) 2026 Kevin Gaasch.
