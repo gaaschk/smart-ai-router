@@ -12,13 +12,13 @@ import os
 import plistlib
 import subprocess
 import sys
-import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REVIEW_PATH = ROOT / "logs" / "daily-review.md"
+_REVIEW_MARKERS = ["TODO", "FIXME", "XXX", "HACK", "pass  # TODO"]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -282,55 +282,33 @@ def _review_plist(
     home_dir: Path | None = None,
     hour: int = 3,
     minute: int = 0,
-) -> str:
+) -> bytes:
     project_root = repo_root.resolve()
     venv_python = Path(sys.executable)
     output_path = output_path.resolve()
     home_dir = home_dir or Path.home()
-    return textwrap.dedent(
-        f"""\
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-          <key>Label</key>
-          <string>com.smart-ai-router-review</string>
-          <key>WorkingDirectory</key>
-          <string>{project_root}</string>
-          <key>ProgramArguments</key>
-          <array>
-            <string>{venv_python}</string>
-            <string>-m</string>
-            <string>smart_ai_router</string>
-            <string>review</string>
-            <string>--repo</string>
-            <string>{project_root}</string>
-            <string>--output</string>
-            <string>{output_path}</string>
-          </array>
-          <key>EnvironmentVariables</key>
-          <dict>
-            <key>HOME</key>
-            <string>{home_dir}</string>
-            <key>PATH</key>
-            <string>{home_dir / '.local/bin'}:/usr/local/bin:/usr/bin:/bin</string>
-          </dict>
-          <key>StartCalendarInterval</key>
-          <dict>
-            <key>Hour</key>
-            <integer>{hour % 24}</integer>
-            <key>Minute</key>
-            <integer>{minute % 60}</integer>
-          </dict>
-          <key>StandardOutPath</key>
-          <string>{project_root / 'logs' / 'daily-review.log'}</string>
-          <key>StandardErrorPath</key>
-          <string>{project_root / 'logs' / 'daily-review.err'}</string>
-        </dict>
-        </plist>
-        """
-    )
+    payload = {
+        "Label": "com.smart-ai-router-review",
+        "WorkingDirectory": str(project_root),
+        "ProgramArguments": [
+            str(venv_python),
+            "-m",
+            "smart_ai_router",
+            "review",
+            "--repo",
+            str(project_root),
+            "--output",
+            str(output_path),
+        ],
+        "EnvironmentVariables": {
+            "HOME": str(home_dir),
+            "PATH": str(home_dir / ".local/bin") + ":/usr/local/bin:/usr/bin:/bin",
+        },
+        "StartCalendarInterval": [{"Hour": hour % 24, "Minute": minute % 60}],
+        "StandardOutPath": str(project_root / "logs" / "daily-review.log"),
+        "StandardErrorPath": str(project_root / "logs" / "daily-review.err"),
+    }
+    return plistlib.dumps(payload)
 
 
 def install_review_launchd(
@@ -348,16 +326,19 @@ def install_review_launchd(
     launch_agents.mkdir(parents=True, exist_ok=True)
     plist_path = launch_agents / "com.smart-ai-router-review.plist"
     (repo / "logs").mkdir(parents=True, exist_ok=True)
-    plist_path.write_text(
-        _review_plist(repo, out.resolve(), home_dir=home_dir, hour=hour, minute=minute),
-        encoding="utf-8",
+    plist_path.write_bytes(
+        _review_plist(repo, out.resolve(), home_dir=home_dir, hour=hour, minute=minute)
     )
 
     try:
         subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True, text=True)
         subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as exc:
-        err = (exc.stderr or exc.stdout or str(exc)).strip() or "launchctl failed"
+    except (OSError, subprocess.CalledProcessError) as exc:
+        err = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            err = (exc.stderr or exc.stdout or str(exc)).strip() or "launchctl failed"
+        else:
+            err = str(exc)
         raise RuntimeError(f"Failed to install daily review LaunchAgent: {err}") from exc
     return plist_path
 

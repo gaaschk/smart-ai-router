@@ -47,10 +47,10 @@ def test_install_review_launchd_uses_expected_plist(monkeypatch, tmp_path):
 
     assert plist_path.name == "com.smart-ai-router-review.plist"
     assert plist_path.parent.name == "LaunchAgents"
-    text = plist_path.read_text(encoding="utf-8")
-    assert "com.smart-ai-router-review" in text
-    assert "<integer>5</integer>" in text
-    assert "<integer>45</integer>" in text
+    text = plist_path.read_bytes()
+    assert b"com.smart-ai-router-review" in text
+    assert b"<integer>5</integer>" in text
+    assert b"<integer>45</integer>" in text
     assert calls[0][:3] == ["launchctl", "unload", str(plist_path)]
     assert calls[1][:3] == ["launchctl", "load", str(plist_path)]
 
