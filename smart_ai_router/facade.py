@@ -335,6 +335,25 @@ class CapabilityRouter:
         a value → that user's rows only. since_ts ("" = unbounded) bounds it."""
         return self._store.usage_summary(user=user, since_ts=since_ts)
 
+    def overview_flows(self, *, since_ts: str) -> dict:
+        """Per-user aggregates for the dashboard overview. Not scoped — the
+        caller picks its own row and ranks against the rest. See MatrixStore."""
+        return self._store.overview_flows(since_ts=since_ts)
+
+    def cheap_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """User requests served at cost tier <= 2 per the live catalog."""
+        return self._store.cheap_model_requests(since_ts=since_ts, user=user)
+
+    def priced_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """User requests whose model still has a known price."""
+        return self._store.priced_model_requests(since_ts=since_ts, user=user)
+
+    def premium_equivalent_cost(
+        self, *, since_ts: str, user: str | None
+    ) -> tuple[float, float] | None:
+        """(premium, actual) for the priced subset of this traffic."""
+        return self._store.premium_equivalent_cost(since_ts=since_ts, user=user)
+
     # ── Files (uploads) ──────────────────────────────────────────────────────
 
     def upload_file(

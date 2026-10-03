@@ -36,6 +36,15 @@ _baseline = baseline_profile
 _PROXY_KIND = "proxy"
 _IS_PROXY = f"COALESCE(kind, '{_PROXY_KIND}') = '{_PROXY_KIND}'"
 _IS_OVERHEAD = f"COALESCE(kind, '{_PROXY_KIND}') != '{_PROXY_KIND}'"
+# The same test, qualified for queries that alias usage_log as `u` (the overview
+# aggregates below, which join it to `models`). Kept beside the unqualified pair
+# so the two can never drift apart on what counts as user traffic.
+_IS_PROXY_U = f"COALESCE(u.kind, '{_PROXY_KIND}') = '{_PROXY_KIND}'"
+# "This request has a price we can compare" — true for a metered model, and for a
+# local one too, which is genuinely $0 rather than unknown. The distinction matters:
+# a hosted model with both rates 0 means the catalog has no price for it, and
+# including it would invent a baseline comparison out of an unknown.
+_IS_PRICED_U = "(m.cost_input > 0 OR m.cost_output > 0 OR m.provider = 'ollama')"
 
 # How fast ModelSpec.observed_tps forgets. 0.2 → the last ~5 calls dominate.
 _TPS_ALPHA = 0.2
@@ -955,6 +964,188 @@ class SqliteStore(MatrixStore):
         if by_user is not None:
             result["by_user"] = _keyed(by_user)
         return result
+
+    def overview_flows(self, *, since_ts: str) -> dict:
+        """Per-user aggregates for the dashboard overview, in one pass.
+
+        Distinct from `usage_summary` in three ways, all of them because the
+        overview needs answers a windowed all-users rollup cannot give:
+
+        * it is **not** windowed on the reading side -- one row per user since
+          `since_ts`, and the caller does the window math. The dashboard shows
+          the *whole* standing of each user ("days since your first request",
+          "you rank 3rd") alongside one window's traffic, and a summary that had
+          already discarded older rows could not answer either.
+        * it returns `errors`, which `usage_summary` has no column for. A 4xx/5xx
+          is the one number that changes what an operator does next, and it can
+          only be counted here.
+        * it returns first-request and last-active timestamps per user, for the
+          same "standing" questions.
+
+        Every row is still `kind='proxy'` only: these are user traffic, not the
+        router's own overhead, which `usage_summary` reports separately.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT user AS key,
+                           COUNT(*) AS requests,
+                           COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                           COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                           COALESCE(SUM(cost_usd), 0.0) AS cost_usd,
+                           COALESCE(SUM(tokens_estimated), 0) AS estimated_rows,
+                           COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0)
+                               AS errors,
+                           MIN(NULLIF(ts, '')) AS first_ts,
+                           MAX(NULLIF(ts, '')) AS last_ts,
+                           COUNT(DISTINCT substr(ts, 1, 10)) AS active_days
+                    FROM usage_log
+                    WHERE ts >= ? AND {_IS_PROXY}
+                    GROUP BY user""",
+                (since_ts,),
+            ).fetchall()
+
+        return {
+            "by_user": [
+                {
+                    "key": r["key"] or "",
+                    "requests": r["requests"] or 0,
+                    "prompt_tokens": r["prompt_tokens"] or 0,
+                    "completion_tokens": r["completion_tokens"] or 0,
+                    "cost_usd": r["cost_usd"] or 0.0,
+                    "estimated_rows": r["estimated_rows"] or 0,
+                    "errors": r["errors"] or 0,
+                    "first_ts": r["first_ts"] or "",
+                    "last_ts": r["last_ts"] or "",
+                    "active_days": r["active_days"] or 0,
+                }
+                for r in rows
+            ]
+        }
+
+    def cheap_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """Count user requests served at cost tier <= 2 (free, local, or cheap paid).
+
+        "Cheap" is the router's own tier vocabulary (`ModelSpec.cost`: 0=local,
+        1=free tier, 2+=paid), read from the live `models` table rather than
+        re-decided here, so this stays correct after a sync reprices a model --
+        a copy frozen into usage_log at request time would not.
+
+        The LEFT JOIN is deliberate: a row whose model has since been deleted
+        from the catalog gets `cost` NULL and is therefore counted as *neither*
+        cheap nor escalated. Guessing it into the cheap bucket would flatter the
+        headline, and into the escalated bucket would invent an escalation that
+        never happened.
+        """
+        where = "u.ts >= ? AND " + _IS_PROXY_U
+        params: list = [since_ts]
+        if user is not None:
+            where += " AND u.user = ?"
+            params.append(user)
+        with self._lock:
+            row = self._conn.execute(
+                f"""SELECT COUNT(*) AS n
+                    FROM usage_log u
+                    LEFT JOIN models m ON m.value = u.routed_model
+                    WHERE {where} AND m.cost IS NOT NULL AND m.cost <= 2""",
+                params,
+            ).fetchone()
+        return row["n"] or 0
+
+    def priced_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """Count user requests that can be priced against the premium baseline.
+
+        The denominator for the savings figure: a request only participates if
+        the comparison would be meaningful. That means its model is still in the
+        catalog, and either it has a real rate **or it is a local model** — an
+        Ollama request costs exactly $0 (`pricing.cost_for` returns 0.0 for the
+        provider outright), so it is known-not-free against a metered baseline
+        and counts. A hosted model with both rates 0 is *unknown*, and a local
+        model is *known zero*; collapsing the two would drop every local route
+        out of the saving, which is the case where the saving is largest.
+
+        When this is 0 the caller reports the saving as unavailable rather
+        than as 0, so "nothing to compare" never reads as "saved nothing".
+        """
+        where = "u.ts >= ? AND " + _IS_PROXY_U
+        params: list = [since_ts]
+        if user is not None:
+            where += " AND u.user = ?"
+            params.append(user)
+        with self._lock:
+            row = self._conn.execute(
+                f"""SELECT COUNT(*) AS n
+                    FROM usage_log u
+                    JOIN models m ON m.value = u.routed_model
+                    WHERE {where} AND {_IS_PRICED_U}""",
+                params,
+            ).fetchone()
+        return row["n"] or 0
+
+    def premium_equivalent_cost(
+        self, *, since_ts: str, user: str | None
+    ) -> tuple[float, float] | None:
+        """(premium cost, actual cost) for this traffic's *priced* subset.
+
+        Computed in SQL from the live catalog: every priced user request
+        re-costed at the rates of the catalog's most expensive model. Returns
+        `(premium, actual)`, or None when no request has a known price so a
+        caller can distinguish "no saving to report" from "nothing to compare".
+
+        Both halves come back because they have to describe the *same* rows. A
+        caller that re-costed the whole window and compared against the total
+        spend would mix a subset's baseline with a superset's actual, and the
+        difference could come out negative — which reads as "you saved nothing"
+        rather than "there isn't enough priced traffic to tell".
+
+        This is the ceiling of the claim, not a typical case: it answers "if all
+        of this had gone to the most expensive model available", which is the
+        strongest honest comparison and the one that cannot be accused of picking
+        a flattering baseline.
+
+        The baseline is the single highest-*blended* model, not the max of each
+        column taken independently -- MAX(input) and MAX(output) usually come from
+        different models, and pairing them would invent a rate no model charges.
+        Blending matters for the same reason `pricing.blended_rate` exists: output
+        dominates real cost, so ranking on input alone would pick a model that is
+        merely the worst on one axis.
+        """
+        where = "u.ts >= ? AND " + _IS_PROXY_U
+        params: list = [since_ts]
+        if user is not None:
+            where += " AND u.user = ?"
+            params.append(user)
+        with self._lock:
+            baseline = self._conn.execute(
+                # Same 0.25/0.75 weights as pricing.blended_rate().
+                """SELECT cost_input AS ci, cost_output AS co FROM models
+                   WHERE cost_input > 0 OR cost_output > 0
+                   ORDER BY (cost_input * 0.25 + cost_output * 0.75) DESC
+                   LIMIT 1"""
+            ).fetchone()
+            if baseline is None:
+                return None
+            row = self._conn.execute(
+                f"""SELECT COALESCE(SUM(
+                        ? * u.prompt_tokens     / 1000000.0
+                      + ? * u.completion_tokens / 1000000.0
+                    ), 0.0) AS premium,
+                    COALESCE(SUM(u.cost_usd), 0.0) AS actual
+                    FROM usage_log u
+                    JOIN models m ON m.value = u.routed_model
+                    WHERE {where} AND {_IS_PRICED_U}""",
+                [baseline["ci"], baseline["co"], *params],
+            ).fetchone()
+        # Re-cost at the baseline's own rates rather than the actual model's: the
+        # token counts come from the request, the prices are the comparison's.
+        # `m` is still needed for the JOIN, because a model that has left the
+        # catalog no longer has a price to compare against at all.
+        #
+        # `actual` is the spend for *the same subset*, not the window total. The
+        # two would otherwise disagree whenever some requests have no known price
+        # (see `_IS_PRICED_U`), and subtracting a subset's baseline from a
+        # superset's spend can go negative — which reads as "you saved nothing"
+        # when the truth is "there isn't enough priced traffic to tell".
+        return row["premium"] or 0.0, row["actual"] or 0.0
 
     # ── Files ──────────────────────────────────────────────────────────────────
 

@@ -142,6 +142,43 @@ class MatrixStore(ABC):
         empty list means "no profile traffic yet", not "no traffic".
         """
 
+    @abstractmethod
+    def overview_flows(self, *, since_ts: str) -> dict:
+        """Per-user aggregates for the dashboard overview: {"by_user": [...]}.
+
+        Unlike usage_summary this is not scoped to one user -- it returns one row
+        per user since `since_ts`, and the caller picks the caller's own row and
+        ranks against the rest. Each entry carries requests/cost/tokens plus
+        errors, first/last timestamps and active_days, which the windowed summary
+        has no column for.
+        """
+
+    @abstractmethod
+    def cheap_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """User requests served at cost tier <= 2, per the live model catalog.
+
+        user=None counts all users. Models no longer in the catalog count as
+        neither cheap nor escalated.
+        """
+
+    @abstractmethod
+    def priced_model_requests(self, *, since_ts: str, user: str | None) -> int:
+        """User requests whose model still has a known price. Savings denominator.
+
+        0 means the saving is genuinely not computable, which the UI reports as
+        unavailable rather than as a zero saving.
+        """
+
+    @abstractmethod
+    def premium_equivalent_cost(
+        self, *, since_ts: str, user: str | None
+    ) -> tuple[float, float] | None:
+        """(premium, actual) for this traffic's priced subset; None if none priced.
+
+        Both halves describe the same rows on purpose — see SqliteStore for why
+        comparing a subset's baseline against a superset's spend can go negative.
+        """
+
     # ── Files (uploads) ────────────────────────────────────────────────────────
 
     @abstractmethod
