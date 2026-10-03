@@ -503,10 +503,29 @@ async def _with_heartbeat(
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _estimate_tokens(text: str) -> int:
-    """Rough token count from character length (~4 chars/token), the same
-    heuristic used for est_tokens routing below. Used as a fallback when a
-    streaming provider doesn't return a usage block."""
+    """Rough token count from character length (~4 chars/token). Used as a
+    fallback when a streaming provider doesn't return a usage block. Request
+    routing uses the stricter _estimate_request_tokens instead, which also
+    counts tool schemas and corrects for code-dense tokenization."""
     return max(0, len(str(text)) // 4)
+
+
+def _estimate_request_tokens(messages: list, tools) -> int:
+    """Estimated provider-side token count for a whole request: message text,
+    the tool schemas, and per-message wire overhead.
+
+    Two inputs the per-message chars//4 heuristic missed, both measured on
+    live traffic: agent-framework clients ship ~19K chars of tool definitions
+    on every turn (none of it inside message content), and code-dense text
+    tokenizes nearer 3 chars/token than 4 — a repro against the live provider
+    counted 136,975 tokens on 390K chars. Under-counting here is not a
+    rounding footnote: it is how an ~89K-estimated turn reached the provider
+    as ~115K real tokens plus a 16K output budget and died as a 400 against a
+    131K window (the dashboard's failed-request count, 2026-10-03).
+    """
+    text_chars = sum(len(str(m.get("content", "") or "")) for m in messages)
+    tool_chars = len(json.dumps(tools)) if tools else 0
+    return (text_chars + tool_chars) // 3 + 4 * len(messages)
 
 
 class _StreamUsageScanner:
@@ -1414,7 +1433,7 @@ async def chat_completions(request: Request):
     # requirement can be met — see ModelSpec.structured_outputs.
     _rf = body.get("response_format")
     needs_structured = isinstance(_rf, dict) and _rf.get("type") == "json_schema"
-    est_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
+    est_tokens = _estimate_request_tokens(messages, body.get("tools"))
 
     if is_orchestrator:
         # Orchestration narrows the pool to Claude, then routes on the profile
@@ -1598,6 +1617,25 @@ async def chat_completions(request: Request):
         asked_output = 0
     if model_ceiling and asked_output:
         forward_body["max_tokens"] = min(asked_output, model_ceiling)
+    # Prompt + output must fit the context window too, and several providers
+    # reject the sum rather than truncate. The route already guaranteed the
+    # *injected* budget fits (router._select reserves it), so only a caller
+    # who named a bigger one can still arrive here oversized — clamp that ask
+    # to the room actually left. Estimated from the body as it will be sent —
+    # system notes and GBrain context included, unlike the pre-routing
+    # estimate the route saw — and applied to the value already in the body so
+    # the model-ceiling clamp above is never undone by a wider window.
+    if asked_output and routed_spec is not None:
+        ctx_k = int(getattr(routed_spec, "ctx_k", 0) or 0)
+        if ctx_k > 0:
+            final_est = _estimate_request_tokens(
+                forward_body.get("messages") or [], forward_body.get("tools")
+            )
+            # Same +10% error bar as the router's eligibility check — an
+            # optimistic room here is the same provider 400 one door over.
+            room = ctx_k * 1000 - final_est * 11 // 10
+            if room < int(forward_body["max_tokens"] or 0):
+                forward_body["max_tokens"] = max(1, room)
     # Callers the operator never vetted — anonymous visitors and self-issued keys
     # — get a hard output ceiling, applied after the default and over anything they
     # asked for. This is what bounds the damage while the spend cap is blind: a
@@ -1891,6 +1929,14 @@ async def chat_completions(request: Request):
                 raise HTTPException(status_code=502, detail=f"Provider unreachable: {exc}")
 
         if resp.status_code >= 400:
+            # The detail goes back to the caller, but the caller is often a
+            # program that drops it — and the router's own logs were silent on
+            # exactly this line while six provider 400s went undiagnosable
+            # (2026-10-03). Print the body so the server.err log alone explains
+            # a failed dispatch.
+            print(f"[proxy] provider {resp.status_code} on {real_model}: "
+                  f"{resp.text[:500]}",
+                  file=sys.stderr, flush=True)
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
         data = resp.json()
