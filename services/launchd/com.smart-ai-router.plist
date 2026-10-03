@@ -13,9 +13,9 @@
 	<key>WorkingDirectory</key>
 	<string>/Users/kevingaasch/ProjectHome/smart-ai-router</string>
 	<key>StandardOutPath</key>
-	<string>/Users/kevingaasch/Library/Logs/dashboard/smartrouter.log</string>
+	<string>/path/to/smart-ai-router/logs/server.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/kevingaasch/Library/Logs/dashboard/smartrouter-error.log</string>
+	<string>/path/to/smart-ai-router/logs/server.err</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>HOME</key>
