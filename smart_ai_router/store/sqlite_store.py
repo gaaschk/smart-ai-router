@@ -46,6 +46,12 @@ _IS_PROXY_U = f"COALESCE(u.kind, '{_PROXY_KIND}') = '{_PROXY_KIND}'"
 # including it would invent a baseline comparison out of an unknown.
 _IS_PRICED_U = "(m.cost_input > 0 OR m.cost_output > 0 OR m.provider = 'ollama')"
 
+# How fast ModelSpec.observed_tps forgets. 0.2 → the last ~5 calls dominate.
+_TPS_ALPHA = 0.2
+# Below this many completion tokens a call is mostly time-to-first-token, so its
+# tokens/sec says more about queueing than about how fast the model generates.
+_TPS_MIN_TOKENS = 32
+
 
 class SqliteStore(MatrixStore):
     def __init__(self, path: str | Path = "~/.smart_ai_router.db"):
@@ -259,6 +265,38 @@ class SqliteStore(MatrixStore):
                 # the configured budget rather than a number derived from a guess
                 # at the model's limit.
                 ("max_output", "INTEGER DEFAULT 0"),
+                # Measured completion tokens/sec (ModelSpec.observed_tps), an EWMA
+                # over real traffic. DEFAULT 0.0 reads as "never measured", which
+                # the router exempts rather than penalizing.
+                #
+                # Deliberately absent from upsert_model's DO UPDATE SET: this is
+                # the one column the catalog does not own, and a sync must not
+                # reset it. Omission is what preserves it — see record_usage.
+                ("observed_tps", "REAL DEFAULT 0.0"),
+                # When that measurement was last updated, so the router can tell a
+                # current reading from a stale one. Same omission from
+                # upsert_model, for the same reason.
+                #
+                # This is what keeps the throughput floor from being a one-way
+                # ratchet: an excluded model is never called, so it can never
+                # re-measure itself, and without an expiry a single bad afternoon
+                # would demote it permanently. DEFAULT '' reads as "unknown age",
+                # which is treated as stale — the safe direction, since it means a
+                # model is re-measured rather than judged on a figure of unknown
+                # vintage.
+                ("observed_tps_at", "TEXT DEFAULT ''"),
+                # Share of tool-bearing turns the model answered with *something*
+                # (ModelSpec.observed_tool_health), same EWMA and the same "0.0 =
+                # never measured, therefore exempt" convention. Also absent from
+                # upsert_model's DO UPDATE SET, for the same reason: the catalog
+                # cannot know how a model behaves against this deployment's
+                # clients, so a sync must not reset it.
+                ("observed_tool_health", "REAL DEFAULT 0.0"),
+                # Age of that reading, and the same escape from the one-way ratchet
+                # as observed_tps_at: a model the tool floor excludes stops getting
+                # the tool-bearing traffic that would redeem it, so the measurement
+                # has to expire on its own.
+                ("observed_tool_health_at", "TEXT DEFAULT ''"),
             ):
                 try:
                     self._conn.execute(
@@ -301,6 +339,35 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Additive migration: provider wall-clock for the dispatch, in ms
+            # (UsageRecord.latency_ms). Throughput was the one routing axis nothing
+            # could see — no catalog reports it, and it isn't a property of the
+            # model alone, since local weights run at whatever speed this host
+            # manages. 0 for rows written before the column, which is honest.
+            try:
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN latency_ms INTEGER DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # already exists
+            # Additive migration: did this call offer tools, and did the model stall
+            # on them (UsageRecord.tools_offered / tool_stalled). Kept per row for
+            # the same reason latency_ms is: the model's running average cannot
+            # answer "was it stalling *then*", so a provider having a bad hour and a
+            # model that simply cannot hold a tool loop collapse into one number,
+            # and only one of them is worth routing around. 0 for rows written
+            # before the columns, which reads as "no tools offered" — honest, since
+            # those rows genuinely never recorded it and so contribute no sample.
+            for _usage_col, _usage_decl in (
+                ("tools_offered", "INTEGER DEFAULT 0"),
+                ("tool_stalled", "INTEGER DEFAULT 0"),
+            ):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE usage_log ADD COLUMN {_usage_col} {_usage_decl}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # already exists
             # Additive migration: whether the admin identity may see this thread.
             # DEFAULT 1 backfills every existing chat as shared, which is both the
             # product default and the only honest read of history written before the
@@ -560,8 +627,9 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO usage_log (
                     ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
-                    tokens_estimated, profile_json, classifier
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tokens_estimated, profile_json, classifier, latency_ms,
+                    tools_offered, tool_stalled
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.kind or _PROXY_KIND,
                     usage.user, usage.key_prefix, usage.routed_model,
@@ -572,7 +640,111 @@ class SqliteStore(MatrixStore):
                     json.dumps(usage.profile, sort_keys=True)
                     if usage.profile else "",
                     usage.classifier,
+                    max(0, int(usage.latency_ms or 0)),
+                    1 if usage.tools_offered else 0,
+                    1 if usage.tool_stalled else 0,
                 ),
+            )
+            self._conn.commit()
+        self._blend_throughput(usage)
+        self._blend_tool_health(usage)
+
+    def _blend_throughput(self, usage: UsageRecord) -> None:
+        """Fold this call's delivered tokens/sec into the model's running average.
+
+        Why an EWMA and not a mean over the usage log: the log is the audit trail
+        and must not be re-scanned on every request, and a lifetime mean would take
+        thousands of rows to forget a provider's bad afternoon. `_TPS_ALPHA` at 0.2
+        means the last ~5 calls dominate, so a model that becomes slow is demoted
+        within a handful of requests. Recovery is *not* symmetric — a model the
+        floor excludes stops receiving the traffic that would redeem it — which is
+        what `observed_tps_at` and the staleness window exist to fix.
+
+        Skipped unless the call actually generated something over a real interval.
+        A 3-token reply is all overhead and would read as absurdly slow; anything
+        under `_TPS_MIN_TOKENS` says more about time-to-first-token than about
+        throughput, and routing on it would punish models for being asked trivial
+        questions.
+        """
+        if usage.status >= 400 or usage.latency_ms <= 0:
+            return
+        if usage.completion_tokens < _TPS_MIN_TOKENS or not usage.routed_model:
+            return
+        # Overhead rows are timed too (triage blocks every request, so its latency
+        # is worth seeing) but they must not set the routing average. A classify
+        # call emits a few dozen tokens of JSON under a 256-token cap, so it is
+        # mostly load and time-to-first-token — the same distortion _TPS_MIN_TOKENS
+        # guards against, just above the threshold.
+        if (usage.kind or _PROXY_KIND) != _PROXY_KIND:
+            return
+        tps = usage.completion_tokens / (usage.latency_ms / 1000.0)
+        with self._lock:
+            # COALESCE handles the pre-migration NULL; the CASE is the EWMA, with
+            # the first real measurement adopted outright rather than blended
+            # against 0.0 — which would otherwise halve it and report every model
+            # as slow until traffic washed the zero out.
+            self._conn.execute(
+                """UPDATE models SET observed_tps = CASE
+                       WHEN COALESCE(observed_tps, 0.0) <= 0.0 THEN ?
+                       ELSE (1 - ?) * observed_tps + ? * ?
+                   END,
+                   observed_tps_at = ?
+                   WHERE value = ?""",
+                (tps, _TPS_ALPHA, _TPS_ALPHA, tps, _utcnow_iso(),
+                 usage.routed_model),
+            )
+            self._conn.commit()
+
+    def _blend_tool_health(self, usage: UsageRecord) -> None:
+        """Fold this tool-bearing turn's outcome into the model's running average.
+
+        The sample is one bit — did the model answer with *something* — so the EWMA
+        settles toward the share of tool-bearing turns it did not stall on. Same
+        alpha as throughput, so the same "last ~5 calls dominate" applies: a model
+        that starts stalling is demoted within a handful of turns rather than after
+        a statistically respectable number of them, which is the right trade when
+        the alternative is spending two minutes per turn to find out.
+
+        Only tool-bearing proxy calls count. A turn with no tools cannot stall on
+        them, and counting it as a success would let ordinary chat traffic inflate
+        a model's health until the number said nothing about tool loops at all —
+        which for a local model serving mostly chat is exactly how it would earn a
+        clean record it has not tested.
+
+        Errors are excluded because a 500 from the provider is not the model
+        failing to hold a loop, and attributing it to the model would route around
+        a network problem by permanently demoting whatever was unlucky.
+        """
+        if not usage.tools_offered or usage.status >= 400 or not usage.routed_model:
+            return
+        if (usage.kind or _PROXY_KIND) != _PROXY_KIND:
+            return
+        health = 0.0 if usage.tool_stalled else 1.0
+        with self._lock:
+            # An unmeasured model blends from a prior of 1.0, not from 0.0, and
+            # *not* by adopting the first sample outright the way throughput does.
+            # Adopting it would be a trap here: this sample is one bit, so a model
+            # that stalls on its very first turn would land on exactly 0.0 — which
+            # this column defines as "never measured" — and every later stall would
+            # re-adopt 0.0 and leave it there. A model that always stalls would stay
+            # permanently exempt, which is precisely the case worth catching.
+            #
+            # The 1.0 prior also says the right thing: innocent until measured
+            # otherwise, matching the exemption the router already grants. Because
+            # the average only ever approaches zero asymptotically, any nonzero
+            # value means "measured" and 0.0 keeps meaning "never touched". At this
+            # alpha a consistently stalling model falls under 0.5 by its fourth
+            # tool-bearing turn, and a healthy one blends 1.0 into 1.0 and stays.
+            self._conn.execute(
+                """UPDATE models SET observed_tool_health =
+                       (1 - ?) * CASE
+                           WHEN COALESCE(observed_tool_health, 0.0) <= 0.0 THEN 1.0
+                           ELSE observed_tool_health
+                       END + ? * ?,
+                   observed_tool_health_at = ?
+                   WHERE value = ?""",
+                (_TPS_ALPHA, _TPS_ALPHA, health, _utcnow_iso(),
+                 usage.routed_model),
             )
             self._conn.commit()
 
@@ -1362,6 +1534,9 @@ class SqliteStore(MatrixStore):
             profile=cls._json_column(row, "profile_json"),
             classifier=(row["classifier"] or "")
             if "classifier" in row.keys() else "",
+            latency_ms=int(cls._num_column(row, "latency_ms")),
+            tools_offered=cls._bool_column(row, "tools_offered"),
+            tool_stalled=cls._bool_column(row, "tool_stalled"),
         )
 
     @staticmethod
@@ -1483,6 +1658,10 @@ class SqliteStore(MatrixStore):
             cost_input=row["cost_input"] or 0.0,
             cost_output=row["cost_output"] or 0.0,
             agentic=cls._num_column(row, "agentic"),
+            observed_tps=cls._num_column(row, "observed_tps"),
+            observed_tps_at=cls._column(row, "observed_tps_at"),
+            observed_tool_health=cls._num_column(row, "observed_tool_health"),
+            observed_tool_health_at=cls._column(row, "observed_tool_health_at"),
             structured_outputs=cls._bool_column(row, "structured_outputs"),
             reasoning=cls._bool_column(row, "reasoning"),
             competence={

@@ -48,6 +48,15 @@ class OverheadCall:
     model: str          # provider-side model id, e.g. "openai/gpt-5.6-luna"
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    latency_ms: int = 0
+    # Wall-clock of the call, 0 = unmeasured.
+    #
+    # Worth recording even though these rows are excluded from throughput
+    # averaging: triage runs on *every* request and blocks routing, so it is added
+    # to every reply the user waits for. A local triage model evicted from memory
+    # makes each request pay a multi-second cold load before the router has even
+    # chosen anything — slowness that lands entirely outside the proxied call, and
+    # so would be invisible in a figure measured from dispatch onward.
 
 
 _sink: contextvars.ContextVar[list[OverheadCall] | None] = contextvars.ContextVar(
@@ -71,12 +80,17 @@ def collect() -> Iterator[list[OverheadCall]]:
         _sink.reset(token)
 
 
-def note(kind: str, *, model: str, usage: object = None) -> None:
+def note(kind: str, *, model: str, usage: object = None,
+         latency_ms: int = 0) -> None:
     """Record that an overhead call completed. No-op outside a collect() block.
 
     `usage` is the provider's OpenAI-style token block, or None when the reply
     carried none. A call with no reported tokens is still recorded — it happened,
     it was billed, and its count is the honest part even when its size isn't.
+
+    `latency_ms` is how long it took, 0 when the caller didn't time it. The
+    default keeps this optional for callers that have nothing to report rather
+    than making them invent a number.
     """
     calls = _sink.get()
     if calls is None:
@@ -89,7 +103,8 @@ def note(kind: str, *, model: str, usage: object = None) -> None:
         prompt = completion = 0
     calls.append(
         OverheadCall(
-            kind=kind, model=model, prompt_tokens=prompt, completion_tokens=completion
+            kind=kind, model=model, prompt_tokens=prompt,
+            completion_tokens=completion, latency_ms=max(0, int(latency_ms or 0)),
         )
     )
 
@@ -140,6 +155,7 @@ def record(cr, calls: list[OverheadCall], *, user: str = "", key_prefix: str = "
                     prompt_tokens=call.prompt_tokens,
                     completion_tokens=call.completion_tokens,
                     cost_usd=cost,
+                    latency_ms=call.latency_ms,
                 )
             )
         except Exception:  # noqa: BLE001 — accounting is never worth a failed call

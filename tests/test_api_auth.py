@@ -73,24 +73,27 @@ def test_db_key_authenticates_but_cannot_manage_keys(admin_client):
     key = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()["key"]
 
     # A wrong token is rejected.
-    assert client.get("/api/models", headers=_auth("wrong")).status_code == 401
-    # The real per-user key works for normal endpoints.
-    assert client.get("/api/models", headers=_auth(key)).status_code == 200
-    # ...but must not be able to enumerate or mint keys.
+    assert client.get("/api/whoami", headers=_auth("wrong")).status_code == 401
+    # The real per-user key works for user-scoped endpoints.
+    assert client.get("/api/whoami", headers=_auth(key)).status_code == 200
+    assert client.get("/api/usage", headers=_auth(key)).status_code == 200
+    # ...but must not reach admin-only surfaces (keys, models catalog, providers).
     assert client.get("/api/keys", headers=_auth(key)).status_code == 403
     assert client.post("/api/keys", json={"user": "x"}, headers=_auth(key)).status_code == 403
+    assert client.get("/api/models", headers=_auth(key)).status_code == 403
+    assert client.get("/api/providers", headers=_auth(key)).status_code == 403
 
 
 def test_disabled_key_is_rejected(admin_client):
     client, _ = admin_client
     created = client.post("/api/keys", json={"user": "carol"}, headers=_auth(_ADMIN)).json()
     key, prefix = created["key"], created["key_prefix"]
-    assert client.get("/api/models", headers=_auth(key)).status_code == 200
+    assert client.get("/api/whoami", headers=_auth(key)).status_code == 200
 
     # Revoke and confirm it stops working — no redeploy.
     r = client.put(f"/api/keys/{prefix}/enabled", json={"enabled": False}, headers=_auth(_ADMIN))
     assert r.status_code == 200 and r.json()["enabled"] is False
-    assert client.get("/api/models", headers=_auth(key)).status_code == 401
+    assert client.get("/api/whoami", headers=_auth(key)).status_code == 401
 
 
 def test_delete_key_revokes_access(admin_client):
@@ -98,7 +101,7 @@ def test_delete_key_revokes_access(admin_client):
     created = client.post("/api/keys", json={"user": "dave"}, headers=_auth(_ADMIN)).json()
     key, prefix = created["key"], created["key_prefix"]
     assert client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 204
-    assert client.get("/api/models", headers=_auth(key)).status_code == 401
+    assert client.get("/api/whoami", headers=_auth(key)).status_code == 401
     assert client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 404
 
 
@@ -113,7 +116,7 @@ def test_recreate_rotates_secret_and_invalidates_old(admin_client):
         "/api/keys", json={"user": "erin", "max_tier": 2}, headers=_auth(_ADMIN)
     ).json()
     old_key, prefix = created["key"], created["key_prefix"]
-    assert client.get("/api/models", headers=_auth(old_key)).status_code == 200
+    assert client.get("/api/whoami", headers=_auth(old_key)).status_code == 200
 
     r = client.post(f"/api/keys/{prefix}/recreate", headers=_auth(_ADMIN))
     assert r.status_code == 200
@@ -123,8 +126,8 @@ def test_recreate_rotates_secret_and_invalidates_old(admin_client):
     assert new["user"] == "erin" and new["max_tier"] == 2   # identity/limits kept
 
     # New key works; old key is dead.
-    assert client.get("/api/models", headers=_auth(new_key)).status_code == 200
-    assert client.get("/api/models", headers=_auth(old_key)).status_code == 401
+    assert client.get("/api/whoami", headers=_auth(new_key)).status_code == 200
+    assert client.get("/api/whoami", headers=_auth(old_key)).status_code == 401
 
 
 def test_recreate_requires_admin(admin_client):
@@ -164,6 +167,6 @@ def test_using_a_key_updates_last_used(admin_client):
     created = client.post("/api/keys", json={"user": "erin"}, headers=_auth(_ADMIN)).json()
     key, prefix = created["key"], created["key_prefix"]
     assert created["last_used_at"] == ""
-    client.get("/api/models", headers=_auth(key))
+    client.get("/api/whoami", headers=_auth(key))
     match = next(k for k in cr.all_api_keys() if k.key_prefix == prefix)
     assert match.last_used_at != ""

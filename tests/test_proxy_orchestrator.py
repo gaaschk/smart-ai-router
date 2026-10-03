@@ -14,7 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from smart_ai_router.api.app import create_app
-from smart_ai_router.api.proxy import _orchestrator_capable
+from smart_ai_router.api.proxy import (
+    _orchestrator_capable,
+    _pinned_pool,
+    _pool_pin,
+)
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -343,3 +347,62 @@ def test_capable_models(value):
 ])
 def test_incapable_models(value):
     assert not _orchestrator_capable(ModelSpec(value))
+
+
+# ── vendor pins ───────────────────────────────────────────────────────────────
+# `smart-<vendor>` restricts the pool to one vendor and lets the profile pick
+# within it. The point is that vendor stops being undecidable: the Claude-only
+# lane above is the one pool a caller could ask for, so every other vendor was
+# reachable only by the open pool's own cost/quality math choosing it.
+
+_CATALOG = [
+    ModelSpec("openrouter/anthropic/claude-sonnet-5", provider="openrouter"),
+    ModelSpec("openrouter/openai/gpt-5.6-luna", provider="openrouter"),
+    ModelSpec("openrouter/~openai/gpt-5.6-sol", provider="openrouter"),
+    ModelSpec("openrouter/x-ai/grok-4.6", provider="openrouter"),
+    ModelSpec("ollama/qwen3-coder:30b", provider="ollama"),
+]
+
+
+@pytest.mark.parametrize("requested,pin", [
+    ("smart-openai", "openai"),
+    ("smart-grok", "grok"),
+    # Claudish prefixes a provider role it strips itself; only the tail routes.
+    ("ll@smart-anthropic", "anthropic"),
+    ("SMART-OpenAI", "openai"),
+    # Open-pool synonyms and anything not named smart-* pin nothing.
+    ("smart-auto", ""),
+    ("smart-all", ""),
+    ("smart-router", ""),
+    ("smart-worker", ""),
+    ("gpt-4", ""),
+    ("", ""),
+])
+def test_pool_pin_parses(requested, pin):
+    assert _pool_pin(requested) == pin
+
+
+@pytest.mark.parametrize("pin,expected", [
+    # Vendor segment, with OpenRouter's ~vendor variant folded into the vendor.
+    ("openai", ["openrouter/openai/gpt-5.6-luna", "openrouter/~openai/gpt-5.6-sol"]),
+    ("anthropic", ["openrouter/anthropic/claude-sonnet-5"]),
+    # Provider, for one-segment ids that have no vendor of their own.
+    ("ollama", ["ollama/qwen3-coder:30b"]),
+    # Family names are what people actually type, and neither is a vendor:
+    # grok ships under x-ai, sonnet under anthropic.
+    ("grok", ["openrouter/x-ai/grok-4.6"]),
+    ("sonnet", ["openrouter/anthropic/claude-sonnet-5"]),
+    # A typo matches nothing, so the caller gets a 422 instead of the silent
+    # every-vendor pool that would be indistinguishable from a working pin.
+    ("opnai", []),
+])
+def test_pinned_pool(pin, expected):
+    assert [s.value for s in _pinned_pool(pin, _CATALOG)] == expected
+
+
+def test_vendor_pin_beats_coincidental_substring():
+    """An exact vendor must not lose to a substring hit elsewhere in the catalog."""
+    catalog = _CATALOG + [ModelSpec("openrouter/acme/openai-clone-v2", provider="openrouter")]
+    assert "openrouter/acme/openai-clone-v2" not in [
+        s.value for s in _pinned_pool("openai", catalog)
+    ]

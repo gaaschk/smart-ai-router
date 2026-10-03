@@ -87,6 +87,24 @@ class ModelSpecResponse(BaseModel):
             "catalog), which the router treats as exempt rather than incapable"
         ),
     )
+    observed_tps: float = Field(
+        default=0.0,
+        description=(
+            "completion tokens/sec this model has actually delivered on this "
+            "deployment, as a moving average over real traffic; 0 = never "
+            "measured, which the router treats as exempt"
+        ),
+    )
+    observed_tool_health: float = Field(
+        default=0.0,
+        description=(
+            "share of tool-bearing turns this model answered with either a tool "
+            "call or a real reply, as a moving average over this deployment's own "
+            "traffic; 0 = never measured, which the router treats as exempt. "
+            "Distinct from `agentic`: that is a benchmark someone else ran, this is "
+            "what happened here"
+        ),
+    )
     competence: dict[str, float]
     profile: dict[str, float] = Field(
         default_factory=dict, description="per-taxonomy-field capability scores"

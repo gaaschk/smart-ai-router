@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -331,6 +332,7 @@ async def classify_profile_llm(
     }
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
     url = f"{base_url.rstrip('/')}/chat/completions"
+    started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=payload, headers=headers)
@@ -341,7 +343,11 @@ async def classify_profile_llm(
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         return None
     # Billed whether or not the reply parses, so it is noted before the parse.
-    _overhead.note(kind, model=mdl, usage=data.get("usage"))
+    # Timed for a separate reason: this call is in front of every request, so its
+    # latency is added to every reply, and a pinned local model that has been
+    # evicted from memory pays a cold load here that no other measurement sees.
+    _overhead.note(kind, model=mdl, usage=data.get("usage"),
+                   latency_ms=int((time.monotonic() - started) * 1000))
     return _parse_profile(content)
 
 

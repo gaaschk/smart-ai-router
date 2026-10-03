@@ -182,10 +182,16 @@
   .whoami.admin { color: var(--accent); border-color: var(--accent); }
   .whoami .whoami-icon { font-size: 0.85em; opacity: 0.85; }
 
-  /* ── Guest (anonymous) mode ───────────────────────────────────────── */
-  /* One rule hides every admin surface, so a page an anonymous visitor sees is
-     the page they can actually use — no nav buttons that only lead to a 401. */
-  body.guest [data-admin] { display: none !important; }
+  /* ── Role-based chrome ────────────────────────────────────────────── */
+  /* Guest: only Chat (and guest banner). User: Chat + Usage + Memory.
+     Admin: everything. `data-admin` = admin-only; `data-user` = user+admin.
+     `body.guest` is set for anonymous visitors; `body.role-user` for
+     operator-issued / self-serve per-user keys that are not admin. */
+  body.guest [data-admin],
+  body.guest [data-user],
+  body.role-chat-only [data-admin],
+  body.role-chat-only [data-user] { display: none !important; }
+  body.role-user [data-admin] { display: none !important; }
   .guest-banner {
     display: none;
     margin: 0 1rem 0.75rem;
@@ -450,6 +456,35 @@
     transform-origin: center;
   }
   .usage-section { margin-bottom: 2rem; }
+  /* ── Cost-per-token line chart ──────────────────────────────────── */
+  .usage-cost-chart-section { margin-bottom: 2rem; }
+  .usage-cost-chart-wrap {
+    overflow-x: auto;
+    padding: 0.75rem 0;
+  }
+  .usage-cost-chart-wrap svg {
+    display: block;
+    width: 100%;
+    min-width: 300px;
+    height: 180px;
+  }
+  .usage-cost-chart-wrap .chart-tooltip {
+    position: absolute;
+    background: var(--surface-raised, #1f1f23);
+    border: 1px solid var(--border, #27272a);
+    border-radius: var(--radius-sm, 6px);
+    padding: 0.4rem 0.65rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 120ms;
+  }
+  .usage-cost-chart-wrap .chart-tooltip.visible {
+    opacity: 1;
+  }
   .usage-est-note {
     font-size: 0.72rem;
     color: var(--text-muted);
@@ -1424,20 +1459,23 @@
     <div class="logo-icon">R</div>
     <span class="logo-text">smart-ai-router</span>
   </div>
-  <!-- data-admin marks operator chrome: hidden from an anonymous visitor (with
-       public chat on the page loads with no key, so the whole dashboard would be
-       a wall of 401s) and from a self-serve account (a real, logged-in identity
-       whose key cannot manage keys, providers or settings). Dashboard is
-       deliberately NOT data-admin — it is the one page every signed-in identity
-       can read, which is what makes it worth building. -->
+  <!-- data-admin = admin-only chrome; data-user = visible to authenticated
+       non-admin users (Usage + Memory). Guests see neither. Chat has neither
+       attribute so every role reaches it.
+       Dashboard and Help carry neither attribute on purpose. /api/overview is
+       scoped to its caller rather than 403-ing, so every signed-in identity —
+       operator-issued user keys and self-serve alike — can read the one page
+       that explains what this router is. The person who cannot manage it is
+       exactly who needs to read how to use it. -->
+
   <nav>
     <button class="active" id="nav-dashboard" onclick="showPage('dashboard')">Dashboard</button>
     <button id="nav-chat" onclick="showPage('chat')">Chat</button>
     <button data-admin onclick="showPage('models')">Models</button>
-    <button data-admin onclick="showPage('usage')">Usage</button>
+    <button data-user onclick="showPage('usage')">Usage</button>
     <button data-admin onclick="showPage('reports')">Reports</button>
     <button data-admin onclick="showPage('providers')">Providers</button>
-    <button data-admin onclick="showPage('memory')">Memory</button>
+    <button data-user onclick="showPage('memory')">Memory</button>
     <button data-admin onclick="showPage('skills')">Skills</button>
     <button data-admin onclick="showPage('keys')">Keys</button>
     <button data-admin onclick="showPage('settings')">Settings</button>
@@ -1896,6 +1934,10 @@
                  knowledge, and it is the one score most of the catalog has no
                  measurement for. -->
             <th onclick="sortModels('agentic')" title="Measured ability to hold a multi-step tool loop together. Blank = never measured, which the router treats as exempt.">Tool loop</th>
+            <!-- The only column measured here rather than imported: throughput is
+                 a property of this host and this provider's load, not of the
+                 model, so no catalog can supply it. -->
+            <th onclick="sortModels('observed_tps')" title="Completion tokens/sec this model has actually delivered here, averaged over real traffic. Blank = never called yet, which the router treats as exempt so it stays reachable long enough to be measured.">Speed</th>
             <th title="Who judged this model, and how many taxonomy fields they called out: S = specialty, W = weak, U = unsuited. Click a cell for the note and every field score.">Profile</th>
             <th onclick="sortModels('reliability')">Reliability</th>
           </tr>
@@ -1977,6 +2019,18 @@
     <div class="usage-section" id="usage-daybars-section">
       <div class="section-title">Requests per day</div>
       <div class="usage-bars" id="usage-daybars"></div>
+    </div>
+
+    <div class="usage-section usage-cost-chart-section" id="usage-cost-chart-section">
+      <div class="section-title">Average cost per token</div>
+      <p class="page-subtitle" style="margin:0 0 0.5rem">
+        <span id="usage-cpt-avg">—</span> avg over this window
+        · <span id="usage-cpt-trend">—</span>
+      </p>
+      <div class="usage-cost-chart-wrap" style="position:relative">
+        <svg id="usage-cpt-chart" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
+        <div class="chart-tooltip" id="usage-cpt-tooltip"></div>
+      </div>
     </div>
 
     <div class="usage-section">
@@ -2716,11 +2770,17 @@ let _sortAsc = true;
 let _editingProvider = null;
 
 // ── Navigation ──────────────────────────────────────────────────────────────
-function showPage(name) {
+// `ev` is optional on purpose: showPage() is also called from code (initDashboard
+// landing a role on its page), where there is no event to read `target` off. The
+// nav button is therefore matched by id rather than off the event object, which
+// is an implicit global that only exists during dispatch.
+function showPage(name, ev) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
   document.querySelectorAll('.topbar nav button').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  const navBtn = document.getElementById(`nav-${name}`)
+    || (ev && ev.currentTarget && ev.currentTarget.classList.contains('active') ? ev.currentTarget : null);
+  if (navBtn) navBtn.classList.add('active');
   if (name === 'models' && _allModels.length === 0) fetchModels();
   if (name === 'dashboard') fetchOverview();
   if (name === 'chat') initChat();
@@ -2749,22 +2809,38 @@ async function initDashboard() {
   // Auth is required, we have no key, and the gate is offering to mint one. Firing
   // the dashboard fetches now would stack a browser key prompt on top of it.
   if (_signupGateOpen) return;
-  // A self-issued key is a real signed-in identity — capped and unvetted, but with
-  // its own traffic, so /api/overview answers for it exactly as it would for
-  // anyone else. It still gets chat-only for every *operator* surface (Keys,
-  // Providers, Settings), all of which would 403 at it, but the Dashboard is the
-  // page it can read, so it lands there rather than being dropped straight into
-  // chat. /api/models is deliberately not fetched: the Models tab stays hidden,
-  // and the overview's catalog block already carries the numbers it needs.
   const me = await fetchWhoAmI();
+  // Self-serve (`u:`) keys stay chat-only for every *operator* surface (Keys,
+  // Providers, Settings) — they minted their own key and haven't been granted a
+  // Memory/Usage seat the way an operator-issued user has. But they are a real
+  // signed-in identity with their own traffic, so /api/overview answers for them
+  // exactly as it would for anyone else: the Dashboard is the one page their key
+  // can read, so it is where they land rather than being dropped into chat.
+  // /api/models is deliberately not fetched — the Models tab stays hidden under
+  // role-chat-only, and the overview's catalog block already carries the numbers
+  // it needs.
   if (me && me.self_serve) {
+    document.body.classList.add('role-chat-only');
     loadWhoAmI();
     initChat();
     fetchOverview();
+    showPage('dashboard');
     return;
   }
-  // Overview first and not awaited: the Models fetch below is slower (it reads the
-  // whole catalog), and the dashboard's own figures don't depend on it.
+  // Operator-issued per-user key: Chat + Usage + Memory + Dashboard. The admin-only
+  // bootstrap fetches (models catalog, providers, updates) are skipped — they
+  // would 403 — but /api/overview is caller-scoped, not admin-gated, so their own
+  // dashboard still fills in.
+  if (me && me.kind === 'user' && !me.is_admin) {
+    document.body.classList.add('role-user');
+    loadWhoAmI();
+    fetchOverview();
+    showPage('dashboard');
+    return;
+  }
+  // Admin / first-run open mode: full dashboard.
+  // Overview first and not awaited — the Models fetch below reads the whole
+  // catalog and is slower, and the dashboard's figures don't depend on it.
   fetchOverview();
   await fetchModels();
   loadWhoAmI();
@@ -3085,6 +3161,7 @@ function renderUsage(data) {
     : '';
 
   renderUsageDayBars(data.by_day || []);
+  renderUsageCostChart(data.by_day || []);
 
   // By-model table.
   document.getElementById('usage-by-model').innerHTML =
@@ -3224,6 +3301,122 @@ function renderUsageDayBars(byDay) {
       <div class="bar-label">${escapeHtml(label)}</div>
     </div>`;
   }).join('');
+}
+
+// ── Cost-per-token line chart ─────────────────────────────────────────
+// Renders an SVG line chart of average cost per token per day, with
+// a dot on each data point and a hover tooltip.  Totally dependency-free.
+
+function renderUsageCostChart(byDay) {
+  const section = document.getElementById('usage-cost-chart-section');
+  // Only meaningful with at least 2 data points (one dot is not a line).
+  if (!byDay || byDay.length < 2) {
+    if (section) section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  // Compute (cost per million tokens) for each day.
+  // Using per-million so values are readable (tens of cents to a few dollars).
+  const points = byDay.map(d => {
+    const tot = (d.prompt_tokens || 0) + (d.completion_tokens || 0);
+    const cpt = tot > 0 ? (d.cost_usd / tot) * 1_000_000 : 0;
+    return { key: d.key, cpt };
+  });
+
+  const avg = points.reduce((s, p) => s + p.cpt, 0) / points.length;
+  const first = points[0].cpt;
+  const last = points[points.length - 1].cpt;
+  const trend = last - first;
+  const trendDir = trend > 0.01 ? 'rising' : trend < -0.01 ? 'falling' : 'stable';
+  document.getElementById('usage-cpt-avg').textContent = '$' + avg.toFixed(4) + '/M tok';
+  document.getElementById('usage-cpt-trend').textContent =
+    `${trendDir} (${trend > 0 ? '+' : ''}$${trend.toFixed(4)}/M tok over period)`;
+
+  // SVG dimensions (matches viewBox 0 0 600 160).
+  const W = 600, H = 160;
+  const pad = { t: 16, r: 8, b: 28, l: 52 };
+  const gw = W - pad.l - pad.r;   // graph area width
+  const gh = H - pad.t - pad.b;   // graph area height
+
+  const maxVal = Math.max(...points.map(p => p.cpt), 0.0001);
+  const minVal = Math.min(...points.map(p => p.cpt), 0);
+  const range = Math.max(maxVal - minVal, 0.0001);
+  // Add 10% padding above/below so the line doesn't sit on the edge.
+  const padRange = range * 1.1;
+  const yBase = minVal - padRange * 0.1; // offset down
+
+  const xStep = points.length > 1 ? gw / (points.length - 1) : gw;
+
+  // Build the polyline points string.
+  const pts = points.map((p, i) => {
+    const x = pad.l + i * xStep;
+    const y = pad.t + gh - ((p.cpt - yBase) / padRange) * gh;
+    return `${x},${y}`;
+  });
+
+  // Y-axis tick marks (4 evenly spaced).
+  const yTicks = 4;
+  let yLabels = '';
+  for (let i = 0; i <= yTicks; i++) {
+    const val = yBase + (padRange / yTicks) * i;
+    const y = pad.t + gh - (i / yTicks) * gh;
+    yLabels += `<text x="${pad.l - 6}" y="${y + 4}" text-anchor="end" font-size="9" style="fill:var(--text-muted,#71717a)">$${val.toFixed(2)}</text>`;
+    // horizontal grid line
+    yLabels += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="var(--border,#27272a)" stroke-width="0.5"/>`;
+  }
+
+  // X-axis labels — show every Nth to avoid crowding.
+  const labelEvery = Math.max(1, Math.floor(points.length / 8));
+  let xLabels = '';
+  for (let i = 0; i < points.length; i++) {
+    if (i % labelEvery !== 0 && i !== points.length - 1) continue;
+    const x = pad.l + i * xStep;
+    const lbl = (points[i].key || '').slice(5); // MM-DD
+    xLabels += `<text x="${x}" y="${H - pad.b + 14}" text-anchor="middle" font-size="8" style="fill:var(--text-muted,#71717a)">${escapeHtml(lbl)}</text>`;
+  }
+
+  // Data dots with data attributes for JS-driven tooltip.
+  let dots = '';
+  for (let i = 0; i < points.length; i++) {
+    const x = pad.l + i * xStep;
+    const y = pad.t + gh - ((points[i].cpt - yBase) / padRange) * gh;
+    dots += `<circle cx="${x}" cy="${y}" r="3" style="fill:var(--accent,#8b5cf6)" opacity="0.8"
+      data-idx="${i}" style="cursor:pointer"/>`;
+  }
+
+  const svg = document.getElementById('usage-cpt-chart');
+  svg.innerHTML = `
+    <clipPath id="cpt-clip">
+      <rect x="${pad.l}" y="${pad.t}" width="${gw}" height="${gh}"/>
+    </clipPath>
+    <g clip-path="url(#cpt-clip)">
+      <polyline points="${pts.join(' ')}" fill="none"
+        style="stroke:var(--accent,#8b5cf6)" stroke-width="2" stroke-linejoin="round"
+        vector-effect="non-scaling-stroke"/>
+    </g>
+    ${yLabels}
+    ${xLabels}
+    <g>${dots}</g>
+  `;
+
+  // Interactive tooltip: show on hover over a dot.
+  const tooltip = document.getElementById('usage-cpt-tooltip');
+  const wrap = tooltip.parentElement; // the relative-positioned wrap
+  svg.querySelectorAll('circle').forEach(c => {
+    c.addEventListener('mouseenter', e => {
+      const idx = parseInt(c.dataset.idx, 10);
+      const p = points[idx];
+      const wrapRect = wrap.getBoundingClientRect();
+      tooltip.textContent = `${p.key}: $${p.cpt.toFixed(4)}/M tok`;
+      tooltip.style.left = (e.clientX - wrapRect.left + 12) + 'px';
+      tooltip.style.top = (e.clientY - wrapRect.top - 8) + 'px';
+      tooltip.classList.add('visible');
+    });
+    c.addEventListener('mouseleave', () => {
+      tooltip.classList.remove('visible');
+    });
+  });
 }
 
 // A model counts as LLM-rated once a rater has looked at it, which includes the
@@ -3372,6 +3565,13 @@ function _agenticCell(m) {
     : `<span style="font-size:0.75rem">${pct}%</span>`;
 }
 
+function _speedCell(m) {
+  const v = m.observed_tps || 0;
+  // Same reading as Tool loop: blank means nobody has called it yet, not slow.
+  if (v <= 0) return '<span style="color:var(--text-muted)" title="never called here — nothing has been measured to hold against it">—</span>';
+  return `<span style="font-size:0.75rem" title="moving average of delivered completion tokens/sec">${v.toFixed(0)} t/s</span>`;
+}
+
 // Full id plus the flags that have no column of their own, on hover. The chips
 // above filter on these; this is how you read them for a row you're looking at.
 function _modelTitle(m) {
@@ -3435,6 +3635,7 @@ function renderModels() {
       <td><span class="badge-pill ${m.vision ? 'badge-yes' : 'badge-no'}">${m.vision ? 'yes' : '—'}</span></td>
       <td><div class="competence-bar"><div class="bar"><div class="bar-fill ${compClass}" style="width:${compPct}%"></div></div><span style="font-size:0.7rem;color:var(--text-muted)">${compPct}%</span></div></td>
       <td>${_agenticCell(m)}</td>
+      <td>${_speedCell(m)}</td>
       <td class="profile-cell" data-model="${escapeHtml(m.value)}"
           onclick="openProfileModal(this.dataset.model)"
           title="${escapeHtml(counts.title)} — click for the note and all 16 field scores">
@@ -3810,6 +4011,12 @@ async function fetchMemoryStats() {
   const statsDiv = document.getElementById('memory-stats');
   try {
     const r = await fetch(`${API}/gbrain/stats`);
+    // Brain-wide stats are admin-only; regular users just browse their own
+    // source via /pages below, so a 403 here is expected — not an error.
+    if (r.status === 403) {
+      statsDiv.innerHTML = `<div style="font-size:0.8rem;color:var(--text-muted)">Your personal memory — pages and search below are scoped to your account.</div>`;
+      return;
+    }
     if (!r.ok) {
       statsDiv.innerHTML = `<div style="color:var(--error);font-size:0.8rem">Failed to load stats (${r.status})</div>`;
       return;

@@ -41,8 +41,6 @@ _ANON_PATHS = frozenset({
     "/api/whoami",
     "/api/conversations",
     "/api/conversations/",
-    # GBrain search is read-only and safe for anonymous visitors.
-    "/api/gbrain/search",
     # Filing a report. Listed without a trailing slash, so /api/reports/{id} stays
     # unreachable; reading the list is refused by the route itself, which is
     # admin-only. The people most likely to be handed a bad answer are the ones

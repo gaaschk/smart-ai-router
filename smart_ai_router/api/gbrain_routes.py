@@ -15,20 +15,22 @@ caller gets their own source, created on first write.
 
 Brain-wide operations (stats, health, integrations, jobs) are NOT
 source-scoped by GBrain itself -- there is one brain score, one job queue --
-so they stay global regardless of caller identity.
+so they are admin-only. Per-user callers use /search, /pages, and /remember,
+which are scoped via `_caller_source()`.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from smart_ai_router.gbrain_client import (
     RUNNABLE_JOBS,
     get_client as get_gbrain,
     source_id_for_user,
 )
+from smart_ai_router.api.routes import _require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +44,13 @@ def _caller_source(request: Request) -> str:
 
 
 @gbrain_router.get("/health")
-async def gbrain_health() -> dict[str, Any]:
-    """Check GBrain status and return its health/brain-score."""
+async def gbrain_health(request: Request) -> dict[str, Any]:
+    """Check GBrain status and return its health/brain-score.
+
+    Brain-wide (not source-scoped) — admin only. Regular users see their own
+    Memory tab via /pages and /search, not the global brain score.
+    """
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         health = gbrain.get_health()
@@ -65,8 +72,12 @@ async def gbrain_health() -> dict[str, Any]:
 
 
 @gbrain_router.get("/stats")
-async def gbrain_stats() -> dict[str, Any]:
-    """Get GBrain statistics (pages, chunks, links, brain score)."""
+async def gbrain_stats(request: Request) -> dict[str, Any]:
+    """Get GBrain statistics (pages, chunks, links, brain score).
+
+    Brain-wide — admin only. See /health.
+    """
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         stats = gbrain.get_stats()
@@ -206,8 +217,13 @@ async def gbrain_remember(
 
 
 @gbrain_router.get("/integrations")
-async def gbrain_integrations() -> dict[str, Any]:
-    """List available GBrain integrations (infra, senses, reflexes)."""
+async def gbrain_integrations(request: Request) -> dict[str, Any]:
+    """List available GBrain integrations (infra, senses, reflexes).
+
+    Brain-wide Skills surface — admin only. Per-user Memory lives under /pages
+    and /search (source-scoped).
+    """
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         integrations = gbrain.list_integrations()
@@ -218,8 +234,9 @@ async def gbrain_integrations() -> dict[str, Any]:
 
 
 @gbrain_router.get("/integrations/{integration_id}/status")
-async def gbrain_integration_status(integration_id: str) -> dict[str, Any]:
+async def gbrain_integration_status(integration_id: str, request: Request) -> dict[str, Any]:
     """Status, configured secrets, and heartbeat for one integration."""
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         status = gbrain.get_integration_status(integration_id)
@@ -230,11 +247,13 @@ async def gbrain_integration_status(integration_id: str) -> dict[str, Any]:
 
 
 @gbrain_router.get("/jobs/catalog")
-async def gbrain_jobs_catalog() -> dict[str, Any]:
+async def gbrain_jobs_catalog(request: Request) -> dict[str, Any]:
     """
     Built-in Minions job types safe to submit on demand from this UI.
     Mirrors the Node dashboard's RUNNABLE_JOBS allow-list.
+    Admin only — jobs mutate the shared brain, not a per-user source.
     """
+    _require_admin(request)
     return {
         "jobs": [
             {"id": name, "name": name, "description": description}
@@ -245,9 +264,10 @@ async def gbrain_jobs_catalog() -> dict[str, Any]:
 
 @gbrain_router.get("/jobs")
 async def gbrain_jobs(
-    limit: int = 10, status: str = "", queue: str = "", name: str = ""
+    request: Request, limit: int = 10, status: str = "", queue: str = "", name: str = ""
 ) -> list[dict[str, Any]]:
     """List background jobs (Minions queue) with optional filters."""
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         jobs = gbrain.list_jobs(status=status, queue=queue, name=name, limit=limit)
@@ -258,8 +278,9 @@ async def gbrain_jobs(
 
 
 @gbrain_router.get("/jobs/{job_id}")
-async def gbrain_job(job_id: int) -> dict[str, Any]:
+async def gbrain_job(job_id: int, request: Request) -> dict[str, Any]:
     """Fetch a single job's status/result by id."""
+    _require_admin(request)
     try:
         gbrain = get_gbrain()
         job = gbrain.get_job(job_id)
@@ -274,14 +295,18 @@ async def gbrain_job(job_id: int) -> dict[str, Any]:
 
 
 @gbrain_router.post("/jobs")
-async def gbrain_submit_job(name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+async def gbrain_submit_job(
+    request: Request, name: str, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Submit a background job to GBrain's Minions queue.
 
     Only the fixed RUNNABLE_JOBS allow-list may be submitted here -- `shell`
     is deliberately excluded, matching the Node dashboard's policy: we don't
-    want an arbitrary-command trigger reachable from a web UI.
+    want an arbitrary-command trigger reachable from a web UI. Admin only
+    because these jobs operate on the shared brain, not a per-user source.
     """
+    _require_admin(request)
     if name not in RUNNABLE_JOBS:
         raise HTTPException(
             status_code=400,
