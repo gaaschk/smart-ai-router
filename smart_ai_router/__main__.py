@@ -34,6 +34,10 @@ def main():
         from smart_ai_router.keys_cli import run_keys_cli
         sys.exit(run_keys_cli(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "review":
+        from smart_ai_router.review import run_review_cli
+        sys.exit(run_review_cli(sys.argv[2:]))
+
     _load_dotenv()
     port = int(os.environ.get("SMART_ROUTER_PORT", "8001"))
     uvicorn.run(create_app(), host="0.0.0.0", port=port)

@@ -26,6 +26,7 @@ dev = ["pytest", "httpx"]
 [project.scripts]
 smart-ai-router = "smart_ai_router.__main__:main"
 smart-ai-router-setup = "smart_ai_router.setup:run_setup"
+smart-ai-router-review = "smart_ai_router.review:run_review_cli"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

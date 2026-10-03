@@ -128,7 +128,18 @@ pytest
 smart-ai-router
 # or
 python -m smart_ai_router
+
+# Run a daily repo review once (dry run)
+smart-ai-router-review --repo . --output logs/daily-review.md --dry-run
+
+# Install a daily LaunchAgent for automatic review
+smart-ai-router-review --repo . --output logs/daily-review.md --schedule --hour 3 --minute 0
 ```
+
+The review is a structured daily audit that checks code quality, usability,
+design consistency, UX coherence, missing or weak features, architecture, performance,
+scalability, maintainability, and operational risk. It writes a markdown report to a
+stable location so the operator can rerun it manually or inspect the scheduled output.
 
 ## Requirements
 
