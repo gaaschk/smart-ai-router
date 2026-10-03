@@ -655,6 +655,10 @@ def overview(request: Request, days: int = 30):
         overhead_share=(oh_cost / bill) if bill else 0.0,
         classifier_mix=mine_usage["by_classifier"],
         savings_unavailable=unavailable,
+        # The operator-declared address, if any. Empty means unset, and the page
+        # falls back to the reader's own origin — right for a plain local install,
+        # wrong for everyone else, which is why an operator can override it.
+        public_base_url=_settings.get_str("public_base_url").strip(),
     )
 
 

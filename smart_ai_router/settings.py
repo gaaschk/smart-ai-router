@@ -107,6 +107,32 @@ def _expect_owner_slash_name(value: str) -> None:
         raise ValueError("expects owner/name, e.g. gaaschk/smart-ai-router")
 
 
+def _expect_http_url(value: str) -> None:
+    """Refuse anything that isn't an absolute http(s) URL with a host.
+
+    This value is copied into other people's editor settings, so a typo here is
+    not a cosmetic one: it becomes a connection refused that looks like the
+    router being down, reported from a machine that is not the operator's. The
+    obvious mistakes are all worth refusing at the Settings page instead — a
+    bare hostname with no scheme (which many clients reject outright), a
+    `localhost:8001/v1` pasted where the scheme was expected to be implied, or
+    the browser bar's `.../v1/models` trailing path.
+    """
+    url = value.strip()
+    if not url:
+        return  # empty = unset; the UI falls back to the address in the bar
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("must start with http:// or https://")
+    # What follows the scheme must be a host, not empty and not a bare ":port"
+    # with no host in front of it.
+    rest = url.split("://", 1)[1]
+    host = rest.split("/", 1)[0]
+    if not host or host.startswith(":"):
+        raise ValueError("expects a host, e.g. https://router.example.com")
+    if " " in url:
+        raise ValueError("cannot contain spaces")
+
+
 # The registry. Order here is the order the UI renders. Keep keys stable — they
 # are the DB primary keys and the JSON field names in the settings API.
 SPECS: tuple[SettingSpec, ...] = (
@@ -832,6 +858,27 @@ SPECS: tuple[SettingSpec, ...] = (
         "the whole chat, and an issue is public. Left off, the issue cites the "
         "local report id and the transcript stays on this machine.",
         sensitive=True,
+    ),
+    # ── Public address ─────────────────────────────────────────────────────────
+    # How a client should reach this router from another machine. A deployment
+    # fact rather than application behavior, but a setting rather than an env var
+    # for the reason settings.py exists at all: it is edited in the UI, by whoever
+    # runs the router, and it is worth changing without a redeploy.
+    SettingSpec(
+        key="public_base_url",
+        env="SMART_ROUTER_PUBLIC_BASE_URL",
+        type="str",
+        default="",
+        label="Public base URL",
+        group="Public address",
+        help="The address clients should point at, shown in the dashboard's "
+        "Connect-a-client block — e.g. https://router.example.com. Include the "
+        "/v1 suffix; that is the part most clients need and the part most often "
+        "omitted. Set this when the router is reached by a hostname, a tunnel, or "
+        "a reverse proxy, since the address in the browser bar is whatever the "
+        "reader happens to be using and is wrong for everyone else. Leave it "
+        "empty on a plain local install, where the bar is already right.",
+        validate=_expect_http_url,
     ),
 )
 

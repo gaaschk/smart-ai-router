@@ -286,6 +286,7 @@ curl "http://localhost:8001/api/overview?days=30" -H "Authorization: Bearer $KEY
 | `mine` | The caller's block, plus `rank` (1 = highest spender), `users_ranked`, `cheap_share`, `avg_cost_per_request`, and their `top_models`. |
 | `overhead_cost_usd` / `overhead_share` | The router's own spend (classification, profiling), which is on the bill but is not user traffic. |
 | `classifier_mix` | Which classifier profiled each of the caller's requests. |
+| `public_base_url` | The address clients should point at, from the `public_base_url` setting — the dashboard's *Connect a client* block shows it. `""` means unset, and the page falls back to whatever host the reader reached it on. Set it when the router is reached by a hostname, tunnel, or reverse proxy; the browser-bar address is only right for the machine the page is open on. Readable by every signed-in key, not admin-gated, because it is the one setting a non-admin needs. |
 
 `days` is clamped to 1…365.
 

@@ -346,6 +346,82 @@
     line-height: 1.5;
   }
 
+  /* ── Connect a client ───────────────────────────────────────────────
+     The next question after "what is this" is always "how do I point my
+     editor at it", so the answer sits on the same screen rather than a
+     docs tab away. The three values below are the whole setup for most
+     clients, so they get a copyable snippet each instead of prose. */
+  .connect {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem 1.75rem 1.35rem;
+    margin-bottom: 2.25rem;
+  }
+  .connect-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+  }
+  .connect-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.95rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .connect-card-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  /* The label names the field in the client's own settings screen, so the
+     reader can match it to what they already have open. */
+  .connect-field {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 0.15rem 0.6rem;
+    align-items: baseline;
+  }
+  .connect-field-k {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .connect-field-v {
+    font-size: 0.72rem;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .connect-note {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .connect-note strong { color: var(--text-secondary); font-weight: 600; }
+  .connect-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  .connect-actions a {
+    font-size: 0.75rem;
+    color: var(--accent-text);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.7rem;
+    transition: border-color var(--transition);
+  }
+  .connect-actions a:hover { border-color: var(--accent-text); }
+
   /* A stat card that carries a meter — the share/split figures read far faster
      as a proportion than as a naked integer. */
   .stat-meter {
@@ -1447,6 +1523,13 @@
     .hero-step { display: grid; grid-template-columns: 22px 1fr; gap: 0 0.6rem; }
     .hero-step-n { grid-row: 1 / span 2; margin-bottom: 0; }
     .hero-step-title { margin-bottom: 0.1rem; }
+
+    /* Same reasoning as the hero: on a phone the field/value pairs stack,
+       and the label column would otherwise squeeze the values to nothing. */
+    .connect { padding: 1.35rem 1.15rem 1.15rem; }
+    .connect-grid { grid-template-columns: 1fr; gap: 0.6rem; margin-top: 1.15rem; }
+    .connect-field { grid-template-columns: 1fr; gap: 0 0; }
+    .connect-field-k { margin-bottom: 0.05rem; }
     .stat-card .stat-value { font-size: 1.5rem; }
   }
 </style>
@@ -1550,6 +1633,51 @@
         <div class="hero-step-title">It answers, or escalates</div>
         <div class="hero-step-text">Cheap when it can be. Strongest model when it can't — and it says so.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Connect a client ───────────────────────────────────────────────
+       The question right after "what is this" is "how do I point my editor
+       at it", so the answer stays on the same screen. Static for the same
+       reason as the hero — it is setup instructions, not a measurement, and
+       it must be legible before any fetch resolves.
+
+       The base URL is rendered by JS from window.location rather than
+       hardcoded, because the docs say `localhost:8001` and this page is being
+       read *on* the router. A reader who copies the docs' placeholder into an
+       editor running on another machine gets a connection refused. -->
+  <div class="connect">
+    <div class="hero-eyebrow">Connect a client</div>
+    <div class="hero-title" style="font-size:1.15rem">Point any OpenAI-compatible client here.</div>
+    <p class="hero-body" style="margin-bottom:0">
+      This router speaks the OpenAI protocol, so there is nothing to install — swap the
+      base URL for this one and keep the rest of your client. Which of the two lanes you
+      send decides the candidate pool, not the model that answers.
+    </p>
+    <div class="connect-grid">
+      <div class="connect-card">
+        <div class="connect-card-title">🧠 Claude Code</div>
+        <div class="connect-field"><span class="connect-field-k">Command</span><span class="connect-field-v"><code>claudish-smart</code></span></div>
+        <div class="connect-note">A translator (<code>claudish</code>, installed separately) sits in front, since Claude Code speaks Anthropic's protocol and this router speaks OpenAI's. The wrapper sets it up for you.</div>
+      </div>
+      <div class="connect-card">
+        <div class="connect-card-title">📦 Codex CLI</div>
+        <div class="connect-field"><span class="connect-field-k">base_url</span><span class="connect-field-v"><code id="connect-base-url-codex">http://localhost:8001/v1</code></span></div>
+        <div class="connect-field"><span class="connect-field-k">wire_api</span><span class="connect-field-v"><code>chat</code> — not optional</span></div>
+        <div class="connect-note">Codex prefers OpenAI's Responses API; this router implements chat completions only.</div>
+      </div>
+      <div class="connect-card">
+        <div class="connect-card-title">🔌 Anything with a base-URL field</div>
+        <div class="connect-field"><span class="connect-field-k">Base URL</span><span class="connect-field-v"><code id="connect-base-url-generic">http://localhost:8001/v1</code></span></div>
+        <div class="connect-field"><span class="connect-field-k">API key</span><span class="connect-field-v">a router key, or <code>any-value</code> when auth is off</span></div>
+        <div class="connect-field"><span class="connect-field-k">Model</span><span class="connect-field-v"><code>smart-orchestrator</code>, or <code>smart-worker</code> for plain chat</span></div>
+        <div class="connect-note">Continue, Zed, LibreChat, Open WebUI, aider — same three values.</div>
+      </div>
+    </div>
+    <div class="connect-actions">
+      <a href="https://github.com/gaaschk/smart-ai-router/blob/main/docs/clients.md" target="_blank" rel="noopener noreferrer">Client setup guide →</a>
+      <a href="https://github.com/gaaschk/smart-ai-router/blob/main/docs/clients.md#the-openai-sdks" target="_blank" rel="noopener noreferrer">OpenAI SDK example →</a>
+      <a href="https://github.com/gaaschk/smart-ai-router/blob/main/docs/api.md" target="_blank" rel="noopener noreferrer">API reference →</a>
     </div>
   </div>
 
@@ -2793,8 +2921,28 @@ function showPage(name, ev) {
   if (name === 'settings') { doCheckUpdates(); fetchRuntimeSettings(); }
 }
 
+// ── Connect a client ────────────────────────────────────────────────────────
+// Which address to hand a reader in the Connect-a-client block. The operator's
+// `public_base_url` setting wins, because the address in the browser bar is only
+// right for the machine this page happens to be open on — wrong for a reader on
+// another machine, and wrong entirely behind a tunnel or reverse proxy, where it
+// names the proxy rather than the router. With nothing set, the bar is the best
+// available answer and is right for the common local install.
+//
+// Called again after /api/overview resolves, since the setting is only knowable
+// from that response. The markup keeps localhost:8001 underneath so the text is
+// never empty, whatever happens to the fetch.
+function fillConnectBaseUrl(operatorBase) {
+  const base = (operatorBase || '').trim() || `${window.location.origin}/v1`;
+  ['connect-base-url-codex', 'connect-base-url-generic'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = base;
+  });
+}
+
 // ── Dashboard init ──────────────────────────────────────────────────────────
 async function initDashboard() {
+  fillConnectBaseUrl();
   // A recovery link has to be redeemed before anything asks who we are, so every
   // fetch below (and the cached /api/whoami answer) belongs to the reclaimed
   // visitor rather than the one this browser's cookie happens to name.
@@ -2929,6 +3077,9 @@ async function fetchOverview() {
     const r = await fetch(`${API}/overview`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     _overview = await r.json();
+    // An operator-set address supersedes the browser-bar fallback, and this is
+    // the first moment it is knowable.
+    fillConnectBaseUrl(_overview && _overview.public_base_url);
     renderOverview();
   } catch (e) {
     // The hero above is static and still explains the product, so a failed fetch
