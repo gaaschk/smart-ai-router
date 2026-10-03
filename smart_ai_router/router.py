@@ -139,6 +139,26 @@ def _output_floor(profile: PromptProfile) -> int:
     return max(0, _settings.get_int("long_form_min_model_output"))
 
 
+def _context_reserve() -> int:
+    """Output tokens a pick must leave room for inside its context window.
+
+    The proxy injects a default max_tokens whenever the caller omits one
+    (see api/proxy.py _output_budget), and several providers reject — rather
+    than truncate — a request whose prompt + max_tokens exceeds the model's
+    context. Measured live: an ~89K-estimated prompt (really ~115K after the
+    estimate's known under-count) plus the 16K injected budget died as a 400
+    against a 131K window on 2026-10-03, the dashboard's failed-request bump.
+
+    The base ceiling is what gets reserved, not the long-form one: the
+    long-form budget arms only on a profile that turns out long-form, and
+    reserving a story's budget against every prompt would shrink the pool for
+    replies that never needed it. A model whose own max_output is smaller than
+    the reserve still qualifies — the proxy clamps to that ceiling too, and a
+    smaller ask only risks truncation, never a rejected request.
+    """
+    return max(1, _settings.get_int("default_max_tokens"))
+
+
 def _price(spec: ModelSpec) -> float:
     """What this model really costs, for ranking inside a cost tier.
 
@@ -416,6 +436,7 @@ def _select(
     agentic_excluded = 0
     slow_excluded = 0
     output_deprioritized = 0
+    reserve = _context_reserve()
 
     def _drives_loops(spec: ModelSpec) -> bool:
         """Whether this model may be handed a multi-step tool task.
@@ -528,8 +549,18 @@ def _select(
             return False
         if needs_structured and not spec.structured_outputs:
             return False
-        if est_tokens > 0 and spec.ctx_k > 0 and est_tokens > spec.ctx_k * 1000:
-            return False
+        if est_tokens > 0 and spec.ctx_k > 0:
+            # The provider rejects prompt + max_tokens over the window rather
+            # than truncating (measured: 400 "you requested about N tokens" from
+            # OpenRouter), so the injected output budget has to fit too. est
+            # already includes the tool schemas and the chars/3 correction —
+            # see _estimate_request_tokens in api/proxy.py. The +10% is the
+            # estimate's own error bar: worst measured density was 2.85
+            # chars/token against this 3.0 divisor, and the asymmetric cost
+            # (a mistaken exclusion routes one prompt to a dearer model, an
+            # optimistic estimate is a provider 400) says bias the check high.
+            if est_tokens * 11 // 10 + reserve > spec.ctx_k * 1000:
+                return False
         return True
 
     eligible = [spec for spec in models if _eligible(spec)]

@@ -130,10 +130,27 @@ def test_caller_supplied_max_tokens_is_clamped_to_the_pick(monkeypatch):
 
 def test_an_unknown_ceiling_leaves_max_tokens_alone(monkeypatch):
     # max_output == 0 means the catalog didn't say — which is every local model.
-    # Guessing a ceiling there would truncate answers that were fine.
+    # Guessing a ceiling there would truncate answers that were fine. The ask
+    # stays intact while prompt + ask fits the window: the room clamp is about
+    # rejection, not about second-guessing the caller.
     c = _client(monkeypatch, _spec("openrouter/unknown-limit", cost=1, max_output=0))
-    _chat(c, max_tokens=200_000)
-    assert c.sent[-1]["max_tokens"] == 200_000
+    _chat(c, max_tokens=100_000)
+    assert c.sent[-1]["max_tokens"] == 100_000
+
+
+def test_caller_ask_is_clamped_to_room_left_in_the_window(monkeypatch):
+    # Prompt + max_tokens over the context window is a provider 400, not a
+    # truncation (measured live: "This endpoint's maximum context length is
+    # 131072 tokens. However, you requested about 153359"). A caller sizing
+    # its ask for a model it never sees can cross that line, so the ask is
+    # pulled down to what actually fits — estimated the same way the route did.
+    c = _client(monkeypatch, _spec("openrouter/windowed", cost=1))
+    # ~50K chars of prompt ≈ 16.7K estimated tokens against the 200K window;
+    # a 200K ask cannot fit alongside it.
+    _chat(c, messages=[{"role": "user", "content": "x" * 50_000}], max_tokens=200_000)
+    sent_ask = c.sent[-1]["max_tokens"]
+    # The clamp is the room left (~183K), not zero and not the original ask.
+    assert 150_000 < sent_ask < 200_000
 
 
 # ── a schema is routed on, not dropped ────────────────────────────────────────
