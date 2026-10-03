@@ -143,7 +143,8 @@ function install() {
     echo -e "  3. Use your admin API key to authenticate\n"
     echo -e "Useful commands:"
     echo -e "  Check status:    ${BLUE}launchctl list com.smart-ai-router${NC}"
-    echo -e "  View logs:       ${BLUE}tail -f ~/Library/Logs/dashboard/smartrouter.log${NC}"
+    echo -e "  View logs:       ${BLUE}tail -f $SCRIPT_DIR/../logs/server.log${NC}"
+    echo -e "  View err log:    ${BLUE}tail -f $SCRIPT_DIR/../logs/server.err${NC}"
     echo -e "  Stop service:    ${BLUE}launchctl stop com.smart-ai-router${NC}"
     echo -e "  Uninstall:       ${BLUE}$0 --uninstall${NC}\n"
 }

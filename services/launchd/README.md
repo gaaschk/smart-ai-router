@@ -56,7 +56,8 @@ launchctl stop com.smart-ai-router
 launchctl stop com.smart-ai-router && launchctl start com.smart-ai-router
 
 # View logs
-tail -f ~/Library/Logs/dashboard/smartrouter.log
+tail -f /path/to/smart-ai-router/logs/server.log
+tail -f /path/to/smart-ai-router/logs/server.err
 ```
 
 ## Troubleshooting

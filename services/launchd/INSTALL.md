@@ -30,7 +30,8 @@ this doc is for doing it by hand or understanding what the script does.
 
 4. Logs:
    ```bash
-   tail -f ~/Library/Logs/dashboard/smartrouter.log
+   tail -f /path/to/smart-ai-router/logs/server.log
+   tail -f /path/to/smart-ai-router/logs/server.err
    ```
 
 ## Managing the service
@@ -59,8 +60,8 @@ Or just run `./install.sh --uninstall`.
   runs independently of this per-user LaunchAgent and will respawn the
   process if it's the one managing it.
 - **Path errors**: double-check the paths inside the `.plist` file.
-- **Permissions**: make sure the log directory
-  (`~/Library/Logs/dashboard/`) is writable.
+- **Permissions**: make sure the repo log directory
+  (`/path/to/smart-ai-router/logs/`) exists and is writable.
 
 ## See Also
 
