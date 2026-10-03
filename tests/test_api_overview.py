@@ -360,3 +360,60 @@ def test_window_is_clamped(clients):
 def test_endpoint_requires_a_key_when_keys_exist(monkeypatch, clients):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     assert clients.get("/api/overview").status_code == 401
+
+
+# ── Public base URL ──────────────────────────────────────────────────────────
+# The address the Connect-a-client block tells people to point their editor at.
+# Two failure modes worth pinning: a non-admin must be able to READ it (they are
+# the ones setting up a client), and a typo must be refused at the Settings page
+# rather than surfacing later as a connection refused from someone else's machine.
+
+def test_public_base_url_defaults_to_unset(clients):
+    body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
+    assert body["public_base_url"] == ""
+
+
+def test_operator_set_base_url_reaches_a_non_admin(clients, monkeypatch):
+    """A per-user key must see it — this is the one setting a non-admin needs.
+
+    /api/models and /api/settings are both admin-gated, so if this were read from
+    either, every non-admin reader would silently get the browser-bar fallback
+    (or nothing) and be sent to a host that is wrong for their machine.
+    """
+    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
+        "updates": {"public_base_url": "https://router.example.com/v1"}})
+    assert r.status_code == 200, r.text
+    assert clients.get("/api/models", headers=_auth(_ALICE)).status_code == 403  # still admin-gated
+
+    body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
+    assert body["public_base_url"] == "https://router.example.com/v1"
+
+
+def test_blank_base_url_is_allowed_and_means_unset(clients):
+    """Empty is the default, so it has to be saveable — and mean 'fall back'."""
+    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
+        "updates": {"public_base_url": ""}})
+    assert r.status_code == 200, r.text
+    body = clients.get("/api/overview", headers=_auth(_ALICE)).json()
+    assert body["public_base_url"] == ""
+
+
+@pytest.mark.parametrize("bad", [
+    "router.example.com/v1",     # no scheme — the most common paste
+    "localhost:8001/v1",         # scheme-relative, which most clients reject
+    "https://",                  # no host at all
+    "https://:8001/v1",          # port with no host in front of it
+    "https://router .example/v1",  # stray space
+])
+def test_a_malformed_base_url_is_refused_at_the_settings_page(clients, bad):
+    """Refused on the way in, not discovered as a 404 from someone's editor.
+
+    This value is copied verbatim into other people's client settings, so a typo
+    becomes a connection refused that looks like the router being down — reported
+    from a machine that is not the operator's, days later.
+    """
+    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
+        "updates": {"public_base_url": bad}})
+    assert r.status_code == 422, f"{bad!r} was accepted"
+    # And it was not persisted on the way to being rejected.
+    assert clients.get("/api/overview", headers=_auth(_ALICE)).json()["public_base_url"] == ""

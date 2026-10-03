@@ -2922,13 +2922,18 @@ function showPage(name, ev) {
 }
 
 // ── Connect a client ────────────────────────────────────────────────────────
-// The docs hardcode localhost:8001 because that is the usual install. The person
-// reading this page is on the router already, so the address they actually need
-// is wherever they reached it — kevins-mac-mini.local, a tunnel, a reverse
-// proxy. Substituted here rather than in the markup so the static text still
-// renders something sensible if this never runs.
-function fillConnectBaseUrl() {
-  const base = `${window.location.origin}/v1`;
+// Which address to hand a reader in the Connect-a-client block. The operator's
+// `public_base_url` setting wins, because the address in the browser bar is only
+// right for the machine this page happens to be open on — wrong for a reader on
+// another machine, and wrong entirely behind a tunnel or reverse proxy, where it
+// names the proxy rather than the router. With nothing set, the bar is the best
+// available answer and is right for the common local install.
+//
+// Called again after /api/overview resolves, since the setting is only knowable
+// from that response. The markup keeps localhost:8001 underneath so the text is
+// never empty, whatever happens to the fetch.
+function fillConnectBaseUrl(operatorBase) {
+  const base = (operatorBase || '').trim() || `${window.location.origin}/v1`;
   ['connect-base-url-codex', 'connect-base-url-generic'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = base;
@@ -3072,6 +3077,9 @@ async function fetchOverview() {
     const r = await fetch(`${API}/overview`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     _overview = await r.json();
+    // An operator-set address supersedes the browser-bar fallback, and this is
+    // the first moment it is knowable.
+    fillConnectBaseUrl(_overview && _overview.public_base_url);
     renderOverview();
   } catch (e) {
     // The hero above is static and still explains the product, so a failed fetch

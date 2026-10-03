@@ -356,6 +356,13 @@ class OverviewResponse(BaseModel):
     # Set only when the saving could not be computed from catalog prices, with
     # the reason. Surfaced in the UI rather than silently dropping the figure.
     savings_unavailable: str = ""
+    # Where a client should point, for the Connect-a-client block. From the
+    # `public_base_url` setting, which an operator sets when the router is reached
+    # by a hostname or tunnel; empty means "unset", and the UI falls back to the
+    # address in the reader's own browser bar. Deliberately readable by every
+    # signed-in identity rather than admin-only: it is the one setting a non-admin
+    # needs, since it is the answer to "how do I use this from my editor".
+    public_base_url: str = ""
 
 
 # ── Provider config ───────────────────────────────────────────────────────────

@@ -8,6 +8,14 @@ times:
 `/v1/messages` here, so a client that natively speaks Anthropic's protocol needs
 a translator in front of it — which is what `claudish-smart` is for.
 
+The examples below say `http://localhost:8001/v1`, which is right when the client
+runs on the same machine. If it doesn't — another machine, a tunnel, a reverse
+proxy — set **Settings → Public address → Public base URL** to the address people
+should actually use. The dashboard's *Connect a client* block shows that value, so
+whichever you set is what the next person is told to copy. Left empty, the block
+falls back to the address in the browser bar, which is correct only for whoever
+happens to be reading it.
+
 **2. Auth is off until the install has a key.** Once one exists, every client
 sends it the same way — `Authorization: Bearer <key>`, whatever the client calls
 that field (see [API keys](api.md#api-keys-per-user-auth)). Before that, a client that
