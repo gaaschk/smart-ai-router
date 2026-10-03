@@ -101,6 +101,30 @@
   .topbar nav button:hover { color: var(--text); background: var(--surface); }
   .topbar nav button.active { color: var(--text); background: var(--surface-raised); }
 
+  /* Help lives in the topbar rather than as a nav "page": it is documentation on
+     another site, not a view of this one. An <a> styled as a button, so it is a
+     real link — middle-click, ⌘-click, and "open in new tab" all work, which a
+     JS-driven div would break. */
+  .topbar .help-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.825rem;
+    font-weight: 500;
+    padding: 0.35rem 0.6rem;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: all var(--transition);
+  }
+  .topbar .help-link:hover {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
   .topbar .status-group {
     margin-left: auto;
     display: flex;
@@ -242,7 +266,156 @@
     margin-top: 0.25rem;
   }
 
-  /* ── Usage day-bars (dependency-free chart) ──────────────────────── */
+  /* ── Overview: the "what is this" hero ─────────────────────────── */
+  /* The first thing a logged-in user sees is not a number, it is the claim
+     the numbers then support. Read before measured, so the stats below have
+     something to be evidence *of* rather than appearing unframed. */
+  .hero {
+    background:
+      radial-gradient(1200px 260px at 12% -30%, var(--accent-soft), transparent 70%),
+      linear-gradient(180deg, var(--surface-raised), var(--surface));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.75rem 1.75rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .hero-eyebrow {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+    margin-bottom: 0.6rem;
+  }
+  .hero-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    margin-bottom: 0.6rem;
+  }
+  .hero-body {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    max-width: 62ch;
+    line-height: 1.6;
+  }
+  .hero-body strong { color: var(--text); font-weight: 600; }
+
+  /* The four-step "how your message gets answered" row. Static content, no
+     JS: it is the product's argument, and it should render on first paint. */
+  .hero-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .hero-step {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 0.9rem;
+  }
+  .hero-step-n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .hero-step-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+  }
+  .hero-step-text {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* A stat card that carries a meter — the share/split figures read far faster
+     as a proportion than as a naked integer. */
+  .stat-meter {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--surface-raised);
+    overflow: hidden;
+    margin-top: 0.7rem;
+    display: flex;
+  }
+  .stat-meter-seg { height: 100%; }
+  .stat-meter-seg.cheap { background: var(--success); }
+  .stat-meter-seg.escalated { background: var(--accent); }
+  .stat-meter-seg.rest { background: var(--surface-raised); }
+
+  .stat-legend {
+    display: flex;
+    gap: 0.9rem;
+    margin-top: 0.55rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .stat-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .stat-legend i {
+    width: 7px; height: 7px; border-radius: 2px; display: inline-block;
+  }
+  .stat-legend i.cheap { background: var(--success); }
+  .stat-legend i.escalated { background: var(--accent); }
+
+  /* A stat whose value is a sentence rather than a number (e.g. "no traffic
+     recorded yet"). Sits at the same size but wraps instead of overflowing. */
+  .stat-card .stat-value.textual {
+    font-size: 0.95rem;
+    font-family: inherit;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  /* An inline caveat under a figure the server declined to compute. Never
+     silent: a missing number that reads as zero is worse than no number. */
+  .stat-note {
+    font-size: 0.7rem;
+    color: var(--warning);
+    margin-top: 0.35rem;
+  }
+
+  /* Section wrapper so the overview reads as three labelled bands rather than
+     one long column of cards. */
+  .ov-section { margin-bottom: 2.25rem; }
+  .ov-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+  }
+  .ov-section-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .ov-section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  /* A count of people, shown as faces-free numerals — no avatars, no names:
+     this is a deployment's population, not a directory. */
+  .ov-rank {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.75rem;
+    letter-spacing: -0.02em;
+  }
+
+  /* Usage day-bars (dependency-free chart) ──────────────────────── */
   .usage-bars {
     display: flex;
     align-items: flex-end;
@@ -1229,6 +1402,17 @@
     .table-toolbar input { flex: 1 1 100%; }
     .modal { padding: 1.1rem; }
     .modal-actions { flex-wrap: wrap; }
+
+    /* The hero is the first thing read on a phone, where horizontal space is
+       the scarcest thing on the page — the steps go to one column and the title
+       loses a step rather than wrapping to three lines mid-sentence. */
+    .hero { padding: 1.35rem 1.15rem 1.15rem; }
+    .hero-title { font-size: 1.2rem; }
+    .hero-steps { grid-template-columns: 1fr; gap: 0.6rem; margin-top: 1.15rem; }
+    .hero-step { display: grid; grid-template-columns: 22px 1fr; gap: 0 0.6rem; }
+    .hero-step-n { grid-row: 1 / span 2; margin-bottom: 0; }
+    .hero-step-title { margin-bottom: 0.1rem; }
+    .stat-card .stat-value { font-size: 1.5rem; }
   }
 </style>
 </head>
@@ -1240,11 +1424,14 @@
     <div class="logo-icon">R</div>
     <span class="logo-text">smart-ai-router</span>
   </div>
-  <!-- data-admin marks chrome an anonymous visitor never sees: with public chat
-       on, the page loads without a key and the whole dashboard would otherwise be
-       a wall of 401s. Chat is the only thing left standing. -->
+  <!-- data-admin marks operator chrome: hidden from an anonymous visitor (with
+       public chat on the page loads with no key, so the whole dashboard would be
+       a wall of 401s) and from a self-serve account (a real, logged-in identity
+       whose key cannot manage keys, providers or settings). Dashboard is
+       deliberately NOT data-admin — it is the one page every signed-in identity
+       can read, which is what makes it worth building. -->
   <nav>
-    <button class="active" data-admin onclick="showPage('dashboard')">Dashboard</button>
+    <button class="active" id="nav-dashboard" onclick="showPage('dashboard')">Dashboard</button>
     <button id="nav-chat" onclick="showPage('chat')">Chat</button>
     <button data-admin onclick="showPage('models')">Models</button>
     <button data-admin onclick="showPage('usage')">Usage</button>
@@ -1256,6 +1443,16 @@
     <button data-admin onclick="showPage('settings')">Settings</button>
   </nav>
   <div class="status-group">
+    <!-- Documentation lives on GitHub, so this is a plain link out rather than a
+         page here — a real <a>, so ⌘-click and "open in new tab" behave. Not
+         data-admin: a person who cannot manage this router is exactly who needs
+         to read how to use it. -->
+    <a class="help-link"
+       href="https://github.com/gaaschk/smart-ai-router/blob/main/docs/README.md"
+       target="_blank" rel="noopener noreferrer"
+       title="Documentation on GitHub (opens in a new tab)">
+      <span aria-hidden="true">📖</span> Help
+    </a>
     <span class="model-count" id="topbar-model-count" data-admin>—</span>
     <span class="whoami" id="topbar-whoami" title="Signed-in identity — click to sign out and enter a different key"
           onclick="onIdentityClick()" style="display:none"></span>
@@ -1278,31 +1475,195 @@
     <button class="btn btn-sm btn-ghost" id="btn-banner-apply" onclick="doApplyUpdate()">Pull &amp; Restart</button>
   </div>
 
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">Total Models</div>
-      <div class="stat-value" id="stat-models">—</div>
-      <div class="stat-sub" id="stat-models-sub">across all providers</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Providers</div>
-      <div class="stat-value" id="stat-providers">—</div>
-      <div class="stat-sub" id="stat-providers-sub">configured</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Tool-Capable</div>
-      <div class="stat-value" id="stat-tools">—</div>
-      <div class="stat-sub">models with tool calling</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Cheapest Tier</div>
-      <div class="stat-value" id="stat-cheapest">—</div>
-      <div class="stat-sub" id="stat-cheapest-sub">free or local models</div>
+  <!-- ── What this is ────────────────────────────────────────────────
+       Static on purpose. This is the product's argument, and it has to be
+       legible on first paint — before /api/overview resolves, and to anyone
+       who never triggers a fetch. The numbers arriving further down are
+       evidence for the claims made here, so the claims come first. -->
+  <div class="hero">
+    <div class="hero-eyebrow">What this does</div>
+    <h1 class="hero-title">One endpoint. The right model for every prompt.</h1>
+    <p class="hero-body">
+      Point any OpenAI-compatible client at this router and stop choosing models by hand.
+      Each message is <strong>profiled</strong> — which fields it touches, how deep, whether it
+      needs tools or current facts — and that profile is matched against a
+      <strong>rated catalog</strong> to pick the <strong>cheapest model that clears the quality
+      bar</strong> for that prompt. When nothing cheaper qualifies, it escalates to the strongest
+      model available rather than guessing.
+    </p>
+    <div class="hero-steps">
+      <div class="hero-step">
+        <div class="hero-step-n">1</div>
+        <div class="hero-step-title">Your prompt arrives</div>
+        <div class="hero-step-text">Standard <code>/v1/chat/completions</code>. Swap the base URL, keep the rest of your code.</div>
+      </div>
+      <div class="hero-step">
+        <div class="hero-step-n">2</div>
+        <div class="hero-step-title">It gets profiled</div>
+        <div class="hero-step-text">A cheap model reads the prompt and scores its fields, depth, and demands.</div>
+      </div>
+      <div class="hero-step">
+        <div class="hero-step-n">3</div>
+        <div class="hero-step-title">A model is chosen</div>
+        <div class="hero-step-text">The lowest-cost model whose per-field scores clear the bar this prompt sets.</div>
+      </div>
+      <div class="hero-step">
+        <div class="hero-step-n">4</div>
+        <div class="hero-step-title">It answers, or escalates</div>
+        <div class="hero-step-text">Cheap when it can be. Strongest model when it can't — and it says so.</div>
+      </div>
     </div>
   </div>
 
-  <!-- Quick sync -->
-  <div style="display:flex;gap:0.75rem;align-items:center">
+  <!-- ── This deployment ────────────────────────────────────────────────
+       Catalog shape, not traffic. Identical for every signed-in user, and
+       deliberately free of configuration: no keys, no endpoints, no
+       enabled/disabled state. It answers "what can this router actually do"
+       without exposing anything an operator would want private. -->
+  <div class="ov-section">
+    <div class="ov-section-head">
+      <div class="ov-section-title">This deployment</div>
+      <div class="ov-section-hint">the catalog this router can reach</div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:0">
+      <div class="stat-card">
+        <div class="stat-label">Models in catalog</div>
+        <div class="stat-value" id="ov-models">—</div>
+        <div class="stat-sub" id="ov-models-sub">awaiting sync</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tool-calling</div>
+        <div class="stat-value" id="ov-tools">—</div>
+        <div class="stat-sub" id="ov-tools-sub">can run agent loops</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Vision</div>
+        <div class="stat-value" id="ov-vision">—</div>
+        <div class="stat-sub" id="ov-vision-sub">accept image input</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Free or local</div>
+        <div class="stat-value" id="ov-free">—</div>
+        <div class="stat-sub" id="ov-free-sub">cost nothing to call</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Widest context</div>
+        <div class="stat-value" id="ov-ctx">—</div>
+        <div class="stat-sub">largest prompt any model accepts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active keys</div>
+        <div class="stat-value" id="ov-keys">—</div>
+        <div class="stat-sub" id="ov-keys-sub">identities on this router</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Your usage ────────────────────────────────────────────────────
+       Scoped to the signed-in identity by the server, never filtered
+       client-side — the browser is not trusted to narrow these numbers,
+       because they are the only ones the caller is entitled to. -->
+  <div class="ov-section">
+    <div class="ov-section-head">
+      <div class="ov-section-title">Your usage</div>
+      <div class="ov-section-hint" id="ov-window-hint">last 30 days</div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:0">
+      <div class="stat-card">
+        <div class="stat-label">Your requests</div>
+        <div class="stat-value" id="ov-mine-requests">—</div>
+        <div class="stat-sub" id="ov-mine-requests-sub">in the window</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Your spend</div>
+        <div class="stat-value" id="ov-mine-cost">—</div>
+        <div class="stat-sub" id="ov-mine-cost-sub">what you were billed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Saved vs. premium</div>
+        <div class="stat-value" id="ov-mine-saved">—</div>
+        <div class="stat-sub" id="ov-mine-saved-sub">against the priciest model</div>
+        <div class="stat-note" id="ov-mine-saved-note" style="display:none"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Routed cheaply</div>
+        <div class="stat-value" id="ov-mine-cheap">—</div>
+        <div class="stat-sub" id="ov-mine-cheap-sub">of your requests</div>
+        <div class="stat-meter" id="ov-mine-meter" style="display:none">
+          <div class="stat-meter-seg cheap" id="ov-mine-meter-cheap"></div>
+          <div class="stat-meter-seg escalated" id="ov-mine-meter-esc"></div>
+        </div>
+        <div class="stat-legend" id="ov-mine-legend" style="display:none">
+          <span><i class="cheap"></i> cheap tier</span>
+          <span><i class="escalated"></i> escalated</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg. per request</div>
+        <div class="stat-value" id="ov-mine-avg">—</div>
+        <div class="stat-sub">mean cost of one of your prompts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Your standing</div>
+        <div class="stat-value" id="ov-mine-rank">—</div>
+        <div class="stat-sub" id="ov-mine-rank-sub">by spend on this router</div>
+      </div>
+    </div>
+    <div id="ov-mine-models" style="margin-top:0.9rem"></div>
+  </div>
+
+  <!-- ── Across everyone ───────────────────────────────────────────────
+       Aggregate, always: "how busy is this router" is a property of the
+       deployment, and seeing it is what makes the per-user numbers above
+       legible as a share of something real. -->
+  <div class="ov-section">
+    <div class="ov-section-head">
+      <div class="ov-section-title">Across everyone</div>
+      <div class="ov-section-hint" id="ov-sys-hint">all traffic in the window</div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:0">
+      <div class="stat-card">
+        <div class="stat-label">Total requests</div>
+        <div class="stat-value" id="ov-sys-requests">—</div>
+        <div class="stat-sub" id="ov-sys-requests-sub">routed in the window</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">People using it</div>
+        <div class="stat-value" id="ov-sys-users">—</div>
+        <div class="stat-sub">identities with traffic</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total spend</div>
+        <div class="stat-value" id="ov-sys-cost">—</div>
+        <div class="stat-sub" id="ov-sys-cost-sub">user traffic only</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Saved by routing</div>
+        <div class="stat-value" id="ov-sys-saved">—</div>
+        <div class="stat-sub">vs. sending it all to the priciest</div>
+        <div class="stat-note" id="ov-sys-saved-note" style="display:none"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Router overhead</div>
+        <div class="stat-value" id="ov-sys-overhead">—</div>
+        <div class="stat-sub" id="ov-sys-overhead-sub">of the total bill</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Failed requests</div>
+        <div class="stat-value" id="ov-sys-errors">—</div>
+        <div class="stat-sub" id="ov-sys-errors-sub">4xx and 5xx</div>
+      </div>
+    </div>
+    <!-- Fetch-level failure. Separate from the per-figure notes above: those say
+         "this number could not be computed", this says "the whole request
+         failed", which is a different thing for a reader to act on. -->
+    <div id="ov-error" class="stat-note" style="display:none;margin-top:0.9rem"></div>
+  </div>
+
+  <!-- Quick sync. Admin-only: it re-fetches the whole catalog, which is an
+       operator action. The stats above don't need it — they read whatever
+       catalog the last sync left behind. -->
+  <div data-admin style="display:flex;gap:0.75rem;align-items:center">
     <button class="btn btn-ghost" onclick="doSync()" id="btn-sync-dash">
       <span id="spin-sync-dash" style="display:none" class="spinner"></span>
       Sync Models
@@ -2361,6 +2722,7 @@ function showPage(name) {
   document.querySelectorAll('.topbar nav button').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   if (name === 'models' && _allModels.length === 0) fetchModels();
+  if (name === 'dashboard') fetchOverview();
   if (name === 'chat') initChat();
   if (name === 'usage') fetchUsage();
   if (name === 'reports') fetchReports();
@@ -2387,14 +2749,23 @@ async function initDashboard() {
   // Auth is required, we have no key, and the gate is offering to mint one. Firing
   // the dashboard fetches now would stack a browser key prompt on top of it.
   if (_signupGateOpen) return;
-  // A self-issued key gets the chat page and nothing else, same as a guest: every
-  // other tab is admin-gated and would only 403 at its holder.
+  // A self-issued key is a real signed-in identity — capped and unvetted, but with
+  // its own traffic, so /api/overview answers for it exactly as it would for
+  // anyone else. It still gets chat-only for every *operator* surface (Keys,
+  // Providers, Settings), all of which would 403 at it, but the Dashboard is the
+  // page it can read, so it lands there rather than being dropped straight into
+  // chat. /api/models is deliberately not fetched: the Models tab stays hidden,
+  // and the overview's catalog block already carries the numbers it needs.
   const me = await fetchWhoAmI();
   if (me && me.self_serve) {
     loadWhoAmI();
-    showChatOnly();
+    initChat();
+    fetchOverview();
     return;
   }
+  // Overview first and not awaited: the Models fetch below is slower (it reads the
+  // whole catalog), and the dashboard's own figures don't depend on it.
+  fetchOverview();
   await fetchModels();
   loadWhoAmI();
   fetchProviders();
@@ -2423,7 +2794,6 @@ async function fetchModels() {
       badge.textContent = `error ${r.status}`;
       badge.title = detail || `GET /api/models failed (${r.status})`;
       _allModels = [];
-      updateStats();
       renderModels();
       return;
     }
@@ -2431,7 +2801,6 @@ async function fetchModels() {
     _allModels = Array.isArray(body) ? body : [];   // guard against a non-array body
     badge.textContent = `${_allModels.length} models`;
     badge.title = '';
-    updateStats();
     renderModels();
   } catch(e) {
     console.error(e);
@@ -2440,17 +2809,206 @@ async function fetchModels() {
   }
 }
 
-function updateStats() {
-  document.getElementById('stat-models').textContent = _allModels.length;
-  const providers = new Set(_allModels.map(m => m.provider));
-  document.getElementById('stat-providers').textContent = providers.size;
-  document.getElementById('stat-providers-sub').textContent =
-    [...providers].join(', ');
-  document.getElementById('stat-tools').textContent =
-    _allModels.filter(m => m.tools).length;
-  const free = _allModels.filter(m => m.cost <= 1).length;
-  document.getElementById('stat-cheapest').textContent = free;
-  document.getElementById('stat-cheapest-sub').textContent = 'free or local models';
+// ── Dashboard overview ────────────────────────────────────────────────────────
+// One fetch for the whole page. The previous dashboard built its four cards from
+// /api/models and could not show anything cross-cutting (savings vs. a premium
+// baseline, the caller's rank, the cheap/escalated split) because those need the
+// catalog and the traffic in hand at the same time. /api/overview returns both
+// halves in one scoped response.
+let _overview = null;
+
+function _setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+// A figure the server declined to compute. Never rendered as 0: "no traffic yet"
+// and "you saved nothing" are completely different claims, and a bare $0.00
+// would assert the second while meaning the first.
+function _setUnavailable(id, noteId, unavailable) {
+  const el = document.getElementById(id);
+  const note = document.getElementById(noteId);
+  if (unavailable) {
+    if (el) { el.textContent = '—'; el.title = unavailable; }
+    if (note) { note.textContent = unavailable; note.style.display = ''; }
+    return true;
+  }
+  if (note) note.style.display = 'none';
+  if (el) el.title = '';
+  return false;
+}
+
+function _fmtTokens(n) {
+  n = n || 0;
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
+
+async function fetchOverview() {
+  const errEl = document.getElementById('ov-error');
+  if (errEl) errEl.style.display = 'none';
+  try {
+    const r = await fetch(`${API}/overview`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    _overview = await r.json();
+    renderOverview();
+  } catch (e) {
+    // The hero above is static and still explains the product, so a failed fetch
+    // degrades this page to "what it is" plus an error line rather than a blank
+    // screen or a column of em-dashes with no explanation.
+    console.error(e);
+    if (errEl) {
+      errEl.textContent = `Couldn't load usage figures (${e && e.message || 'request failed'}). The catalog and traffic endpoints are unchanged — try the Usage tab.`;
+      errEl.style.display = '';
+    }
+  }
+}
+
+function renderOverview() {
+  const d = _overview;
+  if (!d) return;
+  const sys = d.system || {};
+  const mine = d.mine || {};
+  const sf = d.system_flow || {};
+  const days = d.window_days || 30;
+
+  _setText('ov-window-hint', `last ${days} day${days === 1 ? '' : 's'}`);
+  _setText('ov-sys-hint', `all traffic in the last ${days} day${days === 1 ? '' : 's'}`);
+
+  // ── This deployment ──
+  _setText('ov-models', _fmtInt(sys.models));
+  _setText('ov-models-sub', (sys.providers || []).join(', ') || 'no providers synced');
+  _setText('ov-tools', _fmtInt(sys.tool_capable));
+  _setText('ov-tools-sub', sys.models ? `of ${sys.models} models` : 'can run agent loops');
+  _setText('ov-vision', _fmtInt(sys.vision_capable));
+  _setText('ov-vision-sub', sys.models ? `of ${sys.models} models` : 'accept image input');
+  _setText('ov-free', _fmtInt(sys.free_or_local));
+  _setText('ov-free-sub', sys.models ? `of ${sys.models} models` : 'cost nothing to call');
+  _setText('ov-ctx', sys.max_context ? _fmtTokens(sys.max_context) : '—');
+  _setText('ov-keys', _fmtInt(sys.active_keys));
+  _setText('ov-keys-sub', sys.total_keys > sys.active_keys
+    ? `${sys.active_keys} of ${sys.total_keys} enabled`
+    : 'identities on this router');
+
+  // ── Your usage ──
+  const myReq = mine.requests || 0;
+  _setText('ov-mine-requests', _fmtInt(myReq));
+  _setText('ov-mine-requests-sub', myReq
+    ? `${_fmtTokens((mine.prompt_tokens||0) + (mine.completion_tokens||0))} tokens`
+    : 'no requests from this key yet');
+  _setText('ov-mine-cost', _fmtCost(mine.cost_usd));
+
+  // A per-user saving is only meaningful against that user's own traffic, so the
+  // server's reason for withholding it ("no traffic yet") is scoped to them too —
+  // an admin with no requests of their own shouldn't see that note at all.
+  const myUnavailable = myReq ? d.savings_unavailable : (d.savings_unavailable || 'no traffic recorded yet');
+  if (!_setUnavailable('ov-mine-saved', 'ov-mine-saved-note', myUnavailable)) {
+    _setText('ov-mine-saved', _fmtCost(mine.savings_usd));
+    const pct = mine.premium_equivalent_usd
+      ? Math.round((1 - (mine.cost_usd / mine.premium_equivalent_usd)) * 100)
+      : 0;
+    _setText('ov-mine-saved-sub',
+      `vs. ${_fmtCost(mine.premium_equivalent_usd)} at the priciest model (${pct}% less)`);
+  } else {
+    _setText('ov-mine-saved-sub', 'not enough priced traffic to compare');
+  }
+
+  _setText('ov-mine-cheap', myReq ? Math.round((mine.cheap_share || 0) * 100) + '%' : '—');
+  _setText('ov-mine-cheap-sub', myReq
+    ? `${_fmtInt(mine.cheap_requests)} of ${_fmtInt(myReq)}`
+    : 'of your requests');
+  _setText('ov-mine-avg', myReq ? _fmtCost(mine.avg_cost_per_request) : '—');
+
+  // The cheap/escalated meter only appears once there is a split to show. A
+  // full-width or empty bar on a fresh install is decoration, not information.
+  const meter = document.getElementById('ov-mine-meter');
+  const legend = document.getElementById('ov-mine-legend');
+  const cheapN = mine.cheap_requests || 0;
+  const escN = mine.escalated_requests || 0;
+  const splitTotal = cheapN + escN;
+  if (meter && legend) {
+    const show = splitTotal > 0;
+    meter.style.display = show ? '' : 'none';
+    legend.style.display = show ? '' : 'none';
+    if (show) {
+      document.getElementById('ov-mine-meter-cheap').style.width = (cheapN / splitTotal * 100) + '%';
+      document.getElementById('ov-mine-meter-esc').style.width = (escN / splitTotal * 100) + '%';
+    }
+  }
+
+  // Rank is suppressed unless it means something: "1st of 1" is noise, and a
+  // user with no traffic has nothing to rank.
+  const rankEl = document.getElementById('ov-mine-rank');
+  if (rankEl) {
+    if (mine.rank && mine.users_ranked > 1) {
+      rankEl.textContent = `#${mine.rank}`;
+      _setText('ov-mine-rank-sub', `of ${mine.users_ranked} by spend`);
+    } else {
+      rankEl.textContent = mine.users_ranked > 1 ? '—' : 'only you';
+      _setText('ov-mine-rank-sub', mine.users_ranked > 1
+        ? 'no traffic in the window'
+        : 'so far on this router');
+    }
+  }
+  // "Active N days" is *unbounded* history (see routes.py), which is what makes
+  // it worth showing here — the 30-day window can't tell a week-old user from a
+  // year-old one. Appended to the rank caption rather than given its own card,
+  // because on its own it is a curiosity rather than something to act on.
+  if (mine.days_since_first != null) {
+    const el = document.getElementById('ov-mine-rank-sub');
+    if (el) {
+      const tenure = mine.days_since_first === 0
+        ? 'first request today'
+        : `using this for ${_fmtInt(mine.days_since_first)} days`;
+      el.textContent = `${el.textContent} · ${tenure}`;
+    }
+  }
+  _renderMineModels(mine);
+
+  // ── Across everyone ──
+  _setText('ov-sys-requests', _fmtInt(sf.requests));
+  _setText('ov-sys-users', _fmtInt(mine.users_ranked));
+  _setText('ov-sys-cost', _fmtCost(sf.cost_usd));
+  _setText('ov-sys-overhead', _fmtCost(d.overhead_cost_usd));
+  _setText('ov-sys-overhead-sub', d.overhead_share
+    ? `${Math.round(d.overhead_share * 100)}% of the total bill`
+    : 'of the total bill');
+  _setText('ov-sys-errors', _fmtInt(sf.errors));
+  _setText('ov-sys-errors-sub', sf.errors
+    ? '4xx and 5xx — worth a look'
+    : '4xx and 5xx');
+
+  if (!_setUnavailable('ov-sys-saved', 'ov-sys-saved-note', d.savings_unavailable)) {
+    _setText('ov-sys-saved', _fmtCost(sf.savings_usd));
+  }
+}
+
+// The caller's own top models. Small and factual on purpose — this is a way to
+// see where your spend goes, not a second Models page.
+function _renderMineModels(mine) {
+  const box = document.getElementById('ov-mine-models');
+  if (!box) return;
+  const rows = mine.top_models || [];
+  if (!rows.length) { box.innerHTML = ''; return; }
+  const max = Math.max(...rows.map(r => r.cost_usd || 0), 0);
+  box.innerHTML = `
+    <div class="ov-section-title" style="margin-bottom:0.6rem">Where your spend went</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.25rem">
+      ${rows.map(r => {
+        const w = max > 0 ? Math.max(2, (r.cost_usd / max) * 100) : 2;
+        return `<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.55rem">
+          <code style="font-family:var(--font-mono);font-size:0.72rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                title="${escapeHtml(r.key)}">${escapeHtml(r.key || 'unknown')}</code>
+          <div style="flex:0 0 34%;height:6px;border-radius:3px;background:var(--surface-raised);overflow:hidden">
+            <div style="width:${w}%;height:100%;background:var(--accent);border-radius:3px"></div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:0.72rem;flex:0 0 4.5rem;text-align:right;color:var(--text-secondary)">${_fmtCost(r.cost_usd)}</span>
+          <span style="font-size:0.7rem;color:var(--text-muted);flex:0 0 3.5rem;text-align:right">${_fmtInt(r.requests)} req</span>
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 // ── Usage dashboard ───────────────────────────────────────────────────────────

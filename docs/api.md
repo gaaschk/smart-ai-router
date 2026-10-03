@@ -254,6 +254,43 @@ curl -X POST http://localhost:8001/api/models/profile \
   -d '{"limit":20,"only_missing":true,"dry_run":true}'
 ```
 
+## Dashboard overview
+
+`GET /api/overview?days=30` — one round trip for everything the dashboard's first
+screen shows. Scoped: any signed-in key may call it (self-serve keys included),
+and `mine` is always the caller's own figures.
+
+```bash
+curl "http://localhost:8001/api/overview?days=30" -H "Authorization: Bearer $KEY"
+```
+
+| Field | What it is |
+| --- | --- |
+| `system` | Catalog **shape** — model count, providers, capability coverage, cost tiers, widest context, key count. Identical for every caller, and deliberately free of configuration: no keys, no endpoints, no enabled/disabled state. |
+| `system_flow` | All users' traffic in the window: requests, spend, tokens, **errors**, and the cheap-vs-escalated split. |
+| `mine` | The caller's block, plus `rank` (1 = highest spender), `users_ranked`, `cheap_share`, `avg_cost_per_request`, and their `top_models`. |
+| `overhead_cost_usd` / `overhead_share` | The router's own spend (classification, profiling), which is on the bill but is not user traffic. |
+| `classifier_mix` | Which classifier profiled each of the caller's requests. |
+
+`days` is clamped to 1…365.
+
+**Two figures worth reading carefully.**
+
+*Savings.* `savings_usd` is what this traffic would have cost at the single
+priciest model in the catalog (highest *blended* rate — the same 0.25/0.75
+input/output weighting `pricing.blended_rate` uses), minus what it actually cost.
+A local Ollama request counts toward it: Ollama is *known* zero, not unknown
+price. A request whose model has left the catalog counts as neither cheap nor
+escalated, rather than being guessed into a bucket.
+
+*Unavailability.* When savings cannot be computed, `savings_usd` is `null` **and**
+`savings_unavailable` carries the reason. The UI renders an em-dash and the
+reason rather than `$0.00`, because "nothing to compare" and "you saved nothing"
+are different claims and only one of them is true.
+
+`days_since_first` is computed from **unbounded** history, not the window, so a
+returning user still sees their tenure when they ask for a one-day window.
+
 ## File uploads
 
 An OpenAI-compatible Files API stores uploads on disk (metadata in SQLite) and scopes each file to the uploading identity — admin sees all files, a per-user key sees only its own.

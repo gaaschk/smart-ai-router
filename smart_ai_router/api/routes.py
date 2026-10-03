@@ -25,6 +25,10 @@ from smart_ai_router.api.schemas import (
     CostRequest,
     CostResponse,
     ModelSpecResponse,
+    OverviewFlow,
+    OverviewMine,
+    OverviewResponse,
+    OverviewSystem,
     ProfileRefineRequest,
     ProfileRefineResponse,
     ProviderRequest,
@@ -458,6 +462,192 @@ def usage(request: Request, days: int = 30, hours: int | None = None):
     since = (datetime.now(timezone.utc) - timedelta(hours=span_h)).isoformat()
     scope_user = None if is_admin else caller
     return cr.usage_summary(user=scope_user, since_ts=since)
+
+
+# ── Dashboard overview ────────────────────────────────────────────────────────
+
+def _system_shape(cr) -> OverviewSystem:
+    """What this deployment can do: catalog size, capability coverage, key count.
+
+    Deliberately the same for every caller. A per-user key is not an operator and
+    cannot see Providers, Keys or Settings, but "is this router real, and what
+    can it route to" is not an operator secret -- it is the thing they have to be
+    able to see to decide whether to use it. So this reads the catalog (which
+    /api/models already exposes to any key) and reports shape, never
+    configuration: no keys, no URLs, no enabled/disabled state, nothing to probe.
+    """
+    specs = cr.all_models()
+    providers = {p.name for p in cr.all_providers() if p.enabled}
+    tiers: dict[str, int] = {}
+    for s in specs:
+        tiers[str(s.cost)] = tiers.get(str(s.cost), 0) + 1
+    keys = cr.all_api_keys()
+    return OverviewSystem(
+        models=len(specs),
+        providers=sorted({s.provider for s in specs if s.provider}),
+        providers_enabled=len(providers),
+        tool_capable=sum(1 for s in specs if s.tools),
+        vision_capable=sum(1 for s in specs if s.vision),
+        reasoning=sum(1 for s in specs if s.reasoning),
+        free_or_local=sum(1 for s in specs if s.cost <= 1),
+        cost_tiers=tiers,
+        max_context=max((s.ctx_k for s in specs), default=0) * 1000,
+        max_output=max((s.max_output for s in specs), default=0),
+        active_keys=sum(1 for k in keys if k.enabled),
+        total_keys=len(keys),
+    )
+
+
+def _flow(cr, *, since: str, user: str | None, usage: dict, errors: int) -> OverviewFlow:
+    """One traffic block: volume, spend, failures, and the cheap-vs-escalated split.
+
+    `usage` and `errors` are passed in rather than re-derived: the caller has
+    already paid for exactly this scope, and asking the store a second time for
+    the same numbers is a second full table scan per block on a page load that
+    fires several of these at once. `errors` cannot come from `usage` at all --
+    usage_summary has no column for it -- which is why the per-user rollup is
+    the source for both.
+
+    The split is the honest version of the router's pitch. "Cheap" is a tier the
+    catalog assigns, and what is left over is escalated -- deliberately *not*
+    equated to "went to Claude", because the escalation test in proxy.py is
+    `claude in model.lower()`, which would misreport a non-Claude expensive model
+    as cheap. So a request is cheap when the catalog priced it at tier <= 2,
+    escalated when priced above that, and a request whose model has left the
+    catalog is counted in neither rather than guessed into one.
+    """
+    totals = usage["totals"]
+    cheap = cr.cheap_model_requests(since_ts=since, user=user)
+    priced = cr.priced_model_requests(since_ts=since, user=user)
+
+    savings: float | None = None
+    premium: float | None = None
+    if priced:
+        # Both halves describe the priced subset, so the subtraction can't be
+        # skewed by rows whose price is unknown. `totals["cost_usd"]` deliberately
+        # does NOT appear here: it spans a superset of these rows, and using it
+        # would let one unpriced request erase a real saving.
+        pair = cr.premium_equivalent_cost(since_ts=since, user=user)
+        if pair is not None:
+            premium, actual = pair
+            savings = max(0.0, premium - actual)
+
+    return OverviewFlow(
+        requests=totals["requests"],
+        cost_usd=totals["cost_usd"],
+        prompt_tokens=totals["prompt_tokens"],
+        completion_tokens=totals["completion_tokens"],
+        errors=errors,
+        cheap_requests=cheap,
+        # Never negative: the counts come from different queries, so guard rather
+        # than assume the two are exactly complementary.
+        escalated_requests=max(0, priced - cheap),
+        premium_equivalent_usd=premium,
+        savings_usd=savings,
+    )
+
+
+@api_router.get("/overview", response_model=OverviewResponse)
+def overview(request: Request, days: int = 30):
+    """Everything the dashboard's first screen shows, in one round trip.
+
+    The page used to assemble its own numbers from /api/models and /api/usage.
+    That forced two sequential fetches before anything could render, and none of
+    the cross-cutting figures -- the cheap-vs-escalated split, the premium
+    baseline, the caller's rank -- could be computed at all, because they need
+    both halves at once.
+
+    Scoping: `system_flow` is always every user, because "how busy is this router"
+    is the deployment's number and the page shows it to everyone. `mine` is always
+    the caller alone -- including for an admin, whose own row is a real row with
+    its own rank among everyone else's. An open (no-key) install has caller "",
+    which is exactly how its usage rows are written, so it scopes correctly too.
+    """
+    cr = _router_instance(request)
+    caller = getattr(request.state, "user", "") or ""
+
+    span_days = max(1, min(days, 365))
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=span_days)).isoformat()
+
+    system = _system_shape(cr)
+    rows = cr.overview_flows(since_ts=since)["by_user"]
+    mine_row = next((r for r in rows if r["key"] == caller), None)
+    # Tenure is the one figure that must NOT be windowed. Every other number here
+    # answers "what happened in these N days", but this answers "how long have I
+    # been using this" — and reading it off the windowed rollup would make every
+    # returning user look brand new the moment the window is shorter than their
+    # history. The unbounded scan is a full table walk, so it runs only for the
+    # caller's own row rather than for the whole user base.
+    lifetime = cr.overview_flows(since_ts="")["by_user"]
+    mine_all_time = next((r for r in lifetime if r["key"] == caller), None)
+
+    system_usage = cr.usage_summary(user=None, since_ts=since)
+    mine_usage = cr.usage_summary(user=caller, since_ts=since)
+    system_flow = _flow(
+        cr, since=since, user=None, usage=system_usage,
+        errors=sum(r["errors"] for r in rows),
+    )
+    mine_flow = _flow(
+        cr, since=since, user=caller, usage=mine_usage,
+        errors=mine_row["errors"] if mine_row else 0,
+    )
+
+    # Rank is by spend over the window, across users who actually sent something.
+    # Computed from the same per-user rows the caller's own block is built from,
+    # so the two can never disagree about what the caller spent. Keyed off the
+    # lifetime row as well as the windowed one, so a user whose traffic predates
+    # the window is still ranked rather than silently showing no standing.
+    ranked = sorted(
+        (r for r in rows if r["requests"] > 0), key=lambda r: -r["cost_usd"]
+    )
+    rank = next(
+        (i + 1 for i, r in enumerate(ranked) if r["key"] == caller), None
+    ) if (mine_row or mine_all_time) else None
+
+    # "Days since first request", read from unbounded history so it cannot be
+    # capped at span_days — see the lifetime rollup above.
+    days_since = None
+    if mine_all_time and mine_all_time["first_ts"]:
+        try:
+            first = datetime.fromisoformat(mine_all_time["first_ts"])
+            if first.tzinfo is None:
+                first = first.replace(tzinfo=timezone.utc)
+            days_since = max(0, (now - first).days)
+        except ValueError:
+            # A timestamp this store cannot parse is not worth failing the page
+            # over; every other figure in the block is still correct without it.
+            days_since = None
+
+    oh_cost = system_usage["overhead"]["totals"]["cost_usd"]
+    bill = oh_cost + system_flow.cost_usd
+    requests = mine_flow.requests
+
+    unavailable = ""
+    if not system_flow.requests:
+        unavailable = "no traffic recorded yet"
+    elif system_flow.savings_usd is None:
+        unavailable = "catalog prices unknown for the models used"
+
+    return OverviewResponse(
+        window_days=span_days,
+        system=system,
+        system_flow=system_flow,
+        mine=OverviewMine(
+            **mine_flow.model_dump(),
+            days_since_first=days_since,
+            rank=rank,
+            users_ranked=len(ranked),
+            cheap_share=(mine_flow.cheap_requests / requests) if requests else 0.0,
+            avg_cost_per_request=(mine_flow.cost_usd / requests) if requests else 0.0,
+            top_models=sorted(mine_usage["by_model"], key=lambda r: -r["cost_usd"])[:5],
+            active_days=mine_all_time["active_days"] if mine_all_time else 0,
+        ),
+        overhead_cost_usd=oh_cost,
+        overhead_share=(oh_cost / bill) if bill else 0.0,
+        classifier_mix=mine_usage["by_classifier"],
+        savings_unavailable=unavailable,
+    )
 
 
 # ── Providers ─────────────────────────────────────────────────────────────────

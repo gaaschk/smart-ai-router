@@ -233,6 +233,113 @@ class UsageSummaryResponse(BaseModel):
     overhead: UsageOverhead = Field(default_factory=UsageOverhead)
 
 
+# ── Dashboard overview ────────────────────────────────────────────────────────
+
+class OverviewSystem(BaseModel):
+    """What this *deployment* is: the catalog it can route to, and who shares it.
+
+    Identical for every caller. Nothing here is derived from the requesting
+    user's rows, so a per-user key sees the same system picture an admin does --
+    which is the point: they need to know the router they are talking to is real
+    and how it is wired, not just how much their own prompts cost.
+    """
+    models: int = 0
+    providers: list[str] = Field(default_factory=list)
+    providers_enabled: int = 0
+    # Capability coverage across the catalog. These are the four flags a client
+    # can actually negotiate on (/api/capabilities), so they are what "how much
+    # can this router do" means concretely.
+    tool_capable: int = 0
+    vision_capable: int = 0
+    reasoning: int = 0
+    free_or_local: int = 0
+    # Cost tiers present, as {tier_index: model_count}. Sparse by nature -- a
+    # catalog with no tier-5 models omits 5 rather than reporting 0 models there.
+    cost_tiers: dict[str, int] = Field(default_factory=dict)
+    # Widest context window and largest output ceiling in the catalog, in tokens.
+    # Both answer "what is the biggest thing I can ask this?" which the per-model
+    # table makes you go hunting for.
+    max_context: int = 0
+    max_output: int = 0
+    active_keys: int = 0
+    total_keys: int = 0
+
+
+class OverviewFlow(BaseModel):
+    """One routing outcome, aggregated across the window.
+
+    `system` is the deployment's aggregate; `yours` is the caller's own share of
+    the same window. `yours` is null for an admin who is *also* counted inside
+    the system total only when they have no rows of their own -- it is always
+    present, and simply zero, for an ordinary per-user key.
+    """
+    requests: int = 0
+    cost_usd: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    errors: int = 0
+    # How this traffic was split between "a cheaper model cleared the quality
+    # bar" and "nothing cheaper qualified, so it went to the strongest model".
+    # The ratio is the router's actual value claim, stated as a measurement
+    # rather than an assertion.
+    cheap_requests: int = 0
+    escalated_requests: int = 0
+    # Cheapest-vs-actual spend: what the same tokens would have cost at the
+    # catalog's priciest blended rate, and the difference. This is the headline
+    # saving, and it is only ever reported when every row's model is still in the
+    # catalog with a known price -- otherwise `savings_usd` is null rather than a
+    # made-up number (see routes.py for why that matters).
+    premium_equivalent_usd: float | None = None
+    savings_usd: float | None = None
+
+
+class OverviewMine(OverviewFlow):
+    """The caller's own traffic, plus the standing a router has earned them.
+
+    `days_since_first` and `rank` are null when there is nothing to rank (no rows
+    at all, or a single active user, where "1st of 1" would be noise).
+    """
+    days_since_first: int | None = None
+    rank: int | None = Field(
+        default=None,
+        description="1 = highest spender in the window, among users with rows",
+    )
+    users_ranked: int = 0
+    # Fraction of requests answered by a model at or below cost tier 2. The
+    # per-user reading of "how often am I being kept off the expensive tier".
+    cheap_share: float = 0.0
+    avg_cost_per_request: float = 0.0
+    top_models: list[UsageGroupRow] = Field(default_factory=list)
+    # Active days in the window, and the days covered. Used for an activity
+    # sparkline; equal means "every single day", which reads differently from
+    # "sporadic".
+    active_days: int = 0
+
+
+class OverviewResponse(BaseModel):
+    """Everything the dashboard's first screen needs, in one round trip.
+
+    The page previously assembled its own numbers from /api/models and /api/usage,
+    which meant three sequential fetches before anything could render and no way
+    to compute the cross-cutting figures (cheapest-vs-actual savings, rank) that
+    need both halves at once.
+    """
+    window_days: int = 30
+    system: OverviewSystem = Field(default_factory=OverviewSystem)
+    system_flow: OverviewFlow = Field(default_factory=OverviewFlow)
+    mine: OverviewMine = Field(default_factory=OverviewMine)
+    overhead_cost_usd: float = 0.0
+    overhead_share: float = Field(
+        default=0.0,
+        description="overhead / (overhead + user traffic) — what share of the "
+                    "deployment's bill is the router working, not serving",
+    )
+    classifier_mix: list[UsageGroupRow] = Field(default_factory=list)
+    # Set only when the saving could not be computed from catalog prices, with
+    # the reason. Surfaced in the UI rather than silently dropping the figure.
+    savings_unavailable: str = ""
+
+
 # ── Provider config ───────────────────────────────────────────────────────────
 
 class ProviderRequest(BaseModel):
