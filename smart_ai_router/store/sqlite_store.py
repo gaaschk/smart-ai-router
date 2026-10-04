@@ -125,6 +125,20 @@ class SqliteStore(MatrixStore):
                 "CREATE INDEX IF NOT EXISTS idx_usage_user_ts ON usage_log (user, ts)"
             )
             self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_failures (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts             TEXT DEFAULT '',
+                    model          TEXT DEFAULT '',
+                    status         INTEGER DEFAULT 0,
+                    detail         TEXT DEFAULT '',
+                    user           TEXT DEFAULT '',
+                    failed_over_to TEXT DEFAULT ''
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_model_failures_ts ON model_failures (ts)"
+            )
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS files (
                     id             TEXT PRIMARY KEY,
                     user           TEXT DEFAULT '',
@@ -619,6 +633,27 @@ class SqliteStore(MatrixStore):
         return self._row_to_api_key(row) if row else None
 
     # ── Usage log ────────────────────────────────────────────────────────────
+
+    def record_model_failure(
+        self, model: str, *, status: int, detail: str,
+        user: str = "", failed_over_to: str = "",
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO model_failures (ts, model, status, detail, user, "
+                "failed_over_to) VALUES (?,?,?,?,?,?)",
+                (_utcnow_iso(), model, int(status), detail[:2000], user, failed_over_to),
+            )
+            self._conn.commit()
+
+    def recent_model_failures(self, since_ts: str, limit: int = 200) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT ts, model, status, detail, user, failed_over_to "
+                "FROM model_failures WHERE ts>=? ORDER BY ts DESC LIMIT ?",
+                (since_ts, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def record_usage(self, usage: UsageRecord) -> None:
         ts = usage.ts or _utcnow_iso()

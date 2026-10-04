@@ -472,6 +472,16 @@ def usage(request: Request, days: int = 30, hours: int | None = None):
     return cr.usage_summary(user=scope_user, since_ts=since)
 
 
+@api_router.get("/model-failures")
+def model_failures(request: Request, hours: int = 24, limit: int = 200):
+    """Dispatches that failed before replying — which model, the provider's status
+    and own message, and where the request went instead. Admin-only: the detail is
+    the provider's raw error text."""
+    _require_admin(request)
+    since = (datetime.now(timezone.utc) - timedelta(hours=max(1, min(hours, 24 * 30)))).isoformat()
+    return _router_instance(request).recent_model_failures(since, max(1, min(limit, 1000)))
+
+
 # ── Dashboard overview ────────────────────────────────────────────────────────
 
 def _system_shape(cr) -> OverviewSystem:

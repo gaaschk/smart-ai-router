@@ -731,6 +731,31 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="failover_attempts",
+        env="SMART_ROUTER_FAILOVER_ATTEMPTS",
+        type="int",
+        default=2,
+        label="Failover attempts",
+        group="Routing",
+        help="How many times to re-route a request to the next-best model when "
+        "the one picked fails before sending anything (a 4xx/5xx from the "
+        "provider, or a connection error). Every failure is recorded with its "
+        "status and the provider's own message. 0 turns failover off.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
+        key="failure_cooldown_minutes",
+        env="SMART_ROUTER_FAILURE_COOLDOWN_MINUTES",
+        type="int",
+        default=10,
+        label="Failing-model cooldown (minutes)",
+        group="Routing",
+        help="A model that fails twice inside this window is left out of routing "
+        "until the window passes, so a broken model costs one slow request "
+        "instead of one per request. 0 disables the cooldown.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="tool_stall_max_tokens",
         env="SMART_ROUTER_TOOL_STALL_MAX_TOKENS",
         type="int",
