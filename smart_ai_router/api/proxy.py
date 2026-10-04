@@ -428,6 +428,17 @@ def _inject_cache_breakpoints(
 _HEARTBEAT_SECS = 10.0
 
 
+def _sse_error(message: str, status: int) -> bytes:
+    """A mid-stream failure in the shape OpenAI clients parse, then [DONE].
+
+    The 200 is already sent by the time upstream fails, so the body is the only
+    place to say so. A bare-string `error` with no terminator leaves Cursor
+    waiting forever with nothing on screen.
+    """
+    err = {"error": {"message": message, "type": "upstream_error", "code": status}}
+    return f"data: {json.dumps(err)}\n\ndata: [DONE]\n\n".encode()
+
+
 async def _with_heartbeat(
     gen: AsyncIterator[bytes], interval: float = _HEARTBEAT_SECS
 ) -> AsyncIterator[bytes]:
@@ -1834,7 +1845,7 @@ async def chat_completions(request: Request):
                     ) as resp:
                         if resp.status_code >= 400:
                             error = await resp.aread()
-                            yield f"data: {json.dumps({'error': error.decode(errors='replace')})}\n\n".encode()
+                            yield _sse_error(error.decode(errors="replace"), resp.status_code)
                             # Record the failed attempt for attribution/quotas
                             # (no tokens, but the request count matters).
                             _record(resp.status_code)
@@ -1863,8 +1874,7 @@ async def chat_completions(request: Request):
                         drained = True
                         _record(resp.status_code)
             except httpx.RequestError as exc:
-                yield f"data: {json.dumps({'error': f'proxy upstream error: {exc}'})}\n\n".encode()
-                yield b"data: [DONE]\n\n"
+                yield _sse_error(f"proxy upstream error: {exc}", 502)
                 _record(502)
             finally:
                 # Client disconnect / cancellation mid-drain still records what
