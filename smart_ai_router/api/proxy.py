@@ -1035,7 +1035,7 @@ def _billable_prompt(prompt_tokens: int, cached_tokens: int) -> int:
 # these, so the turn is a stall even though the reply is long enough to look like
 # prose.
 _LEAKED_CALL = re.compile(
-    r"<function=\w+|<tool_call>|<\|python_tag\|>|</?user_query>|"
+    r"<function=\w+|<\|?/?tool_call\|?>|<\|python_tag\|>|</?user_query>|call:\w+::\w+|"
     r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"(?:parameters|arguments)"\s*:'
 )
 
