@@ -5,6 +5,7 @@ def test_text_formatted_tool_calls_are_detected():
     assert _leaks_tool_call('<function=Read>{"path":"deploy"}')
     assert _leaks_tool_call('{"name": "Shell", "parameters": {"command": "ls"}}')
     assert _leaks_tool_call("<|python_tag|>foo()")
+    assert _leaks_tool_call('<|tool_call>call:cursor::list_files{path:"."}<tool_call|>')
     assert _leaks_tool_call("I'll start by querying.\n\n<user_query> hi </user_query>")
 
 
