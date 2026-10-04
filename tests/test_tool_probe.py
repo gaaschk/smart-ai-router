@@ -52,3 +52,26 @@ def test_probe_stores_verdicts_and_routing_skips_text_models(monkeypatch):
     prof = profile_from_labels("coding", "moderate")
     d = cr.select(prof, needs_tools=True)
     assert d.model == "openrouter/x/solid"
+
+
+def test_a_live_leak_marks_the_model_and_negative_prices_are_not_rates(monkeypatch):
+    from smart_ai_router import pricing
+    from smart_ai_router.api.proxy import _log_usage
+
+    store = SqliteStore(":memory:")
+    store.upsert_model(ModelSpec(value="openrouter/x/leaky", provider="openrouter",
+                                 tools=True, cost_input=1.0, cost_output=1.0))
+    cr = CapabilityRouter(store=store)
+
+    class _Req:  # _log_usage only reads request.state
+        class state:
+            user, key_prefix = "admin", ""
+    _log_usage(cr, _Req, routed_model="openrouter/x/leaky", domain="d",
+               complexity="c", usage={"completion_tokens": 300}, status=200,
+               tools_offered=True, tool_calls=[],
+               content="I'll look.\n<|tool_call>call:x::ls{}<tool_call|>")
+    m = cr.get_model("openrouter/x/leaky")
+    assert m.tool_probe == "text" and "tool_call" in m.tool_probe_note
+
+    neg = ModelSpec(value="v", provider="openrouter", cost_input=-1e6, cost_output=-1e6)
+    assert pricing.cost_for(neg, 1000, 1000) is None

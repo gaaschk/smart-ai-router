@@ -46,6 +46,8 @@ def cost_for(
 
     if spec.cost_input == 0.0 and spec.cost_output == 0.0:
         return None  # unknown price — caller renders "cost unavailable"
+    if spec.cost_input < 0 or spec.cost_output < 0:
+        return None  # a provider's "variable price" sentinel, not a rate
 
     input_usd  = spec.cost_input  * prompt_tokens     / 1_000_000
     output_usd = spec.cost_output * completion_tokens / 1_000_000

@@ -399,6 +399,18 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Negative prices came from OpenRouter's -1 "variable price" sentinel
+            # (see sync._sync_openrouter). Their usage rows summed to a negative
+            # spend; zero is the honest "unknown". Idempotent: a no-op once clean.
+            for stmt in (
+                "UPDATE usage_log SET cost_usd=0 WHERE cost_usd<0",
+                "UPDATE models SET cost_input=0, cost_output=0 "
+                "WHERE cost_input<0 OR cost_output<0",
+            ):
+                try:
+                    self._conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # a column from a later migration isn't there yet: nothing to clean
             # Additive migration: this reply was cut off at the output ceiling.
             # DEFAULT 0 backfills history as untruncated, which is a claim we
             # can't verify — the flag wasn't recorded, so some old replies really
