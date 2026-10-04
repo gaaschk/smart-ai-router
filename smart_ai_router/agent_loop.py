@@ -135,7 +135,7 @@ async def run_agent_loop(
                 data = await call_model(req)
                 message = (data.get("choices") or [{}])[0].get("message") or {}
         except Exception as exc:  # noqa: BLE001 — surface provider errors to the client
-            yield _sse({"error": f"agent loop provider error: {exc}"})
+            yield _sse({"error": {"message": f"agent loop provider error: {exc}", "type": "upstream_error"}})
             yield b"data: [DONE]\n\n"
             return
 
