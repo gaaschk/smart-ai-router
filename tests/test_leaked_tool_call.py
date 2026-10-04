@@ -5,6 +5,7 @@ def test_text_formatted_tool_calls_are_detected():
     assert _leaks_tool_call('<function=Read>{"path":"deploy"}')
     assert _leaks_tool_call('{"name": "Shell", "parameters": {"command": "ls"}}')
     assert _leaks_tool_call("<|python_tag|>foo()")
+    assert _leaks_tool_call("I'll start by querying.\n\n<user_query> hi </user_query>")
 
 
 def test_ordinary_prose_and_json_are_not():

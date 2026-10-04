@@ -1029,10 +1029,13 @@ def _billable_prompt(prompt_tokens: int, cached_tokens: int) -> int:
 
 # A tool call written out as text instead of sent through the tool-call API:
 # <function=Read>{...}, <tool_call>, Llama's <|python_tag|>, or a bare
-# {"name": ..., "parameters": ...} object. The client can't execute any of these,
-# so the turn is a stall even though the reply is long enough to look like prose.
+# {"name": ..., "parameters": ...} object. Also the client's own prompt wrapper
+# (Cursor's <user_query>) parroted back, which is what a model does when it
+# announces a step and then fails to take it. The client can't execute any of
+# these, so the turn is a stall even though the reply is long enough to look like
+# prose.
 _LEAKED_CALL = re.compile(
-    r"<function=\w+|<tool_call>|<\|python_tag\|>|"
+    r"<function=\w+|<tool_call>|<\|python_tag\|>|</?user_query>|"
     r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"(?:parameters|arguments)"\s*:'
 )
 
