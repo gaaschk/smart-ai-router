@@ -1883,6 +1883,7 @@ async def chat_completions(request: Request):
                     ) as resp:
                         if resp.status_code >= 400:
                             error = await resp.aread()
+                            print(f"[proxy] upstream {resp.status_code} from {routed_model}: {error[:500]!r}", flush=True)
                             yield _sse_error(error.decode(errors="replace"), resp.status_code)
                             # Record the failed attempt for attribution/quotas
                             # (no tokens, but the request count matters).
