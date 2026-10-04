@@ -1027,6 +1027,20 @@ def _billable_prompt(prompt_tokens: int, cached_tokens: int) -> int:
     return fresh + int(cached_tokens * 0.1)
 
 
+# A tool call written out as text instead of sent through the tool-call API:
+# <function=Read>{...}, <tool_call>, Llama's <|python_tag|>, or a bare
+# {"name": ..., "parameters": ...} object. The client can't execute any of these,
+# so the turn is a stall even though the reply is long enough to look like prose.
+_LEAKED_CALL = re.compile(
+    r"<function=\w+|<tool_call>|<\|python_tag\|>|"
+    r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"(?:parameters|arguments)"\s*:'
+)
+
+
+def _leaks_tool_call(content: str) -> bool:
+    return bool(content) and _LEAKED_CALL.search(content) is not None
+
+
 def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                complexity: str, usage: dict | None, status: int,
                tokens_estimated: bool = False,
@@ -1034,7 +1048,8 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
                classifier: str = "",
                started: float = 0.0,
                tools_offered: bool = False,
-               tool_calls: list | None = None) -> None:
+               tool_calls: list | None = None,
+               content: str = "") -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
@@ -1098,8 +1113,9 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             classifier=classifier,
             latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
             tools_offered=tools_offered,
-            tool_stalled=tools_offered and not tool_calls and completion_tokens <= max(
-                0, _settings.get_int("tool_stall_max_tokens")
+            tool_stalled=tools_offered and not tool_calls and (
+                completion_tokens <= max(0, _settings.get_int("tool_stall_max_tokens"))
+                or _leaks_tool_call(content)
             ),
         ))
     except Exception:  # noqa: BLE001 — logging is best-effort
@@ -1913,6 +1929,7 @@ async def chat_completions(request: Request):
                     # below requires it. Not a sample, so not counted at all.
                     tools_offered=drained and bool(forward_body.get("tools")),
                     tool_calls=scanner.tool_calls(),
+                    content=scanner.content_text,
                 )
                 # Only a whole reply is a usable reference: a client that
                 # disconnected mid-stream leaves a half-built tool call, which
@@ -2044,6 +2061,7 @@ async def chat_completions(request: Request):
             started=dispatch_started,
             tools_offered=bool(forward_body.get("tools")),
             tool_calls=msg.get("tool_calls") or [],
+            content=msg.get("content") or "",
         )
         if isinstance(data, dict):
             if capture_this:
