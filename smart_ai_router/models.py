@@ -103,6 +103,17 @@ class ModelSpec:
     # ISO-8601 UTC of the last measurement, "" = never / unknown age. Same reason
     # as `observed_tps_at`: a floor reading this is one-way on its own, so a
     # measurement has to expire for an excluded model to ever be redeemed.
+    tool_probe: str = field(default="", compare=False)
+    # What happened when the router handed this model a trivial tool task itself
+    # (tool_probe.py): "" never probed | "ok" structured tool call | "text" wrote
+    # the call as prose (<function=…>, <|tool_call>…) | "none" answered without
+    # calling | "unsupported" the provider has no tool endpoint for it. "text" and
+    # "unsupported" are excluded from tool-bearing routing. compare=False so a
+    # probe verdict never makes sync report the row as changed — the catalog
+    # cannot know it, and sync must not reset it.
+    tool_probe_note: str = field(default="", compare=False)
+    # The reply text behind a non-"ok" verdict, i.e. the model's leak format.
+    tool_probe_at: str = field(default="", compare=False)
     competence: dict[str, float] = field(default_factory=dict)
     # competence keys: "coding" | "docs" | "reasoning" | "general"  → 0.0–1.0
     # Legacy summary of `profile`, derived by profiler.legacy_competence() so the

@@ -276,6 +276,11 @@ async def sync(body: SyncRequest, request: Request):
         cr, result, body.profile, admin=_is_admin(request),
         user=getattr(request.state, "user", "") or "",
     )
+    try:
+        from smart_ai_router.tool_probe import probe_models
+        await probe_models(cr)
+    except Exception:  # noqa: BLE001 — an optional pass must not fail a sync
+        pass
     return SyncResponse(
         added=result.added,
         updated=result.updated,
@@ -286,6 +291,16 @@ async def sync(body: SyncRequest, request: Request):
         profiled=profiled,
         profile_pending=pending,
     )
+
+
+@api_router.post("/tool-probe")
+async def tool_probe(request: Request, limit: int = 200, retest: bool = False):
+    """Probe models for real tool-calling now, instead of waiting for the next
+    sync. `retest` re-probes models that already have a recent verdict.
+    Admin-only: it spends a few cents of the operator's provider credit."""
+    _require_admin(request)
+    from smart_ai_router.tool_probe import probe_models
+    return await probe_models(_router_instance(request), limit=max(1, min(limit, 500)), retest=retest)
 
 
 def _rater_target(cr, pinned: str = "") -> tuple[str, str, str, str] | None:
