@@ -93,6 +93,17 @@ class MatrixStore(ABC):
     @abstractmethod
     def record_usage(self, usage: UsageRecord) -> None: ...
 
+    def record_model_failure(
+        self, model: str, *, status: int, detail: str,
+        user: str = "", failed_over_to: str = "",
+    ) -> None:
+        """Remember that a dispatch to `model` failed, and why. Optional: a store
+        that keeps nothing simply never cools a model down."""
+
+    def recent_model_failures(self, since_ts: str, limit: int = 200) -> list[dict]:
+        """Failures at/after an ISO timestamp, newest first."""
+        return []
+
     @abstractmethod
     def recent_usage(self, user: str, since_ts: str) -> list[UsageRecord]:
         """Usage rows for a user at/after an ISO timestamp (for quota checks)."""

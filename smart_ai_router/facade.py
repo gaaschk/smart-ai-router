@@ -3,6 +3,7 @@ CapabilityRouter — main façade wiring store + router + sync + pricing togethe
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from smart_ai_router.capabilities import Capabilities, compute_capabilities
@@ -308,6 +309,28 @@ class CapabilityRouter:
         )
 
     # ── Usage log ────────────────────────────────────────────────────────────
+
+    def record_model_failure(self, model: str, **kw) -> None:
+        self._store.record_model_failure(model, **kw)
+
+    def recent_model_failures(self, since_ts: str, limit: int = 200) -> list[dict]:
+        return self._store.recent_model_failures(since_ts, limit)
+
+    def cooling_models(self, *, window_s: int, min_failures: int) -> set[str]:
+        """Models that failed `min_failures`+ times in the last `window_s` seconds.
+
+        Routing skips these so a broken model costs one request's latency, not one
+        per request until somebody notices. Time-boxed rather than permanent: a
+        provider outage or a rate limit heals itself, and a permanent mark would
+        need a human to undo it.
+        """
+        if window_s <= 0 or min_failures <= 0:
+            return set()
+        since = (datetime.now(timezone.utc) - timedelta(seconds=window_s)).isoformat()
+        counts: dict[str, int] = {}
+        for row in self._store.recent_model_failures(since, 1000):
+            counts[row["model"]] = counts.get(row["model"], 0) + 1
+        return {m for m, n in counts.items() if n >= min_failures}
 
     def record_usage(self, usage: UsageRecord) -> None:
         self._store.record_usage(usage)

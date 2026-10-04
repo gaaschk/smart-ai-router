@@ -1516,12 +1516,28 @@ async def chat_completions(request: Request):
             decision = attempt
 
     canary_used = decision is not None
+
+    def _pick(exclude: set[str]):
+        kw = {**route_kw, "exclude": exclude or None}
+        return (
+            cr.select(profile, **kw) if candidates is None
+            else cr.select_from(candidates, profile, **kw)
+        )
+
+    # Models that have been failing lately sit out, so a broken one costs a single
+    # slow request rather than one per request. If sitting them out leaves nothing
+    # eligible, route as if they hadn't failed: a flaky answer beats a 422.
+    cooling = cr.cooling_models(
+        window_s=_settings.get_int("failure_cooldown_minutes") * 60, min_failures=2
+    )
     try:
         if decision is None:
-            decision = (
-                cr.select(profile, **route_kw) if candidates is None
-                else cr.select_from(candidates, profile, **route_kw)
-            )
+            try:
+                decision = _pick(cooling)
+            except RuntimeError:
+                if not cooling:
+                    raise
+                decision = _pick(set())
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     routed_model = decision.model
@@ -1738,6 +1754,49 @@ async def chat_completions(request: Request):
     # paths below.
     dispatch_started = time.monotonic()
 
+    tried: set[str] = set()
+
+    def _fail_over(status: int, detail: str) -> bool:
+        """Record that the current pick failed, then re-point the request at the
+        next-best model. False when failover is exhausted or off, in which case
+        the caller reports the failure instead.
+
+        Only valid before any reply bytes have gone out — after that the client
+        has half an answer and a different model can't finish it.
+        """
+        nonlocal routed_model, real_model, base_url, api_key, url, routed_spec
+        failed = routed_model
+        tried.add(failed)
+        nxt = None
+        if len(tried) <= _settings.get_int("failover_attempts"):
+            try:
+                nxt = _pick(cooling | tried)
+            except RuntimeError:
+                nxt = None
+        try:
+            cr.record_model_failure(
+                failed, status=status, detail=detail, user=user,
+                failed_over_to=nxt.model if nxt else "",
+            )
+        except Exception:  # noqa: BLE001 — recording is best-effort
+            pass
+        print(f"[proxy] {failed} failed ({status}): {detail[:300]!r}"
+              f"{' → failing over to ' + nxt.model if nxt else ' — no failover'}",
+              file=sys.stderr, flush=True)
+        if nxt is None:
+            return False
+        routed_model = nxt.model
+        base_url, api_key, real_model = _resolve_provider(routed_model, cr)
+        routed_spec = cr.get_model(routed_model)
+        url = f"{base_url}/chat/completions"
+        forward_body["model"] = real_model
+        # The new pick may not take what the old one did, or emit as much.
+        _drop_unsupported(forward_body, routed_spec)
+        ceiling = int(getattr(routed_spec, "max_output", 0) or 0)
+        if ceiling and forward_body.get("max_tokens"):
+            forward_body["max_tokens"] = min(int(forward_body["max_tokens"]), ceiling)
+        return True
+
     # 4a. Agent mode: run the tool-calling loop server-side, executing the
     # filesystem tools against the caller's workspace and streaming tool
     # activity + the final answer back as SSE. The loop reuses this same
@@ -1874,46 +1933,61 @@ async def chat_completions(request: Request):
                         user, gbrain_source, prompt_text, scanner.content_text
                     )
 
+            sent = False  # a reply byte has gone out: too late to fail over
             try:
-                async with httpx.AsyncClient(timeout=_timeout) as client:
-                    async with client.stream(
-                        "POST", url,
-                        headers=_headers(api_key),
-                        json=forward_body,
-                    ) as resp:
-                        if resp.status_code >= 400:
-                            error = await resp.aread()
-                            yield _sse_error(error.decode(errors="replace"), resp.status_code)
-                            # Record the failed attempt for attribution/quotas
-                            # (no tokens, but the request count matters).
-                            _record(resp.status_code)
-                            return
-                        # Prepend escalation note as a synthetic first delta chunk
-                        if inject_note:
-                            note_chunk = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
-                                    "finish_reason": None,
-                                }],
-                            }
-                            yield f"data: {json.dumps(note_chunk)}\n\n".encode()
-                        # Forward each network chunk the instant it arrives.
-                        # aiter_bytes(4096) *buffers* until 4 KB accumulates
-                        # before yielding, which stalls SSE token-by-token
-                        # streaming into visible ~4 KB bursts ("a line every few
-                        # seconds"). aiter_raw() hands us bytes as they land on
-                        # the socket, so tokens reach the browser immediately. We
-                        # forward each chunk verbatim and feed a copy to the
-                        # scanner to recover the trailing usage block.
-                        async for chunk in resp.aiter_raw():
-                            scanner.feed(chunk)
-                            yield chunk
-                        drained = True
-                        _record(resp.status_code)
-            except httpx.RequestError as exc:
-                yield _sse_error(f"proxy upstream error: {exc}", 502)
-                _record(502)
+                while True:
+                    try:
+                        async with httpx.AsyncClient(timeout=_timeout) as client:
+                            async with client.stream(
+                                "POST", url,
+                                headers=_headers(api_key),
+                                json=forward_body,
+                            ) as resp:
+                                if resp.status_code >= 400:
+                                    error = await resp.aread()
+                                    detail = error.decode(errors="replace")
+                                    # Record the failed attempt for attribution/quotas
+                                    # (no tokens, but the request count matters).
+                                    _record(resp.status_code)
+                                    if _fail_over(resp.status_code, detail):
+                                        logged = False
+                                        scanner = _StreamUsageScanner()
+                                        continue
+                                    yield _sse_error(detail, resp.status_code)
+                                    return
+                                # Prepend escalation note as a synthetic first delta chunk
+                                if inject_note:
+                                    note_chunk = {
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
+                                            "finish_reason": None,
+                                        }],
+                                    }
+                                    yield f"data: {json.dumps(note_chunk)}\n\n".encode()
+                                # Forward each network chunk the instant it arrives.
+                                # aiter_bytes(4096) *buffers* until 4 KB accumulates
+                                # before yielding, which stalls SSE token-by-token
+                                # streaming into visible ~4 KB bursts ("a line every few
+                                # seconds"). aiter_raw() hands us bytes as they land on
+                                # the socket, so tokens reach the browser immediately. We
+                                # forward each chunk verbatim and feed a copy to the
+                                # scanner to recover the trailing usage block.
+                                async for chunk in resp.aiter_raw():
+                                    scanner.feed(chunk)
+                                    sent = True
+                                    yield chunk
+                                drained = True
+                                _record(resp.status_code)
+                                return
+                    except httpx.RequestError as exc:
+                        _record(502)
+                        if not sent and _fail_over(502, f"proxy upstream error: {exc}"):
+                            logged = False
+                            scanner = _StreamUsageScanner()
+                            continue
+                        yield _sse_error(f"proxy upstream error: {exc}", 502)
+                        return
             finally:
                 # Client disconnect / cancellation mid-drain still records what
                 # streamed (no-ops if _record already ran on drain/error).
@@ -1928,26 +2002,29 @@ async def chat_completions(request: Request):
             headers=routing_headers,
         )
     else:
-        async with httpx.AsyncClient(timeout=_timeout) as client:
-            try:
-                resp = await client.post(
-                    url,
-                    headers=_headers(api_key),
-                    json=forward_body,
-                )
-            except httpx.RequestError as exc:
-                raise HTTPException(status_code=502, detail=f"Provider unreachable: {exc}")
+        while True:
+            async with httpx.AsyncClient(timeout=_timeout) as client:
+                try:
+                    resp = await client.post(
+                        url,
+                        headers=_headers(api_key),
+                        json=forward_body,
+                    )
+                except httpx.RequestError as exc:
+                    if _fail_over(502, f"Provider unreachable: {exc}"):
+                        continue
+                    raise HTTPException(status_code=502, detail=f"Provider unreachable: {exc}")
 
-        if resp.status_code >= 400:
-            # The detail goes back to the caller, but the caller is often a
-            # program that drops it — and the router's own logs were silent on
-            # exactly this line while six provider 400s went undiagnosable
-            # (2026-10-03). Print the body so the server.err log alone explains
-            # a failed dispatch.
-            print(f"[proxy] provider {resp.status_code} on {real_model}: "
-                  f"{resp.text[:500]}",
-                  file=sys.stderr, flush=True)
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            if resp.status_code >= 400:
+                # The detail goes back to the caller, but the caller is often a
+                # program that drops it — and the router's own logs were silent on
+                # exactly this line while six provider 400s went undiagnosable
+                # (2026-10-03). _fail_over prints the body, so the server.err log
+                # alone explains a failed dispatch.
+                if _fail_over(resp.status_code, resp.text):
+                    continue
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            break
 
         data = resp.json()
         # Pulled out ahead of logging because the reply's tool calls are now part of
