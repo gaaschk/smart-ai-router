@@ -731,6 +731,20 @@ SPECS: tuple[SettingSpec, ...] = (
         validate=_reject_negative,
     ),
     SettingSpec(
+        key="tool_probe_max_cost",
+        env="SMART_ROUTER_TOOL_PROBE_MAX_COST",
+        type="int",
+        default=20,
+        label="Tool-call probe: max output price ($/M)",
+        group="Routing",
+        help="After a sync, the router hands each new OpenRouter model one trivial "
+        "tool task and checks it answers with a real tool call, not prose like "
+        "<function=…>. Models that don't are kept out of tool-bearing requests. "
+        "Costs a fraction of a cent per model; models priced above this per "
+        "million output tokens are skipped. 0 turns probing off.",
+        validate=_reject_negative,
+    ),
+    SettingSpec(
         key="failover_attempts",
         env="SMART_ROUTER_FAILOVER_ATTEMPTS",
         type="int",

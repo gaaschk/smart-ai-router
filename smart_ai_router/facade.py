@@ -310,6 +310,9 @@ class CapabilityRouter:
 
     # ── Usage log ────────────────────────────────────────────────────────────
 
+    def set_tool_probe(self, model: str, verdict: str, note: str = "") -> None:
+        self._store.set_tool_probe(model, verdict, note)
+
     def record_model_failure(self, model: str, **kw) -> None:
         self._store.record_model_failure(model, **kw)
 

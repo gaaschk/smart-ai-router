@@ -93,6 +93,9 @@ class MatrixStore(ABC):
     @abstractmethod
     def record_usage(self, usage: UsageRecord) -> None: ...
 
+    def set_tool_probe(self, model: str, verdict: str, note: str = "") -> None:
+        """Store the verdict of a tool-call probe. Optional, like failures."""
+
     def record_model_failure(
         self, model: str, *, status: int, detail: str,
         user: str = "", failed_over_to: str = "",

@@ -311,6 +311,11 @@ class SqliteStore(MatrixStore):
                 # the tool-bearing traffic that would redeem it, so the measurement
                 # has to expire on its own.
                 ("observed_tool_health_at", "TEXT DEFAULT ''"),
+                # Verdict of the router's own tool-call probe (ModelSpec.tool_probe).
+                # Absent from upsert_model's DO UPDATE SET so a sync keeps it.
+                ("tool_probe", "TEXT DEFAULT ''"),
+                ("tool_probe_note", "TEXT DEFAULT ''"),
+                ("tool_probe_at", "TEXT DEFAULT ''"),
             ):
                 try:
                     self._conn.execute(
@@ -633,6 +638,15 @@ class SqliteStore(MatrixStore):
         return self._row_to_api_key(row) if row else None
 
     # ── Usage log ────────────────────────────────────────────────────────────
+
+    def set_tool_probe(self, model: str, verdict: str, note: str = "") -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE models SET tool_probe=?, tool_probe_note=?, tool_probe_at=? "
+                "WHERE value=?",
+                (verdict, note[:500], _utcnow_iso(), model),
+            )
+            self._conn.commit()
 
     def record_model_failure(
         self, model: str, *, status: int, detail: str,
@@ -1697,6 +1711,9 @@ class SqliteStore(MatrixStore):
             observed_tps_at=cls._column(row, "observed_tps_at"),
             observed_tool_health=cls._num_column(row, "observed_tool_health"),
             observed_tool_health_at=cls._column(row, "observed_tool_health_at"),
+            tool_probe=cls._column(row, "tool_probe"),
+            tool_probe_note=cls._column(row, "tool_probe_note"),
+            tool_probe_at=cls._column(row, "tool_probe_at"),
             structured_outputs=cls._bool_column(row, "structured_outputs"),
             reasoning=cls._bool_column(row, "reasoning"),
             competence={

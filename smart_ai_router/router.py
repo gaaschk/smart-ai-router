@@ -533,6 +533,11 @@ def _select(
             return False
         if needs_tools and not spec.tools:
             return False
+        if needs_tools and spec.tool_probe in ("text", "unsupported"):
+            # Measured by handing it a trivial tool task (tool_probe.py): it wrote
+            # the call as prose, or the provider has no tool endpoint for it. The
+            # client can't run either, so no later turn would have been any better.
+            return False
         if needs_agentic and not _drives_loops(spec):
             # Counted, not just dropped: this filter is new and invisible in the
             # scores, so a caller left wondering why a model it expected did not
