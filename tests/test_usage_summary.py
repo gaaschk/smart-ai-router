@@ -29,6 +29,32 @@ def _seed(store):
                             domain="docs", complexity="trivial", cost=0.02))
 
 
+def test_negative_usage_cost_is_logged_as_zero_with_model_warning(caplog):
+    store = SqliteStore(":memory:")
+    store.record_usage(_rec("alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00",
+                            cost=-1000.0))
+    store.record_usage(_rec("alice", "openrouter/x/paid", "2026-07-01T11:00:00+00:00",
+                            cost=0.02))
+    summary = store.usage_summary()
+    assert summary["totals"]["cost_usd"] == 0.02
+    by_model = {r["key"]: r for r in summary["by_model"]}
+    assert by_model["openrouter/x/variable"]["cost_usd"] == 0.0
+    assert "openrouter/x/variable" in caplog.text
+    assert "recorded as $0" in caplog.text
+
+
+def test_startup_cleans_historical_negative_usage_cost(tmp_path):
+    path = tmp_path / "usage.db"
+    store = SqliteStore(str(path))
+    store.record_usage(_rec("alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00"))
+    # Reproduce a row written by the older pricing calculation.
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE usage_log SET cost_usd=-1000")
+    reopened = SqliteStore(str(path))
+    assert reopened.usage_summary()["totals"]["cost_usd"] == 0.0
+    assert reopened.usage_summary()["totals"]["requests"] == 1
+
+
 def test_totals_sum_across_all_users_for_admin():
     store = SqliteStore(":memory:")
     _seed(store)
