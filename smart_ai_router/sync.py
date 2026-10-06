@@ -439,6 +439,15 @@ def _sync_openrouter(
         except Exception:
             cost_output = 0.0
 
+        # OpenRouter reports -1 for variable-priced models (jev-router, switchyard):
+        # they dispatch to some other model per request, so there is no rate. Kept,
+        # that became -$1,000,000/M — the cheapest tier by miles, so they won every
+        # "cheapest qualified" pick, and every request logged a negative cost that
+        # drove the dashboard's spend below zero. With no price they can be neither
+        # ranked nor budgeted, so they stay out of the catalog.
+        if cost_input < 0 or cost_output < 0:
+            continue
+
         # Cost tier for router sorting — blends input + output rates.
         cost = _cost_tier(cost_input, cost_output, is_free=mid.endswith(":free"))
 

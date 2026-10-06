@@ -1,6 +1,7 @@
 """SqliteStore — default self-contained SQLite implementation of MatrixStore."""
 from __future__ import annotations
 import json
+import logging
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from smart_ai_router.models import (
 )
 from smart_ai_router.profiler import apply_ratings, baseline_profile
 from smart_ai_router.store.base import MatrixStore
+
+_logger = logging.getLogger(__name__)
 
 
 def _utcnow_iso() -> str:
@@ -399,6 +402,18 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Negative prices came from OpenRouter's -1 "variable price" sentinel
+            # (see sync._sync_openrouter). Their usage rows summed to a negative
+            # spend; zero is the honest "unknown". Idempotent: a no-op once clean.
+            for stmt in (
+                "UPDATE usage_log SET cost_usd=0 WHERE cost_usd<0",
+                "UPDATE models SET cost_input=0, cost_output=0 "
+                "WHERE cost_input<0 OR cost_output<0",
+            ):
+                try:
+                    self._conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # a column from a later migration isn't there yet: nothing to clean
             # Additive migration: this reply was cut off at the output ceiling.
             # DEFAULT 0 backfills history as untruncated, which is a claim we
             # can't verify — the flag wasn't recorded, so some old replies really
@@ -671,6 +686,13 @@ class SqliteStore(MatrixStore):
 
     def record_usage(self, usage: UsageRecord) -> None:
         ts = usage.ts or _utcnow_iso()
+        cost_usd = usage.cost_usd
+        if cost_usd < 0:
+            _logger.warning(
+                "Negative usage cost for model %s; recorded as $0 (price unavailable)",
+                usage.routed_model,
+            )
+            cost_usd = 0.0
         with self._lock:
             self._conn.execute(
                 """INSERT INTO usage_log (
@@ -684,7 +706,7 @@ class SqliteStore(MatrixStore):
                     usage.user, usage.key_prefix, usage.routed_model,
                     usage.domain, usage.complexity,
                     usage.prompt_tokens, usage.completion_tokens,
-                    usage.cost_usd, usage.status,
+                    cost_usd, usage.status,
                     1 if usage.tokens_estimated else 0,
                     json.dumps(usage.profile, sort_keys=True)
                     if usage.profile else "",

@@ -1105,6 +1105,14 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
         # cost is what the Usage page actually sums).
         print(f"[proxy] cache hit: {cached_tokens} of {prompt_tokens} prompt "
               f"tokens read at 10% on {routed_model}", file=sys.stderr, flush=True)
+    if tools_offered and not tool_calls and _leaks_tool_call(content):
+        # Proof, not a statistic: it just wrote a call the client cannot run. Say
+        # so now rather than waiting for the health average to sink — and keep the
+        # text, which is this model's leak format.
+        try:
+            cr.set_tool_probe(routed_model, "text", content[-300:])
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
     try:
         cr.record_usage(UsageRecord(
             user=user, key_prefix=key_prefix, routed_model=routed_model,
