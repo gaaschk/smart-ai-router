@@ -633,6 +633,29 @@ SPECS: tuple[SettingSpec, ...] = (
         "the text rate.",
     ),
     SettingSpec(
+        key="tts_model",
+        env="SMART_ROUTER_TTS_MODEL",
+        type="str",
+        default="openrouter/elevenlabs/eleven-v3",
+        label="Text-to-speech model",
+        group="Voice",
+        help="The model behind /v1/audio/speech (OpenAI-compatible). Must be an "
+        "ElevenLabs or other OpenAI-compatible TTS route exposed by OpenRouter. "
+        "Admin-only. OpenRouter's ElevenLabs models support voices and "
+        "bracketed delivery tags like [whispering].",
+    ),
+    SettingSpec(
+        key="stt_model",
+        env="SMART_ROUTER_STT_MODEL",
+        type="str",
+        default="openrouter/elevenlabs/scribe-v2",
+        label="Speech-to-text model",
+        group="Voice",
+        help="The model behind /v1/audio/transcriptions (OpenAI-compatible). "
+        "Scribe v2 adds speaker diarization in verbose_json responses. "
+        "Admin-only.",
+    ),
+    SettingSpec(
         key="min_tokens_per_second",
         env="SMART_ROUTER_MIN_TOKENS_PER_SECOND",
         type="int",

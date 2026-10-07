@@ -36,7 +36,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from smart_ai_router import settings as _settings
 from smart_ai_router.api.proxy import _headers, _resolve_provider
@@ -283,3 +283,208 @@ async def voice_turn(request: Request):
             "X-Voice-Sample-Rate": str(_OUT_RATE),
         },
     )
+
+
+# ── OpenAI-compatible passthroughs (/v1/audio/speech, /v1/audio/transcriptions)
+
+# These mirror OpenRouter's OpenAI-compatible audio routes, which proxy to
+# ElevenLabs (speech + scribe-v2). They are NOT routed — audio models are rare
+# and there is no cost tier to pick between — so they go straight through to
+# OpenRouter like /v1/voice. Also admin-gated for the same reason: every turn
+# bills provider audio tokens, and the router has no spend ceiling specific to
+# them yet.
+_AUDIO_SPEECH_MODELS = ("elevenlabs/",)
+_AUDIO_STT_MODELS = ("elevenlabs/",)
+
+
+def _audio_model(setting_key: str, detail: str) -> str:
+    """Read a required audio-model setting or 422 before any provider call."""
+    model = _settings.get_str(setting_key).strip()
+    if not model:
+        raise HTTPException(status_code=422, detail=detail)
+    return model
+
+
+def _auth_headers(api_key: str) -> dict[str, str]:
+    """Headers for a forwarded request — note the absence of Content-Type.
+
+    _headers() in proxy.py pins Content-Type to application/json, which is what
+    OpenRouter's /audio/transcriptions wants it NOT to be: that endpoint is
+    multipart/form-data, and httpx only emits its boundary when the caller does
+    not set the header. For /audio/speech the JSON path is taken by the caller
+    passing json=..., which sets Content-Type itself, so it is safe to leave off
+    here too.
+    """
+    return {
+        "Accept-Encoding": "identity",
+        "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router",
+        **({"Authorization": f"Bearer {api_key}"} if api_key else {}),
+    }
+
+
+@voice_router.post("/v1/audio/speech")
+async def audio_speech(request: Request):
+    """Text-to-speech passthrough (OpenAI-compatible shape).
+
+    Mirrors https://platform.openai.com/docs/api-reference/audio/create-speech —
+    the caller POSTs JSON {model, input, voice, response_format, speed} and the
+    router forwards it to OpenRouter, streaming the audio bytes back verbatim.
+    ElevenLabs voices and bracketed delivery tags (e.g. "[whispering]") are
+    passed through untouched.
+    """
+    if (getattr(request.state, "user", "") or "") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Audio endpoints are limited to the admin key for now."
+        )
+
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object.")
+    if not str(body.get("input", "")).strip():
+        raise HTTPException(status_code=422, detail="Missing `input`.")
+
+    model = _audio_model(
+        "tts_model",
+        "No text-to-speech model configured (Settings → Voice).",
+    )
+    cr = request.app.state.capability_router
+    base_url, api_key, real_model = _resolve_provider(model, cr)
+    forwarded = {**body, "model": real_model}
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0))
+    req = client.build_request(
+        "POST", f"{base_url}/audio/speech",
+        headers=_auth_headers(api_key), json=forwarded,
+    )
+    try:
+        upstream = await client.send(req, stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Audio model unreachable: {exc}") from None
+
+    if upstream.status_code != 200:
+        detail = (await upstream.aread()).decode(errors="replace")[:1000]
+        await upstream.aclose()
+        await client.aclose()
+        _record(cr, request, model=model, usage=None, status=upstream.status_code)
+        raise HTTPException(
+            status_code=upstream.status_code,
+            detail=f"Audio model refused the request: {detail}",
+        )
+
+    out_fmt = body.get("response_format") or "mp3"
+    media_type = {
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "opus": "audio/opus",
+        "flac": "audio/flac",
+        "aac": "audio/aac",
+        "pcm": "audio/wave; codecs=audio/l16; rate=24000",
+        "html5": "text/html",
+    }.get(str(out_fmt).lower(), "application/octet-stream")
+
+    async def body_iter() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+        _record(cr, request, model=model, usage=None, status=200)
+
+    return StreamingResponse(
+        body_iter(),
+        media_type=media_type,
+        headers={"X-Audio-Model": model, "Cache-Control": "no-cache"},
+    )
+
+
+@voice_router.post("/v1/audio/transcriptions")
+async def audio_transcriptions(request: Request):
+    """Speech-to-text passthrough (OpenAI-compatible shape).
+
+    Mirrors https://platform.openai.org/docs/api-reference/audio/transcriptions —
+    the caller POSTs a multipart/form-data body (file, model, prompt,
+    response_format, temperature, language, ...) and the router forwards it
+    verbatim to OpenRouter, returning the JSON transcription. ElevenLabs Scribe
+    v2 adds speaker diarization in verbose_json responses.
+    """
+    if (getattr(request.state, "user", "") or "") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Audio endpoints are limited to the admin key for now."
+        )
+
+    form = await request.form()
+    upload = form.get("file")
+    if not upload or not getattr(upload, "filename", None):
+        raise HTTPException(status_code=422, detail="Missing `file`.")
+
+    model = _audio_model(
+        "stt_model",
+        "No speech-to-text model configured (Settings → Voice).",
+    )
+    cr = request.app.state.capability_router
+    base_url, api_key, real_model = _resolve_provider(model, cr)
+
+    # Forward the multipart form. Content-Type is intentionally NOT set here so
+    # httpx generates the correct multipart/form-data boundary; see _auth_headers.
+    # `model` is always the router-resolved one, ignoring whatever the client sent,
+    # just like /v1/chat/completions ignores the requested model name.
+    files: dict[str, Any] = {"file": (upload.filename, upload.file, upload.content_type)}
+    forwarded_form: dict[str, Any] = {"model": real_model}
+    for k, v in form.multi_items():
+        if k in ("file", "model"):
+            continue
+        forwarded_form[k] = v
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0))
+    req = client.build_request(
+        "POST", f"{base_url}/audio/transcriptions",
+        headers=_auth_headers(api_key),
+        files=files,
+        data=forwarded_form,
+    )
+    try:
+        upstream = await client.send(req)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Audio model unreachable: {exc}") from None
+    finally:
+        await client.aclose()
+
+    _record(cr, request, model=model, usage=None, status=upstream.status_code)
+    if upstream.status_code != 200:
+        detail = upstream.text[:1000]
+        raise HTTPException(
+            status_code=upstream.status_code,
+            detail=f"Audio model refused the request: {detail}",
+        )
+
+    return JSONResponse(
+        upstream.json(),
+        headers={"X-Audio-Model": model},
+    )
+
+
+@voice_router.get("/v1/audio/models")
+async def audio_models(request: Request):
+    """Lightweight discoverability: which audio models this router can address.
+
+    Admin-gated like the rest. Returns a tiny capability list, not a catalog —
+    enough for a UI to populate a dropdown without guessing the provider format.
+    """
+    if (getattr(request.state, "user", "") or "") != "admin":
+        raise HTTPException(status_code=403, detail="Admin key required.")
+
+    out: list[dict[str, str]] = []
+    for key in ("tts_model", "stt_model"):
+        val = _settings.get_str(key).strip()
+        if val:
+            base, _, real_model = _resolve_provider(val, request.app.state.capability_router)
+            out.append({
+                "key": key,
+                "value": val,
+                "provider": base,
+                "model": real_model,
+            })
+    return JSONResponse(out)
