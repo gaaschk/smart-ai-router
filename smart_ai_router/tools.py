@@ -13,6 +13,8 @@ Every tool operates strictly inside the caller's workspace (workspace.py):
   create_document(path, content) — render Markdown into a downloadable
                                    PDF/Word/PowerPoint/Excel/Markdown file
   run_bash(command)              — run a shell command (sandboxed; opt-in)
+  design_voice / save_voice / list_audio_voices / generate_audio — admin-only
+                                   custom voices and downloadable MP3s
 
 Execution never raises for user-caused errors (missing file, bad path, non-zero
 exit); it returns an error string the model can read and react to. That keeps
@@ -147,13 +149,37 @@ _BASH_TOOL = _fn(
     ["command"],
 )
 
+_AUDIO_TOOLS = [
+    _fn("design_voice", "Design an original custom voice from a detailed description "
+        "(pitch, texture, accent, delivery). Returns downloadable MP3 previews and "
+        "preview IDs. Use this for character voices instead of shell commands. "
+        "Offer previews for selection; do not promise an exact character match.",
+        {"description": {"type": "string", "minLength": 20, "maxLength": 1000}}, ["description"]),
+    _fn("save_voice", "Save a selected design_voice preview as a reusable voice. "
+        "Use the preview the user selected; if they explicitly asked you to choose, "
+        "you may select one. Returns a voice_id for generate_audio.",
+        {"preview_id": {"type": "string"}, "name": {"type": "string", "maxLength": 100}},
+        ["preview_id", "name"]),
+    _fn("list_audio_voices", "List saved custom voices and unsaved voice previews, "
+        "with IDs, descriptions, creation times and preview numbers. Use to reuse "
+        "voices or find the preview selected in a follow-up message.", {}, []),
+    _fn("generate_audio", "Generate a downloadable MP3 using a saved ElevenLabs "
+        "voice_id and the exact words the user wants spoken. Supports delivery tags "
+        "such as [whispering]. Use after save_voice, or reuse a listed voice. "
+        "The text field is spoken content, not a voice description.",
+        {"voice_id": {"type": "string"}, "text": {"type": "string", "maxLength": 5000},
+         "path": {"type": "string", "description": "Optional workspace MP3 path."}},
+        ["voice_id", "text"]),
+]
 
-def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None) -> list[dict]:
+
+def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None, allow_audio: bool = False) -> list[dict]:
     """The tool definitions to advertise to the model for this request.
 
     Read tools are always included. Write tools follow `allow_write`. Bash is
     included only if requested *and* the OS sandbox is actually available
     (defaults to sandbox availability when `allow_bash` is None).
+    Audio tools require allow_audio and allow_write; execution also checks admin.
     """
     schemas = list(_READ_TOOLS)
     if allow_write:
@@ -161,11 +187,14 @@ def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None) ->
     bash_ok = _sandbox.available() if allow_bash is None else (allow_bash and _sandbox.available())
     if bash_ok:
         schemas.append(_BASH_TOOL)
+    if allow_write and allow_audio:
+        schemas.extend(_AUDIO_TOOLS)
     return schemas
 
 
-def tool_names(*, allow_write: bool = True, allow_bash: bool | None = None) -> set[str]:
-    return {t["function"]["name"] for t in tool_schemas(allow_write=allow_write, allow_bash=allow_bash)}
+def tool_names(*, allow_write: bool = True, allow_bash: bool | None = None, allow_audio: bool = False) -> set[str]:
+    return {t["function"]["name"] for t in tool_schemas(
+        allow_write=allow_write, allow_bash=allow_bash, allow_audio=allow_audio)}
 
 
 # ── execution ─────────────────────────────────────────────────────────────────
@@ -320,6 +349,9 @@ def execute_tool(
     the Files API so the user can download it.
     """
     try:
+        if name in {t["function"]["name"] for t in _AUDIO_TOOLS}:
+            from smart_ai_router.audio_tools import execute_audio_tool
+            return execute_audio_tool(user, name, args or {}, register_file)
         if name == "create_document":
             return _do_create_document(user, args or {}, register_file)
         handler = _DISPATCH.get(name)

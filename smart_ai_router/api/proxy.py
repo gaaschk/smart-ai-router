@@ -57,13 +57,23 @@ from smart_ai_router.tools import tool_schemas as _tool_schemas
 proxy_router = APIRouter()
 
 
-def _agent_tool_schemas() -> list[dict]:
+def _agent_tool_schemas(user: str = "") -> list[dict]:
     """Tools advertised to the model in agent mode.
 
     Read + write are always offered; bash is included only when the OS sandbox
     is actually available (tools.tool_schemas gates it on sandbox.available()).
+    Paid custom voice tools are advertised only to the admin identity.
     """
-    return _tool_schemas(allow_write=True, allow_bash=None)
+    return _tool_schemas(allow_write=True, allow_bash=None, allow_audio=user == "admin")
+
+
+def _audio_followup(messages: list[dict], prompt: str) -> bool:
+    """Keep preview selections in agent mode; explicit Agent Off still wins."""
+    previous = next((m for m in reversed(messages) if m.get("role") == "assistant"), {})
+    return (
+        "design_voice(" in _message_text(previous)
+        and bool(re.search(r"\b(use|save|choose|select|pick|first|second|third|preview|[123])\b", prompt, re.I))
+    )
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
@@ -1452,7 +1462,7 @@ async def chat_completions(request: Request):
         agent_mode = (
             not client_brought_tools
             and tools_available
-            and is_actionable(prompt_text)
+            and (is_actionable(prompt_text) or (user == "admin" and _audio_followup(messages, prompt_text)))
         )
     else:
         agent_mode = False
@@ -1901,7 +1911,7 @@ async def chat_completions(request: Request):
                 # ceiling and system notes a single forwarded request gets. Seeding
                 # from `body` here meant a dropped param came straight back.
                 body=forward_body,
-                tool_schemas=_agent_tool_schemas(),
+                tool_schemas=_agent_tool_schemas(user),
                 stream_model=_stream_model,
                 register_file=_register_file,
             ):
