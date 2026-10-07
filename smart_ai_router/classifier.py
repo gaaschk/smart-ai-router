@@ -55,6 +55,7 @@ _ARTIFACT_NOUNS = frozenset({
     "cover letter", "spreadsheet", "excel", "xlsx", "workbook", "csv",
     "powerpoint", "pptx", "presentation", "slide deck", "slides", "slide",
     "report", "markdown file", "text file", "file", "handout", "worksheet",
+    "audio", "mp3", "wav", "custom voice", "voice preview", "text-to-speech",
 })
 
 # Unambiguous filesystem/agent phrases — actionable on their own (no noun pair
@@ -68,7 +69,7 @@ _FS_PHRASES = (
 
 # An explicit downloadable-file extension anywhere in the prompt.
 _FILE_EXT_RE = re.compile(
-    r"\.(pdf|docx?|pptx?|xlsx?|md|markdown|txt|csv)\b", re.IGNORECASE
+    r"\.(pdf|docx?|pptx?|xlsx?|md|markdown|txt|csv|mp3|wav)\b", re.IGNORECASE
 )
 
 
@@ -78,6 +79,9 @@ def is_actionable(prompt: str) -> bool:
     if not prompt:
         return False
     lower = prompt.lower()
+
+    if re.match(r"^(?:please\s+)?design\b.*\bvoices?\b", lower):
+        return True
 
     if _FILE_EXT_RE.search(lower):
         return True

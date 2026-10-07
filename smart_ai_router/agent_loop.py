@@ -236,6 +236,12 @@ def _narration(name: str, args: dict) -> str:
         return f"\n\n`✏️ edit_file({args.get('path', '')})`\n\n"
     if name == "create_document":
         return f"\n\n`📝 create_document({args.get('path', '')})`\n\n"
+    if name == "design_voice":
+        return "\n\n`🎧 design_voice(generating custom voice previews)`\n\n"
+    if name == "save_voice":
+        return "\n\n`🎧 save_voice: saving the selected voice`\n\n"
+    if name == "generate_audio":
+        return "\n\n`🎧 generate_audio: creating your MP3`\n\n"
     if name == "run_bash":
         return f"\n\n`⚡ run_bash: {args.get('command', '')}`\n\n"
     return f"\n\n`🔧 {name}(...)`\n\n"

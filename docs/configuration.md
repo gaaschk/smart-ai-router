@@ -70,6 +70,32 @@ symlink escapes are all rejected).
 > On a box behind a public tunnel, keep this off unless you understand the
 > shared-kernel blast radius; the read/write tools need no such flag.
 
+**Custom voice design and MP3 generation (admin chat).** Set
+`ELEVENLABS_API_KEY` in the server environment or its `.env` and restart the
+router. This is a direct ElevenLabs credential; an OpenRouter key alone does
+not provide voice design or access to your account's private voices. The key
+is never exposed in tool arguments or passed to the sandbox shell.
+
+With Agent set to Auto or On, ask: “Design a custom voice with a deep gravelly
+tone, booming resonance, and playful haunted-house delivery.” The
+`design_voice` tool returns downloadable MP3 previews. Reply “Use the second
+one and save it as Skeleton”; `save_voice` saves that selection in your
+ElevenLabs account. Then ask “Generate audio with Skeleton saying: Aaaahhh,
+the living have arrived… come to work the graveyard shift.” `generate_audio`
+returns an authenticated download link and adds the MP3 to Files.
+`list_audio_voices` finds saved voices and pending previews across chat turns.
+The agent can select a preview itself if explicitly asked to choose.
+
+These four tools are advertised only to admin chat and independently reject
+non-admin execution. Voice descriptions are limited to 20–1,000 characters,
+speech text to 5,000, and outputs to MP3. Descriptions and spoken text are sent
+to ElevenLabs. Voice creation and synthesis are billed to the direct ElevenLabs
+account; those charges are not currently included in the router's usage-cost
+dashboard. Preview metadata and voice IDs persist under the admin workspace's
+`audio/` directory. This creates an original voice from descriptive traits;
+it does not guarantee an exact match to a named character. The existing
+`/v1/audio/speech` OpenRouter passthrough remains available independently.
+
 **Prompt classification** is a fallback chain, tried in order:
 
 1. **Local** — `SMART_ROUTER_CLASSIFIER_MODEL` via the Ollama provider (fast, private, no rate limit).
@@ -82,4 +108,3 @@ That resilience has a cost worth knowing about: a misconfigured classifier looks
 
 - The classifier that ran is recorded per request, and the Usage page shows the mix as **By classifier**. A healthy local deployment is nearly all `llm`; a column of `keyword` means the configured model isn't answering. That's the number to look at after changing the setting or the host's pulled models.
 - Settings flags a pin that can't work — a name absent from the model catalog (a typo, or never pulled here), or a model flagged `reasoning`. It's an advisory, not a block: the catalog can legitimately lag a model you just pulled, and refusing to start on a stale catalog would be worse than the warning.
-
