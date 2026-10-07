@@ -1833,37 +1833,48 @@ async def chat_completions(request: Request):
             """Stream one model round from the provider, yielding each
             choices[0].delta dict. The agent loop passes content through live
             and reassembles tool calls from the fragments."""
-            fwd = {**req_body, "model": real_model, "stream": True}
-            if not fwd.get("max_tokens"):
-                # Per *round*, not per request — the loop may take several. The
-                # profile-aware budget still applies: an agent writing a document
-                # to a file needs room for the document.
-                fwd["max_tokens"] = _output_budget(profile, routed_spec)
-            async with httpx.AsyncClient(timeout=_timeout) as client:
-                async with client.stream(
-                    "POST", url, headers=_headers(api_key), json=fwd,
-                ) as resp:
-                    if resp.status_code >= 400:
-                        err = await resp.aread()
-                        raise RuntimeError(
-                            f"provider {resp.status_code}: {err.decode(errors='replace')[:500]}"
-                        )
-                    async for line in resp.aiter_lines():
-                        line = line.strip()
-                        if not line or not line.startswith("data:"):
-                            continue
-                        payload = line[5:].strip()
-                        if payload == "[DONE]":
-                            break
-                        try:
-                            obj = json.loads(payload)
-                        except json.JSONDecodeError:
-                            continue
-                        choices = obj.get("choices") or []
-                        if choices and isinstance(choices[0], dict):
-                            delta = choices[0].get("delta")
-                            if isinstance(delta, dict):
-                                yield delta
+            sent = False  # Never switch models after this round has emitted a delta.
+            while True:
+                fwd = {**req_body, "model": real_model, "stream": True}
+                _drop_unsupported(fwd, routed_spec)
+                if not fwd.get("max_tokens"):
+                    fwd["max_tokens"] = _output_budget(profile, routed_spec)
+                ceiling = int(getattr(routed_spec, "max_output", 0) or 0)
+                if ceiling:
+                    fwd["max_tokens"] = min(int(fwd["max_tokens"]), ceiling)
+                try:
+                    async with httpx.AsyncClient(timeout=_timeout) as client:
+                        async with client.stream(
+                            "POST", url, headers=_headers(api_key), json=fwd,
+                        ) as resp:
+                            if resp.status_code >= 400:
+                                err = await resp.aread()
+                                detail = err.decode(errors="replace")
+                                if _fail_over(resp.status_code, detail):
+                                    continue
+                                raise RuntimeError(f"provider {resp.status_code}: {detail[:500]}")
+                            async for line in resp.aiter_lines():
+                                line = line.strip()
+                                if not line or not line.startswith("data:"):
+                                    continue
+                                payload = line[5:].strip()
+                                if payload == "[DONE]":
+                                    break
+                                try:
+                                    obj = json.loads(payload)
+                                except json.JSONDecodeError:
+                                    continue
+                                choices = obj.get("choices") or []
+                                if choices and isinstance(choices[0], dict):
+                                    delta = choices[0].get("delta")
+                                    if isinstance(delta, dict):
+                                        sent = True
+                                        yield delta
+                            return
+                except httpx.RequestError as exc:
+                    if not sent and _fail_over(502, str(exc) or type(exc).__name__):
+                        continue
+                    raise
 
         _log_usage(cr, request, routed_model=routed_model, domain=domain,
                    complexity=complexity, usage=None, status=200,
