@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, AsyncIterator, Callable
 
 from smart_ai_router import tools as _tools
@@ -135,7 +136,9 @@ async def run_agent_loop(
                 data = await call_model(req)
                 message = (data.get("choices") or [{}])[0].get("message") or {}
         except Exception as exc:  # noqa: BLE001 — surface provider errors to the client
-            yield _sse({"error": {"message": f"agent loop provider error: {exc}", "type": "upstream_error"}})
+            detail = str(exc) or type(exc).__name__
+            logging.getLogger(__name__).warning("agent loop provider error (%s): %s", type(exc).__name__, detail)
+            yield _sse({"error": {"message": f"agent loop provider error: {detail}", "type": "upstream_error"}})
             yield b"data: [DONE]\n\n"
             return
 

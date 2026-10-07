@@ -92,9 +92,10 @@ def test_loop_stops_at_max_rounds():
     assert b"data: [DONE]" in raw
 
 
-def test_loop_surfaces_provider_error():
+@pytest.mark.parametrize("error, detail", [(RuntimeError("boom"), "boom"), (TimeoutError(), "TimeoutError")])
+def test_loop_surfaces_provider_error(error, detail, caplog):
     async def call_model(body):
-        raise RuntimeError("boom")
+        raise error
 
     gen = agent_loop.run_agent_loop(
         user="alice",
@@ -103,7 +104,9 @@ def test_loop_surfaces_provider_error():
         call_model=call_model,
     )
     frames, raw = asyncio.run(_collect(gen))
-    assert any("boom" in json.dumps(f) for f in frames)
+    assert any(detail in json.dumps(f) for f in frames)
+    assert detail in caplog.text
+    assert raw.endswith(b"data: [DONE]\n\n")
 
 
 # ── streaming path ───────────────────────────────────────────────────────────
