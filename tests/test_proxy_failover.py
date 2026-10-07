@@ -10,6 +10,8 @@ import contextlib
 import warnings
 
 import httpx
+import json
+import pytest
 from fastapi.testclient import TestClient
 
 from smart_ai_router.api.app import create_app
@@ -44,6 +46,10 @@ class _Stream:
 
     async def aiter_raw(self):
         yield self._body
+
+    async def aiter_lines(self):
+        for line in self._body.decode().splitlines():
+            yield line
 
     async def __aenter__(self):
         return self
@@ -140,3 +146,91 @@ def test_failures_are_readable_over_the_api(monkeypatch):
     _chat(c, stream=False)
     (row,) = c.get("/api/model-failures").json()
     assert row["model"] == "openrouter/cheap-coder" and row["status"] == 403
+
+
+def test_agent_rate_limit_fails_over_and_records_failure(monkeypatch):
+    c = _client(monkeypatch)
+
+    def rate_limited_stream(self, method, url, **kw):
+        model = kw["json"]["model"]
+        c.sent.append(model)
+        assert kw["json"]["tools"]
+        if model == "cheap-coder":
+            return _Stream(429, b"upstream temporarily rate-limited")
+        return _Stream(200, _SSE)
+
+    monkeypatch.setattr(httpx.AsyncClient, "stream", rate_limited_stream)
+    r = c.post("/v1/chat/completions", json={
+        "model": "auto", "stream": True, "agent": True,
+        "messages": [{"role": "user", "content": "Refactor this Python parser."}],
+    })
+    assert b'"content": "ok"' in r.content and b'"error"' not in r.content
+    assert c.sent == ["cheap-coder", "dear-coder"]
+    (failure,) = _failures(c)
+    assert failure["status"] == 429
+    assert failure["failed_over_to"] == "openrouter/dear-coder"
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_agent_connection_error_only_fails_over_before_delta(monkeypatch, partial):
+    c = _client(monkeypatch)
+
+    class BrokenStream(_Stream):
+        async def aiter_lines(self):
+            if partial:
+                yield 'data: {"choices":[{"delta":{"content":"partial"}}]}'
+            raise httpx.ReadError("connection lost")
+
+    def stream(self, method, url, **kw):
+        model = kw["json"]["model"]
+        c.sent.append(model)
+        return BrokenStream(200, b"") if model == "cheap-coder" else _Stream(200, _SSE)
+
+    monkeypatch.setattr(httpx.AsyncClient, "stream", stream)
+    r = c.post("/v1/chat/completions", json={
+        "model": "auto", "agent": True, "messages": [],
+    })
+    assert c.sent == (["cheap-coder"] if partial else ["cheap-coder", "dear-coder"])
+    assert (b'"error"' in r.content) is partial
+
+
+def test_agent_later_round_failover_preserves_completed_tools(monkeypatch):
+    c = _client(monkeypatch)
+    executions = []
+    tool_call = {"choices": [{"delta": {"tool_calls": [{
+        "index": 0, "id": "call_1", "type": "function",
+        "function": {"name": "list_dir", "arguments": "{}"},
+    }]}}]}
+
+    def execute(user, name, args, **kw):
+        executions.append(name)
+        return "file.txt"
+
+    def stream(self, method, url, **kw):
+        c.sent.append(kw["json"]["model"])
+        if len(c.sent) == 1:
+            return _Stream(200, ("data: " + json.dumps(tool_call) + "\n\ndata: [DONE]\n\n").encode())
+        assert kw["json"]["messages"][-1] == {
+            "role": "tool", "tool_call_id": "call_1", "content": "file.txt",
+        }
+        return _Stream(429, b"rate limited") if len(c.sent) == 2 else _Stream(200, _SSE)
+
+    monkeypatch.setattr("smart_ai_router.tools.execute_tool", execute)
+    monkeypatch.setattr(httpx.AsyncClient, "stream", stream)
+    r = c.post("/v1/chat/completions", json={
+        "model": "auto", "agent": True, "messages": [],
+    })
+    assert b'"error"' not in r.content
+    assert c.sent == ["cheap-coder", "cheap-coder", "dear-coder"]
+    assert executions == ["list_dir"]
+
+
+def test_agent_failover_off_records_original_error(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_FAILOVER_ATTEMPTS", "0")
+    c = _client(monkeypatch)
+    r = c.post("/v1/chat/completions", json={
+        "model": "auto", "agent": True, "messages": [],
+    })
+    assert b"provider 403" in r.content
+    assert c.sent == ["cheap-coder"]
+    assert _failures(c)[0]["failed_over_to"] == ""
