@@ -5837,7 +5837,10 @@ async function streamChatInto(res, bubble) {
       const payload = s.slice(5).trim();
       if (payload === '[DONE]') continue;
       let obj; try { obj = JSON.parse(payload); } catch(_) { continue; }
-      if (obj.error) { acc += `\n[error: ${obj.error}]`; bubble.textContent = acc; streamError = true; continue; }
+      if (obj.error) {
+        const message = typeof obj.error === 'string' ? obj.error : (obj.error.message || JSON.stringify(obj.error));
+        acc += `\n[error: ${message}]`; bubble.textContent = acc; streamError = true; continue;
+      }
       const choice = obj.choices && obj.choices[0];
       const delta = choice && choice.delta;
       if (delta && delta.content) {
