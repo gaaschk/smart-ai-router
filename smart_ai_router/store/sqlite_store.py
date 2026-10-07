@@ -412,6 +412,18 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            # Data fix: clamp any historically negative usage cost to 0.00. A
+            # negative cost_usd makes the Usage page report *negative spend*
+            # (negative total, negative avg. per request, a "savings" that is
+            # really a credit), and every derived figure that sums cost_usd
+            # inherits the error. Negative cost is never legitimate: token
+            # counts and rates are both non-negative in a well-formed row, so
+            # 0.00 is the honest value for a corrupt row. Cheap and idempotent —
+            # `WHERE cost_usd < 0` matches nothing after the first run, so every
+            # later boot is a no-op.
+            self._conn.execute(
+                "UPDATE usage_log SET cost_usd = 0.0 WHERE cost_usd < 0"
+            )
             self._conn.commit()
 
     def all_models(self) -> list[ModelSpec]:
@@ -671,6 +683,12 @@ class SqliteStore(MatrixStore):
 
     def record_usage(self, usage: UsageRecord) -> None:
         ts = usage.ts or _utcnow_iso()
+        # A cost is never negative: it's tokens x rates, both non-negative. A
+        # negative value can only come from bad upstream data (a provider
+        # reporting a refund/credit as a negative cost, or a corrupt rates row),
+        # and letting it reach the log poisons every SUM(cost_usd) the Usage page
+        # reads. Clamp at the single write boundary rather than at each read.
+        cost_usd = max(0.0, usage.cost_usd or 0.0)
         with self._lock:
             self._conn.execute(
                 """INSERT INTO usage_log (
@@ -684,7 +702,7 @@ class SqliteStore(MatrixStore):
                     usage.user, usage.key_prefix, usage.routed_model,
                     usage.domain, usage.complexity,
                     usage.prompt_tokens, usage.completion_tokens,
-                    usage.cost_usd, usage.status,
+                    cost_usd, usage.status,
                     1 if usage.tokens_estimated else 0,
                     json.dumps(usage.profile, sort_keys=True)
                     if usage.profile else "",

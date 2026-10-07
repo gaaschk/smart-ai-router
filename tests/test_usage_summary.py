@@ -236,3 +236,56 @@ def test_migration_adds_classifier_to_preexisting_db(tmp_path):
     assert store.recent_usage("alice", "2026-07-01T00:00:00+00:00")[0].classifier == ""
     by_clf = {r["key"]: r for r in store.usage_summary()["by_classifier"]}
     assert by_clf[""]["requests"] == 1
+
+
+# ── Negative cost is never legitimate ─────────────────────────────────────────
+
+def test_record_usage_clamps_negative_cost_to_zero():
+    """A negative cost reaching the log poisons every SUM(cost_usd) the Usage
+    page reads (negative spend, negative avg/request). Clamped at the write
+    boundary, so no caller has to remember to guard it."""
+    store = SqliteStore(":memory:")
+    store.record_usage(_rec("alice", "openrouter/gpt-4", "2026-07-01T00:00:00+00:00",
+                            cost=-42.71))
+    rec = store.recent_usage("alice", "2026-07-01T00:00:00+00:00")[0]
+    assert rec.cost_usd == 0.0
+    assert store.usage_summary()["totals"]["cost_usd"] == 0.0
+
+
+def test_record_usage_leaves_positive_cost_untouched():
+    """The clamp must not round up a real cost or touch a legitimate $0."""
+    store = SqliteStore(":memory:")
+    store.record_usage(_rec("alice", "m", "2026-07-01T00:00:00+00:00", cost=0.02))
+    store.record_usage(_rec("alice", "m", "2026-07-01T00:00:01+00:00", cost=0.0))
+    costs = [r.cost_usd for r in store.recent_usage("alice", "2026-07-01T00:00:00+00:00")]
+    assert sorted(costs) == [0.0, 0.02]
+
+
+def test_migration_clamps_preexisting_negative_costs(tmp_path):
+    """Rows written before the clamp must be corrected on open, or the Usage
+    page keeps showing a negative spend for a DB that never writes one."""
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("""
+        CREATE TABLE usage_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, user TEXT,
+            key_prefix TEXT, routed_model TEXT, domain TEXT, complexity TEXT,
+            prompt_tokens INTEGER, completion_tokens INTEGER, cost_usd REAL,
+            status INTEGER
+        )
+    """)
+    conn.executemany(
+        "INSERT INTO usage_log (ts, user, routed_model, prompt_tokens, "
+        "completion_tokens, cost_usd, status) VALUES (?,?,?,?,?,?,?)",
+        [
+            ("2026-07-01T00:00:00+00:00", "alice", "m", 10, 5, -226270.56, 200),
+            ("2026-07-01T00:00:01+00:00", "alice", "m", 10, 5, 0.5, 200),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteStore(db)  # _migrate() runs on open
+    costs = [r.cost_usd for r in store.recent_usage("alice", "2026-07-01T00:00:00+00:00")]
+    assert sorted(costs) == [0.0, 0.5]
+    assert store.usage_summary()["totals"]["cost_usd"] == 0.5
