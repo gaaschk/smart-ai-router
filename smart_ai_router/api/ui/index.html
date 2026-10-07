@@ -812,6 +812,7 @@
     background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
     color: var(--accent); text-decoration: underline;
   }
+  .chat-continue:disabled { opacity: 0.5; cursor: wait; }
 
   .chat-msg-images { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chat-msg-images img { max-width: 180px; max-height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
@@ -5519,7 +5520,13 @@ function renderChatMsg(role, text, opts = {}) {
   const report = role === 'assistant'
     ? ` · <button class="chat-continue" onclick="openReportModal(this)" title="Report a bad answer. The whole conversation is attached automatically.">⚑ Report</button>`
     : '';
-  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}${report}</div>`;
+  // TTS: read the reply aloud using the router's /v1/audio/speech (real
+  // ElevenLabs voices, admin only). Falls back to the browser's own
+  // speechSynthesis when the router endpoint is unavailable or fails.
+  const tts = role === 'assistant' && _chatIsAdmin
+    ? ` · <button class="chat-continue" onclick="speakMessage(this)" title="Read this reply aloud with the router's TTS (ElevenLabs). Falls back to browser speech synthesis if unavailable.">🔊 Listen</button>`
+    : '';
+  inner += `<div class="chat-meta">${escapeHtml(fmtMsgTime(opts.ts))}${report}${tts}</div>`;
   if (opts.meta) inner += `<div class="chat-meta">${escapeHtml(opts.meta)}</div>`;
   wrap.innerHTML = inner;
   t.appendChild(wrap);
@@ -5668,6 +5675,7 @@ async function sendChat() {
   if (!text && _chatAttachments.filter(a => !a.pending).length === 0) return;
   if (_chatAttachments.some(a => a.pending)) { alert('Wait for uploads to finish.'); return; }
 
+  stopSpeakMessage();   // kill any in-flight router TTS from a prior reply
   const imgNames = _chatAttachments.filter(a => a.isImage).map(a => a.filename);
   const docNames = _chatAttachments.filter(a => !a.isImage).map(a => a.filename);
   renderChatMsg('user', text, { images: imgNames, files: docNames });
@@ -6287,6 +6295,81 @@ function renderInline(text) {
   return s;
 }
 
+// ── Router TTS (/v1/audio/speech) ────────────────────────────────────────────
+// Uses the router's OpenAI-compatible TTS endpoint to read a reply aloud with
+// real ElevenLabs voices. Admin-only: this bills provider audio tokens on a model
+// that was not chosen on price, so it stays behind the admin key until the router
+// has per-user spend controls. Falls back to browser speechSynthesis if the
+// endpoint is unavailable or fails.
+let _ttsCtx = null;        // AudioContext for playback
+let _ttsSource = null;     // current AudioBufferSourceNode, so Stop interrupts it
+
+async function stopSpeakMessage() {
+  if (_ttsSource) {
+    try { _ttsSource.stop(); } catch (_) {}
+    _ttsSource = null;
+  }
+  if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+}
+
+async function speakMessage(btn) {
+  // Walk up from the 🔊 button to the assistant bubble's text.
+  const msg = btn.closest('.chat-msg');
+  if (!msg) return;
+  const bubble = msg.querySelector('.chat-bubble');
+  if (!bubble) return;
+  const text = bubble.textContent || '';
+  if (!text.trim()) return;
+
+  try { _ttsCtx = _ttsCtx || new (window.AudioContext || window.webkitAudioContext)(); }
+  catch (_) { _ttsCtx = null; }
+
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${API}/audio/speech`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'elevenlabs/eleven-v3',
+        input: text,
+        voice: 'Rachel',
+        response_format: 'wav',
+      }),
+    });
+    if (!res.ok) throw new Error(`TTS failed (${res.status})`);
+    if (!_ttsCtx) throw new Error('No AudioContext');
+
+    // Accumulate the streamed WAV and decode once the stream ends.
+    const chunks = [];
+    const reader = res.body.getReader();
+    let stopPolling = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const blob = new Blob(chunks, { type: 'audio/wav' });
+    btn.textContent = '⏸';
+    const arrBuf = await blob.arrayBuffer();
+    const audioBuf = await _ttsCtx.decodeAudioData(arrBuf);
+    if (_ttsSource) { try { _ttsSource.stop(); } catch (_) {} }
+    const src = _ttsCtx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(_ttsCtx.destination);
+    _ttsSource = src;
+    src.onended = () => { _ttsSource = null; btn.textContent = '🔊'; btn.disabled = false; };
+    src.start(0);
+  } catch (e) {
+    console.warn('[tts]', e);
+    btn.textContent = '🔊';
+    btn.disabled = false;
+    // Fallback: browser speechSynthesis (system voice, costs nothing).
+    const u = new window.SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(u);
+  }
+}
+
 // ── Voice: hands-free talk and listen, entirely in the browser ──────────────
 // The native Web Speech API — SpeechRecognition for the microphone,
 // speechSynthesis for the reply. Nothing about voice reaches the router: it
@@ -6612,6 +6695,7 @@ function stopVoice(message) {
   _voiceBusy = false;
   if (_rec) { try { _rec.abort(); } catch (_) {} _rec = null; }
   window.speechSynthesis.cancel();
+  stopSpeakMessage();
   stopMeter();
   setVoiceButton('off');
   // Leave a failure on screen after the alert is dismissed — an alert is gone the
@@ -6927,6 +7011,7 @@ function stopTalk(message) {
     _talkNode = null;
   }
   stopTalkPlayback();
+  stopSpeakMessage();
   stopMeter();
   setTalkButton('off');
   setVoiceStatus(message || '', !!message);
