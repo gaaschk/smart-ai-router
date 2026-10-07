@@ -34,6 +34,7 @@ class SettingSpec:
     group: str
     help: str = ""
     sensitive: bool = False  # flagged in the UI (e.g. toggles code execution)
+    secret: bool = False  # write-only credential; never returned by the settings API
     # Optional extra check on an incoming value, beyond its type. Raises
     # ValueError (→ 422) to reject. For values that are well-typed but wrong in a
     # way the type system can't see — a word that means something for every
@@ -645,6 +646,19 @@ SPECS: tuple[SettingSpec, ...] = (
         "bracketed delivery tags like [whispering].",
     ),
     SettingSpec(
+        key="elevenlabs_api_key",
+        env="ELEVENLABS_API_KEY",
+        type="str",
+        default="",
+        label="ElevenLabs API key",
+        group="Voice",
+        help="Direct ElevenLabs key for custom voice design and MP3 generation. "
+        "Saved server-side and applied immediately. A key added to OpenRouter "
+        "is not available to these tools. Leave the field blank to keep the current key.",
+        sensitive=True,
+        secret=True,
+    ),
+    SettingSpec(
         key="stt_model",
         env="SMART_ROUTER_STT_MODEL",
         type="str",
@@ -1038,11 +1052,13 @@ def effective() -> list[dict]:
                 "group": spec.group,
                 "help": spec.help,
                 "type": spec.type,
-                "value": get(spec.key),
+                "value": "" if spec.secret else get(spec.key),
                 "default": spec.default,
                 "env": spec.env,
                 "source": source(spec.key),
                 "sensitive": spec.sensitive,
+                "secret": spec.secret,
+                "configured": bool(get(spec.key)) if spec.secret else False,
             }
         )
     return out
@@ -1056,6 +1072,10 @@ def normalize(key: str, value: Any) -> str:
     spec = _BY_KEY.get(key)
     if spec is None:
         raise ValueError(f"unknown setting {key!r}")
+    if spec.secret:
+        if not isinstance(value, str) or len(value) > 512 or any(c in value for c in "\r\n"):
+            raise ValueError(f"{key} expects a single-line credential of at most 512 characters")
+        return value.strip()
     if spec.type == "bool":
         if isinstance(value, bool):
             return "true" if value else "false"

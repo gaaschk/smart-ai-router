@@ -4643,7 +4643,13 @@ function renderSettingField(s) {
     ? '<span style="color:var(--danger,#e06c5a)" title="Security-sensitive">&#9888;</span> '
     : '';
   let control;
-  if (s.type === 'bool') {
+  if (s.secret) {
+    control = `<input type="password" id="${id}" value="" autocomplete="new-password"
+        placeholder="${s.configured ? 'Configured — enter to replace' : 'Not configured'}"
+        oninput="delete this.dataset.clear; onSettingChanged()" style="min-width:16rem">
+      ${s.configured ? `<button class="btn btn-ghost btn-sm" type="button"
+        onclick="clearSecretSetting('${s.key}')">Remove key</button>` : ''}`;
+  } else if (s.type === 'bool') {
     control = `<label class="toggle">
         <input type="checkbox" id="${id}" ${s.value ? 'checked' : ''} onchange="onSettingChanged()">
         <span class="toggle-track"></span>
@@ -4675,6 +4681,13 @@ function renderSettingField(s) {
     </div>`;
 }
 
+function clearSecretSetting(key) {
+  const el = document.getElementById(`set-${key}`);
+  el.value = '';
+  el.dataset.clear = 'true';
+  onSettingChanged();
+}
+
 function _readSettingInput(s) {
   const el = document.getElementById(`set-${s.key}`);
   if (!el) return s.value;
@@ -4695,7 +4708,11 @@ function _collectChangedSettings() {
   const changed = {};
   for (const s of _settingsSpecs) {
     const now = _readSettingInput(s);
-    if (s.type === 'bool') {
+    if (s.secret) {
+      const el = document.getElementById(`set-${s.key}`);
+      if (el && el.dataset.clear === 'true') changed[s.key] = '';
+      else if (String(now).trim()) changed[s.key] = String(now).trim();
+    } else if (s.type === 'bool') {
       if (Boolean(now) !== Boolean(s.value)) changed[s.key] = Boolean(now);
     } else if (s.type === 'int') {
       if (String(now) !== String(s.value)) changed[s.key] = now;

@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
 
+from smart_ai_router import settings
 from smart_ai_router.workspace import resolve_in_workspace
 
 _BASE = "https://api.elevenlabs.io/v1"
@@ -35,9 +35,9 @@ def _id(value: str) -> str:
 
 
 def _post(path: str, body: dict, *, audio: bool = False):
-    key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    key = settings.get_str("elevenlabs_api_key").strip()
     if not key:
-        raise ValueError("Custom voice tools require ELEVENLABS_API_KEY on the server. "
+        raise ValueError("Add your ElevenLabs API key in Settings → Voice. "
                          "An OpenRouter key cannot create private ElevenLabs voices.")
     with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
         response = client.post(f"{_BASE}/{path}", headers={"xi-api-key": key},
