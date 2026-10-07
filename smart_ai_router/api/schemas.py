@@ -388,6 +388,8 @@ class ProviderResponse(BaseModel):
 # ── Settings (UI-managed runtime config) ────────────────────────────────────────
 
 class SettingResponse(BaseModel):
+    secret: bool = False
+    configured: bool = False
     key: str
     label: str
     group: str

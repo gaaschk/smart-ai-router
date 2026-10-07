@@ -101,7 +101,7 @@ def test_missing_direct_key_explains_setup(provider, monkeypatch):
     monkeypatch.delenv("ELEVENLABS_API_KEY")
     calls, _, register = provider
     error = tools.execute_tool("admin", "design_voice", {"description": _DESCRIPTION}, register_file=register)
-    assert "ELEVENLABS_API_KEY" in error and "OpenRouter" in error
+    assert "Settings → Voice" in error and "OpenRouter" in error
     assert not calls
 
 

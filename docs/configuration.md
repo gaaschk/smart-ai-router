@@ -71,8 +71,14 @@ symlink escapes are all rejected).
 > shared-kernel blast radius; the read/write tools need no such flag.
 
 **Custom voice design and MP3 generation (admin chat).** Set
-`ELEVENLABS_API_KEY` in the server environment or its `.env` and restart the
-router. This is a direct ElevenLabs credential; an OpenRouter key alone does
+the **ElevenLabs API key** field in **Settings → Voice** and click **Save**.
+The saved key takes effect immediately, with no restart. The field never shows
+the stored key; leave it blank to keep the current value, enter a new key to
+replace it, or click **Remove key** and **Save** to disable it. Like provider
+keys, this credential is stored server-side in the router's SQLite database.
+`ELEVENLABS_API_KEY` in the server environment remains a fallback when no value
+has been saved; removing the key explicitly overrides that fallback with an
+empty value. This is a direct ElevenLabs credential; an OpenRouter key alone does
 not provide voice design or access to your account's private voices. The key
 is never exposed in tool arguments or passed to the sandbox shell.
 
