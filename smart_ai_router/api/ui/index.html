@@ -1583,11 +1583,22 @@
 
 <!-- ── Dashboard ───────────────────────────────────────────────────── -->
 <div class="page active" id="page-dashboard">
-  <section id="voice-subscription" style="display:none; margin-bottom:1.5rem" class="stat-card">
-    <h3>ElevenLabs subscription</h3>
+  <section aria-label="Usage by media type">
+    <h2>Text, sound, and image</h2>
+    <p>Your router usage in the dashboard window. Account subscriptions are shown separately.</p>
+    <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));align-items:start">
+      <div class="stat-card"><h3>Text</h3><div id="media-text" aria-live="polite">Loading…</div><p>Text-only requests. Input and output tokens include estimates where providers omit usage.</p></div>
+      <div class="stat-card"><h3>Sound</h3><div id="media-sound" aria-live="polite">Loading…</div><p>Router voice endpoint requests. Direct ElevenLabs generation uses the account credits below.</p>
+  <section id="voice-subscription" style="display:none; margin-bottom:1.5rem">
+    <h4>ElevenLabs subscription</h4>
     <p>Account-wide usage, including activity outside this router. Subscription costs are separate from request spend.</p>
     <div id="voice-subscription-details" aria-live="polite"></div>
     <button class="btn btn-sm btn-ghost" onclick="fetchVoiceSubscription()">Refresh credits</button>
+  </section>
+      </div>
+      <div class="stat-card"><h3>Image</h3><div id="media-image" aria-live="polite">Loading…</div><p>Requests containing images, including image analysis. Image generation counts and costs are not tracked yet.</p></div>
+    </div>
+    <p id="media-unclassified" aria-live="polite"></p>
   </section>
 
   <!-- The status lives next to the button on purpose: the same handler used to
@@ -3122,9 +3133,23 @@ async function fetchOverview() {
   }
 }
 
+function renderMediaUsage(data) {
+  const rows = data.modalities || [];
+  for (const type of ['text', 'sound', 'image']) {
+    const row = rows.find(r => r.key === type);
+    let text = row ? `${row.requests.toLocaleString()} request${row.requests === 1 ? '' : 's'} · ${_fmtCost(row.cost_usd)} recorded request spend` : 'No classified requests recorded';
+    if (row && type === 'text') text += ` · ${_fmtTokens(row.prompt_tokens)} input / ${_fmtTokens(row.completion_tokens)} output tokens`;
+    if (type === 'sound') text += ' · Some voice endpoints do not report cost; recorded spend may be incomplete.';
+    _setText('media-' + type, text);
+  }
+  const older = rows.find(r => r.key === 'unclassified');
+  _setText('media-unclassified', older ? `${older.requests.toLocaleString()} older or unclassified requests (${_fmtCost(older.cost_usd)} recorded spend) are included in overall totals but cannot be assigned to a media type.` : '');
+}
+
 function renderOverview() {
   const d = _overview;
   if (!d) return;
+  renderMediaUsage(d);
   const sys = d.system || {};
   const mine = d.mine || {};
   const sf = d.system_flow || {};

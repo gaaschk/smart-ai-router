@@ -664,6 +664,7 @@ def overview(request: Request, days: int = 30):
 
     return OverviewResponse(
         window_days=span_days,
+        modalities=mine_usage["by_modality"],
         system=system,
         system_flow=system_flow,
         mine=OverviewMine(

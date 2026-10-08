@@ -343,6 +343,7 @@ class OverviewResponse(BaseModel):
     need both halves at once.
     """
     window_days: int = 30
+    modalities: list[UsageGroupRow] = Field(default_factory=list)
     system: OverviewSystem = Field(default_factory=OverviewSystem)
     system_flow: OverviewFlow = Field(default_factory=OverviewFlow)
     mine: OverviewMine = Field(default_factory=OverviewMine)

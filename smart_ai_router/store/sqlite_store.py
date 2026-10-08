@@ -326,6 +326,10 @@ class SqliteStore(MatrixStore):
                     )
                 except sqlite3.OperationalError:
                     pass  # already exists
+            try:
+                self._conn.execute("ALTER TABLE usage_log ADD COLUMN modality TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # already exists; historical rows remain unclassified
             # Additive migration: the full prompt profile behind each routing
             # decision. domain/complexity are a lossy summary; this is what the
             # router actually matched on, and it is what makes a profiler change
@@ -699,8 +703,8 @@ class SqliteStore(MatrixStore):
                     ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
                     tokens_estimated, profile_json, classifier, latency_ms,
-                    tools_offered, tool_stalled
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tools_offered, tool_stalled, modality
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.kind or _PROXY_KIND,
                     usage.user, usage.key_prefix, usage.routed_model,
@@ -714,6 +718,7 @@ class SqliteStore(MatrixStore):
                     max(0, int(usage.latency_ms or 0)),
                     1 if usage.tools_offered else 0,
                     1 if usage.tool_stalled else 0,
+                    usage.modality if usage.modality in ("text", "sound", "image") else "",
                 ),
             )
             self._conn.commit()
@@ -962,6 +967,11 @@ class SqliteStore(MatrixStore):
                 f"substr(ts, 1, 10) AS key, {_sums}",
                 "GROUP BY substr(ts, 1, 10) ORDER BY key",
             )
+            by_modality = _agg(
+                f"CASE WHEN modality IN ('text', 'sound', 'image') THEN modality "
+                f"WHEN domain = 'voice' THEN 'sound' ELSE 'unclassified' END AS key, {_sums}",
+                "GROUP BY key ORDER BY key",
+            )
             by_domain = _agg(
                 f"(domain || '/' || complexity) AS key, {_sums}",
                 "GROUP BY key ORDER BY requests DESC",
@@ -1021,6 +1031,7 @@ class SqliteStore(MatrixStore):
             "by_model": _keyed(by_model),
             "by_day": _keyed(by_day),
             "by_domain": _keyed(by_domain),
+            "by_modality": _keyed(by_modality),
             "by_classifier": _keyed(by_classifier),
             # Unlike by_user, by_key is safe to always include: the WHERE
             # clause above already scopes every aggregate to `user` when one
@@ -1587,6 +1598,7 @@ class SqliteStore(MatrixStore):
         return UsageRecord(
             id=row["id"],
             ts=row["ts"] or "",
+            modality=row["modality"] or "" if "modality" in row.keys() else "",
             kind=(row["kind"] or _PROXY_KIND)
             if "kind" in row.keys() else _PROXY_KIND,
             user=row["user"] or "",

@@ -282,6 +282,7 @@ class UsageRecord:
     # Only `proxy` rows are user traffic, so the dashboard aggregates and the
     # rate limiter count those alone and report the rest as overhead.
     kind: str = "proxy"
+    modality: str = ""  # text, sound, image; empty means historical/unclassified
     user: str = ""
     key_prefix: str = ""
     routed_model: str = ""
