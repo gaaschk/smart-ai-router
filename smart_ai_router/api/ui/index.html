@@ -1583,6 +1583,12 @@
 
 <!-- ── Dashboard ───────────────────────────────────────────────────── -->
 <div class="page active" id="page-dashboard">
+  <section id="voice-subscription" style="display:none; margin-bottom:1.5rem" class="stat-card">
+    <h3>ElevenLabs subscription</h3>
+    <p>Account-wide usage, including activity outside this router. Subscription costs are separate from request spend.</p>
+    <div id="voice-subscription-details" aria-live="polite"></div>
+    <button class="btn btn-sm btn-ghost" onclick="fetchVoiceSubscription()">Refresh credits</button>
+  </section>
 
   <!-- The status lives next to the button on purpose: the same handler used to
        report only into the Settings page, so a failure — or a restart it failed
@@ -2941,6 +2947,28 @@ function fillConnectBaseUrl(operatorBase) {
 }
 
 // ── Dashboard init ──────────────────────────────────────────────────────────
+async function fetchVoiceSubscription() {
+  const panel = document.getElementById('voice-subscription');
+  const details = document.getElementById('voice-subscription-details');
+  panel.style.display = '';
+  details.textContent = 'Loading subscription…';
+  try {
+    const response = await fetch(`${API}/voice-subscription`);
+    if (!response.ok) throw new Error('Subscription unavailable');
+    const data = await response.json();
+    const lines = [`$${data.monthly_cost_usd.toFixed(2)}/month allocated from $${data.annual_cost_usd.toFixed(2)}/year`];
+    if (data.available) {
+      const number = value => value == null ? 'Unknown' : value.toLocaleString();
+      lines.push(`Plan: ${data.tier || 'Unknown'} · Credits used: ${number(data.credits_used)} · Remaining: ${number(data.credits_remaining)} · Current limit: ${number(data.credit_limit)}`);
+      lines.push(`Next credit reset: ${data.reset_unix ? new Date(data.reset_unix * 1000).toLocaleString() : 'Unknown'}`);
+      const extra = data.current_overage;
+      lines.push(`Current extra usage charges: ${extra && extra.amount != null ? extra.amount + ' ' + (extra.currency || '') : 'Unavailable'}`);
+    } else lines.push(data.message);
+    details.textContent = lines.join('\n');
+    details.style.whiteSpace = 'pre-line';
+  } catch (_) { details.textContent = 'Could not load subscription. Try refreshing.'; }
+}
+
 async function initDashboard() {
   fillConnectBaseUrl();
   // A recovery link has to be redeemed before anything asks who we are, so every
@@ -2986,6 +3014,7 @@ async function initDashboard() {
     showPage('dashboard');
     return;
   }
+  fetchVoiceSubscription();
   // Admin / first-run open mode: full dashboard.
   // Overview first and not awaited — the Models fetch below reads the whole
   // catalog and is slower, and the dashboard's figures don't depend on it.

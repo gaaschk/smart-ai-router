@@ -82,6 +82,12 @@ def _reject_negative(value: str) -> None:
         raise ValueError(f"expects a number of zero or greater ({exc})") from None
 
 
+def _validate_subscription_cost(value: str) -> None:
+    import math
+    if not math.isfinite(float(value)) or float(value) < 0:
+        raise ValueError("Annual subscription cost must be finite and zero or greater")
+
+
 def _reject_outside_percent(value: str) -> None:
     """Refuse a percentage outside 0-100.
 
@@ -644,6 +650,12 @@ SPECS: tuple[SettingSpec, ...] = (
         "ElevenLabs or other OpenAI-compatible TTS route exposed by OpenRouter. "
         "Admin-only. OpenRouter's ElevenLabs models support voices and "
         "bracketed delivery tags like [whispering].",
+    ),
+    SettingSpec(
+        key="elevenlabs_annual_cost_usd", env="ELEVENLABS_ANNUAL_COST_USD",
+        type="float", default=235.40, label="ElevenLabs annual subscription (USD)",
+        group="Voice", help="Your annual bill, including tax if desired. Shown divided by 12; separate from router request costs.",
+        validate=_validate_subscription_cost,
     ),
     SettingSpec(
         key="elevenlabs_api_key",
