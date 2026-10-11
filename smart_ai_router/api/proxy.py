@@ -18,6 +18,8 @@ Supported provider prefixes in the routed model value:
 """
 from __future__ import annotations
 
+from functools import partial
+
 import asyncio
 import datetime as _dt
 import json
@@ -1092,6 +1094,15 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     a substantive reply — not merely one that answered in prose, which is correct
     behavior when tools are available but the prompt was a question.
     """
+    if getattr(request.state, "responses_defer_usage", False) and status < 400:
+        # The protocol adapter must validate output before accounting it as success.
+        request.state.responses_usage = partial(
+            _log_usage, cr, request, routed_model=routed_model, domain=domain,
+            complexity=complexity, usage=usage, tokens_estimated=tokens_estimated,
+            profile=profile, classifier=classifier, started=started,
+            tools_offered=tools_offered, tool_calls=tool_calls, content=content,
+        )
+        return
     user = getattr(request.state, "user", "") or ""
     key_prefix = getattr(request.state, "key_prefix", "") or ""
     # No identity and no usage → nothing worth recording (e.g. open/no-auth mode).
@@ -1126,6 +1137,8 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     try:
         cr.record_usage(UsageRecord(
             user=user, key_prefix=key_prefix, routed_model=routed_model,
+            requested_model=getattr(request.state, "requested_model", ""),
+            escalated=getattr(request.state, "usage_escalated", False),
             domain=domain, complexity=complexity,
             modality=getattr(request.state, "usage_modality", "text"),
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
@@ -1305,6 +1318,7 @@ async def chat_completions(request: Request):
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
     requested_model = str(body.get("model", ""))
+    request.state.requested_model = requested_model
     is_orchestrator = any(m in requested_model for m in _ORCHESTRATOR_MARKERS)
     pool_pin = "" if is_orchestrator else _pool_pin(requested_model)
 
@@ -1483,6 +1497,10 @@ async def chat_completions(request: Request):
     # requirement can be met — see ModelSpec.structured_outputs.
     _rf = body.get("response_format")
     needs_structured = isinstance(_rf, dict) and _rf.get("type") == "json_schema"
+    if getattr(request.state, "responses_api", False):
+        needs_structured = needs_structured or any(
+            t.get("function", {}).get("strict") is True for t in body.get("tools", [])
+        )
     est_tokens = _estimate_request_tokens(messages, body.get("tools"))
 
     if is_orchestrator:
@@ -1580,6 +1598,7 @@ async def chat_completions(request: Request):
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     routed_model = decision.model
+    request.state.routed_model = routed_model
 
     # Worker path escalated to Claude — no cheaper model cleared the quality bar.
     # Claude is the most expensive tier, so surface a note to the user.
@@ -1596,6 +1615,7 @@ async def chat_completions(request: Request):
     # Either condition earns the user a prepended caveat: one is about cost, the
     # other about how far to trust the answer.
     escalated = claude_tier or underqualified
+    request.state.usage_escalated = escalated
 
     # …but only a *human* reader. A client that ships its own tool definitions is
     # a program driving a tool loop, and prose injected into the assistant turn
@@ -1604,7 +1624,8 @@ async def chat_completions(request: Request):
     # is billed for the rest of the session. Orchestrator mode is always such a
     # client. The response headers still report the truth either way, which is
     # where a program should be reading it from.
-    inject_note = escalated and not (is_orchestrator or bool(body.get("tools")))
+    inject_note = escalated and not (is_orchestrator or bool(body.get("tools"))
+                                       or getattr(request.state, "responses_api", False))
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
@@ -1825,6 +1846,10 @@ async def chat_completions(request: Request):
         if nxt is None:
             return False
         routed_model = nxt.model
+        request.state.routed_model = routed_model
+        request.state.usage_escalated = not nxt.qualified or (
+            not (is_orchestrator or pool_pin) and "claude" in routed_model.lower()
+        )
         base_url, api_key, real_model = _resolve_provider(routed_model, cr)
         routed_spec = cr.get_model(routed_model)
         url = f"{base_url}/chat/completions"

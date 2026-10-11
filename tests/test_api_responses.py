@@ -61,8 +61,9 @@ def test_function_history_and_options():
     chat = api._chat_body({"model": "auto", "input": [
         {"type": "function_call", "call_id": "call_1", "name": "read", "arguments": "{}"},
         {"type": "function_call", "call_id": "call_2", "name": "read", "arguments": "{}"},
-        {"type": "function_call_output", "call_id": "call_1", "output": "ok"}],
-        "tools": [{"type": "function", "name": "read", "parameters": {"type": "object"}}],
+        {"type": "function_call_output", "call_id": "call_1", "output": "ok"},
+        {"type": "function_call_output", "call_id": "call_2", "output": "ok"}],
+        "tools": [{"type": "function", "name": "read", "strict": False, "parameters": {"type": "object"}}],
         "tool_choice": {"type": "function", "name": "read"}, "max_output_tokens": 42,
         "text": {"format": {"type": "json_schema", "name": "result", "schema": {"type": "object"}}},
         "reasoning": {"effort": "low"}})
@@ -85,7 +86,7 @@ def test_images_and_output_replay():
 
 
 @pytest.mark.parametrize("extra", [
-    {"previous_response_id": "resp_x"}, {"store": True}, {"background": True},
+    {"previous_response_id": 1}, {"store": "true"}, {"background": True},
     {"tools": [{"type": "web_search"}]}, {"input": ["bad"]}, {"stream": "false"},
     {"max_output_tokens": -1}, {"text": {"format": "bad"}}, {"reasoning": {"summary": "auto"}},
     {"unexpected": True}, {"input": [{"type": "reasoning", "encrypted_content": "x"}]},
@@ -116,7 +117,8 @@ def test_nonstream_tools_and_refusal(client, monkeypatch, finish, status):
             "name": "read", "arguments": "{}"}}]}, finish))
 
     monkeypatch.setattr(api, "chat_completions", chat)
-    data = client.post("/v1/responses", json={"model": "auto", "input": "hi"}).json()
+    data = client.post("/v1/responses", json={"model": "auto", "input": "hi",
+                                            "tools": [{"type": "function", "name": "read", "strict": False}]}).json()
     assert data["status"] == status
     assert data["output"][0]["content"][0] == {"type": "refusal", "refusal": "no"}
     assert data["output"][1]["call_id"] == "call_1"
@@ -271,3 +273,34 @@ def test_file_id_uses_shared_owner_resolution(client):
         {"type": "input_file", "file_id": "file-missing"}]}]})
     assert result.status_code == 404
     assert "No such file" in result.json()["error"]["message"]
+
+
+def test_omitted_strict_normalizes_and_reports_resolution(client, monkeypatch):
+    async def chat(request):
+        body = await request.json()
+        function = body["tools"][0]["function"]
+        assert function["strict"] is True
+        assert function["parameters"]["required"] == ["path"]
+        assert function["parameters"]["additionalProperties"] is False
+        return JSONResponse(reply({"tool_calls": [{"id": "call_1", "function": {
+            "name": "read", "arguments": '{"path":"a"}'}}]}, "tool_calls"))
+
+    monkeypatch.setattr(api, "chat_completions", chat)
+    result = client.post("/v1/responses", json={"model": "auto", "input": "hi", "tools": [
+        {"type": "function", "name": "read", "parameters": {
+            "type": "object", "properties": {"path": {"type": "string"}}}}]})
+    assert result.status_code == 200
+    assert result.json()["tools"][0]["strict"] is True
+    fallback = api._chat_body({"model": "auto", "input": "hi", "tools": [
+        {"type": "function", "name": "read", "parameters": {"type": "object", "allOf": [{"type": "object"}]}}]})
+    assert fallback["tools"][0]["function"]["strict"] is False
+
+
+def test_schema_refs_and_refusal_replay():
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        api._chat_body({"model": "auto", "input": "hi", "tools": [
+            {"type": "function", "name": "read", "parameters": {"type": "object", "$ref": "#/$defs/missing"}}]})
+    chat = api._chat_body({"model": "auto", "input": [{"role": "assistant", "content": [
+        {"type": "refusal", "refusal": "no"}]}]})
+    assert chat["messages"][0]["refusal"] == "no"

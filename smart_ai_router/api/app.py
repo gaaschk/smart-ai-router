@@ -5,7 +5,9 @@ import os
 import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,7 +18,7 @@ from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
-from smart_ai_router.api.responses_routes import responses_router
+from smart_ai_router.api.responses_routes import responses_router, error_response
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
 from smart_ai_router.api.reports_routes import reports_router
@@ -73,10 +75,12 @@ def _rate_limited(detail: str, retry_after: int) -> JSONResponse:
     )
 
 
-def _unauthorized() -> JSONResponse:
+def _unauthorized(path="") -> JSONResponse:
     return JSONResponse(
         status_code=401,
-        content={"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
+        content={"error": {"message": "Invalid or missing API key", "type": "invalid_request_error",
+                           "param": None, "code": "invalid_api_key"}} if path.startswith("/v1/responses") else
+                {"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
     )
 
 
@@ -132,6 +136,18 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     # Bind the settings layer to the live router so UI-managed settings resolve
     # DB → env → default. The router exposes get/set/all_setting passthroughs.
     _settings.bind_store(app.state.capability_router)
+
+    @app.exception_handler(HTTPException)
+    async def api_http_error(request, exc):
+        if request.url.path.startswith("/v1/responses"):
+            return error_response(request, exc)
+        return await http_exception_handler(request, exc)
+
+    @app.exception_handler(RequestValidationError)
+    async def api_validation_error(request, exc):
+        if request.url.path.startswith("/v1/responses"):
+            return error_response(request, HTTPException(400, "Invalid request parameters"))
+        return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
@@ -203,7 +219,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         # the first key.
         if path == _SIGNUP_PATH and _signup.enabled() and not _public.enabled():
             if not _public.is_same_origin_browser_request(request):
-                return _unauthorized()
+                return _unauthorized(path)
             # The per-IP limiter is the anonymous one on purpose: it is this
             # deployment's cap on unauthenticated requests, and minting a key is
             # one. Sharing the counter also means someone cannot dodge the chat
@@ -225,7 +241,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                 # A bare client (no Origin/Sec-Fetch-Site) is asking for the API,
                 # not the chat page. The API is not open; say so as a 401 rather
                 # than silently serving it.
-                return _unauthorized()
+                return _unauthorized(path)
 
             ip = _public.client_ip(request)
             ok, retry_after = _public.check_ip_rate(ip)
@@ -276,7 +292,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         if request.method == "GET" and accepts_html and not is_api_path:
             return RedirectResponse(url="/", status_code=302)
 
-        return _unauthorized()
+        return _unauthorized(path)
 
     app.include_router(api_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")

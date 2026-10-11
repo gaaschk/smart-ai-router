@@ -286,6 +286,8 @@ class UsageRecord:
     user: str = ""
     key_prefix: str = ""
     routed_model: str = ""
+    requested_model: str = ""
+    escalated: bool = False
     domain: str = ""
     complexity: str = ""
     prompt_tokens: int = 0
