@@ -1127,6 +1127,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
         cr.record_usage(UsageRecord(
             user=user, key_prefix=key_prefix, routed_model=routed_model,
             domain=domain, complexity=complexity,
+            modality=getattr(request.state, "usage_modality", "text"),
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=cost_usd, status=status,
             tokens_estimated=tokens_estimated,
@@ -1376,6 +1377,7 @@ async def chat_completions(request: Request):
     # Detect image content in any message (after file-ref resolution, so an
     # image attached by file id counts too).
     needs_vision = contains_image(messages)
+    request.state.usage_modality = "image" if needs_vision else "text"
 
     # Enforce per-user quota before doing any routing/forwarding work.
     _enforce_rate_limit(cr, request)

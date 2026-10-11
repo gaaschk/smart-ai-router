@@ -664,6 +664,7 @@ def overview(request: Request, days: int = 30):
 
     return OverviewResponse(
         window_days=span_days,
+        modalities=mine_usage["by_modality"],
         system=system,
         system_flow=system_flow,
         mine=OverviewMine(
@@ -767,6 +768,35 @@ def _settings_with_advisories(request: Request) -> list[SettingResponse]:
         SettingResponse(**s, warning=advisories.get(s["key"], ""))
         for s in _settings.effective()
     ]
+
+
+@api_router.get("/voice-subscription")
+def voice_subscription(request: Request):
+    """Read account-wide credit usage; never generate audio or change billing."""
+    _require_admin(request)
+    import httpx
+
+    annual = float(_settings.get("elevenlabs_annual_cost_usd"))
+    result = {"annual_cost_usd": annual, "monthly_cost_usd": round(annual / 12, 2)}
+    key = _settings.get_str("elevenlabs_api_key").strip()
+    if not key:
+        return {**result, "available": False, "message": "Add your ElevenLabs key in Settings → Voice."}
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get("https://api.elevenlabs.io/v1/user/subscription",
+                                  headers={"xi-api-key": key})
+        if response.status_code != 200:
+            return {**result, "available": False,
+                    "message": f"ElevenLabs subscription unavailable (HTTP {response.status_code}). Check key permissions."}
+        data = response.json()
+        used, limit = data.get("character_count"), data.get("character_limit")
+        return {**result, "available": True, "tier": data.get("tier"),
+                "credits_used": used, "credit_limit": limit,
+                "credits_remaining": max(0, limit - used) if isinstance(used, int) and isinstance(limit, int) else None,
+                "reset_unix": data.get("next_character_count_reset_unix"),
+                "current_overage": data.get("current_overage")}
+    except (httpx.HTTPError, ValueError, TypeError):
+        return {**result, "available": False, "message": "Could not read ElevenLabs subscription. Try refreshing."}
 
 
 @api_router.get("/settings", response_model=SettingsResponse)
