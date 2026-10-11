@@ -109,9 +109,10 @@ env_key = "SMART_ROUTER_API_KEY"
 wire_api = "chat"
 ```
 
-`wire_api = "chat"` is not optional: Codex prefers OpenAI's Responses API, and
-this router implements chat completions only. Codex runs its own tool loop, which
-is why the model is the orchestrator lane.
+`wire_api = "chat"` remains the tested Codex configuration. The router also
+implements a stateless Responses subset (below), but Codex-specific features such
+as encrypted reasoning replay and compaction are unsupported. Codex runs its own
+tool loop, which is why the model is the orchestrator lane.
 
 ## Anything with an OpenAI base-URL field
 
@@ -179,3 +180,42 @@ curl -sD - -o /dev/null -X POST http://localhost:8001/v1/chat/completions \
 For a client that hides its traffic, the UI's Usage page lists every request with
 the model it landed on and what it cost.
 
+
+## Responses API
+
+`POST /v1/responses` uses the same authentication, model selection, quotas,
+failover, file ownership checks, and usage accounting as chat completions. It
+supports JSON and SSE responses, instructions, message history, input text and
+images, uploaded files by `file_id`, function tools/results, refusals,
+`max_output_tokens`, `reasoning.effort`, and structured output via `text.format`.
+Function tools execute in the client; the router's filesystem agent is disabled
+for this endpoint.
+
+```python
+response = client.responses.create(
+    model="smart-worker",
+    input="Explain this code briefly.",
+    store=False,
+)
+print(response.output_text)
+```
+
+Use `stream=True` for named Responses SSE events, including text/function
+argument deltas and a terminal `response.completed`, `response.incomplete`, or
+`response.failed` event. The stream does not use the chat `[DONE]` sentinel.
+
+This is a stateless compatibility endpoint: omitted `store` behaves as `false`.
+Send complete history in `input` on every turn, including `function_call` items
+and their `function_call_output` results. Explicit `store=True`,
+`previous_response_id`, background mode, hosted tools (web/file search, computer,
+code interpreter), encrypted reasoning items, reasoning summaries, audio,
+compaction, and unsupported parameters return HTTP 400. File URLs/base64 file
+payloads are unsupported; upload through `/v1/files` and use `input_file` with
+`file_id`. Retrieval, deletion, cancellation, and WebSocket Responses routes are
+not implemented. Model-specific options retain the shared proxy's capability
+filtering and provider limitations. Existing usage and conversation logging
+policies still apply; `store=False` means Responses objects are not persisted
+for later retrieval.
+
+The wire format follows the [OpenAI Responses migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses)
+and [streaming event reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).

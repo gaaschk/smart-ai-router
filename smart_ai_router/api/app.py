@@ -16,6 +16,7 @@ from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
+from smart_ai_router.api.responses_routes import responses_router
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
 from smart_ai_router.api.reports_routes import reports_router
@@ -284,6 +285,7 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     app.include_router(signup_router, prefix="/api")
     app.include_router(gbrain_router)
     app.include_router(proxy_router)
+    app.include_router(responses_router)
     app.include_router(voice_router)
     app.include_router(files_router)
 
