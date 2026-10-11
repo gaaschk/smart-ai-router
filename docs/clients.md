@@ -110,7 +110,7 @@ wire_api = "chat"
 ```
 
 `wire_api = "chat"` remains the tested Codex configuration. The router also
-implements a stateless Responses subset (below), but Codex-specific features such
+implements Responses with streaming and stored continuation (below), but Codex-specific features such
 as encrypted reasoning replay and compaction are unsupported. Codex runs its own
 tool loop, which is why the model is the orchestrator lane.
 
@@ -204,18 +204,25 @@ Use `stream=True` for named Responses SSE events, including text/function
 argument deltas and a terminal `response.completed`, `response.incomplete`, or
 `response.failed` event. The stream does not use the chat `[DONE]` sentinel.
 
-This is a stateless compatibility endpoint: omitted `store` behaves as `false`.
-Send complete history in `input` on every turn, including `function_call` items
-and their `function_call_output` results. Explicit `store=True`,
-`previous_response_id`, background mode, hosted tools (web/file search, computer,
-code interpreter), encrypted reasoning items, reasoning summaries, audio,
-compaction, and unsupported parameters return HTTP 400. File URLs/base64 file
-payloads are unsupported; upload through `/v1/files` and use `input_file` with
-`file_id`. Retrieval, deletion, cancellation, and WebSocket Responses routes are
-not implemented. Model-specific options retain the shared proxy's capability
-filtering and provider limitations. Existing usage and conversation logging
-policies still apply; `store=False` means Responses objects are not persisted
-for later retrieval.
+Responses are stored by default for 30 days, private to the authenticated user.
+Use `previous_response_id` to continue a stored response; new `instructions`
+replace the previous request's instructions. Use `store=False` to keep response
+objects transient, sending complete history (including function calls/results)
+in `input` on every turn. See [Responses API](responses.md) for retrieval,
+deletion, pagination, retention, and capability requirements.
+
+Hosted execution tools, background jobs, encrypted reasoning replay, reasoning
+summaries, compaction, and WebSocket Responses remain unsupported. File
+URLs/base64 file payloads are unsupported; upload through `/v1/files` and use
+`input_file` with `file_id`. Function tools run in the client. Strict functions
+and JSON Schema output require a model cataloged with structured-output support;
+unsupported essential capabilities fail explicitly rather than falling back to
+unrestricted generation.
+
+The OpenAI Python SDK and OpenAI Agents SDK are exercised in automated tests,
+including native Responses streaming, parallel functions, multiple tool-result
+continuations, and final structured output. Provider replies in these tests are
+deterministic fixtures; these results do not establish live provider behavior.
 
 The wire format follows the [OpenAI Responses migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses)
 and [streaming event reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).

@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from smart_ai_router.models import (
@@ -431,7 +432,59 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
+            for name, sql_type in (("requested_model", "TEXT DEFAULT ''"), ("escalated", "INTEGER DEFAULT 0")):
+                try:
+                    self._conn.execute(f"ALTER TABLE usage_log ADD COLUMN {name} {sql_type}")
+                except sqlite3.OperationalError:
+                    pass  # already exists
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS responses (
+                    id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    response_json TEXT NOT NULL,
+                    input_json TEXT NOT NULL
+                )
+            """)
+            self._conn.execute("CREATE INDEX IF NOT EXISTS responses_expiry ON responses(expires_at)")
+            self._conn.execute("DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),))
             self._conn.commit()
+
+    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None:
+        """30-day retention; updates never resurrect a deleted/expired response."""
+        with self._lock:
+            now = int(time.time())
+            self._conn.execute("DELETE FROM responses WHERE expires_at <= ?", (now,))
+            if create:
+                self._conn.execute(
+                    "INSERT INTO responses VALUES (?, ?, ?, ?, ?)",
+                    (response["id"], owner, now + 30 * 86400, json.dumps(response), json.dumps(input_items)),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE responses SET response_json = ? WHERE id = ? AND owner = ?",
+                    (json.dumps(response), response["id"], owner),
+                )
+            self._conn.commit()
+
+    def get_response(self, response_id: str, owner: str) -> dict | None:
+        with self._lock:
+            self._conn.execute("DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),))
+            row = self._conn.execute(
+                "SELECT response_json, input_json FROM responses WHERE id = ? AND owner = ?",
+                (response_id, owner),
+            ).fetchone()
+            self._conn.commit()
+        return {"response": json.loads(row[0]), "input": json.loads(row[1])} if row else None
+
+    def delete_response(self, response_id: str, owner: str) -> bool:
+        with self._lock:
+            result = self._conn.execute(
+                "DELETE FROM responses WHERE id = ? AND owner = ? AND expires_at > ?",
+                (response_id, owner, int(time.time())),
+            )
+            self._conn.commit()
+            return result.rowcount > 0
 
     def all_models(self) -> list[ModelSpec]:
         with self._lock:
@@ -703,8 +756,8 @@ class SqliteStore(MatrixStore):
                     ts, kind, user, key_prefix, routed_model, domain, complexity,
                     prompt_tokens, completion_tokens, cost_usd, status,
                     tokens_estimated, profile_json, classifier, latency_ms,
-                    tools_offered, tool_stalled, modality
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tools_offered, tool_stalled, modality, requested_model, escalated
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts, usage.kind or _PROXY_KIND,
                     usage.user, usage.key_prefix, usage.routed_model,
@@ -719,6 +772,7 @@ class SqliteStore(MatrixStore):
                     1 if usage.tools_offered else 0,
                     1 if usage.tool_stalled else 0,
                     usage.modality if usage.modality in ("text", "sound", "image") else "",
+                    usage.requested_model, 1 if usage.escalated else 0,
                 ),
             )
             self._conn.commit()
@@ -1599,6 +1653,8 @@ class SqliteStore(MatrixStore):
             id=row["id"],
             ts=row["ts"] or "",
             modality=row["modality"] or "" if "modality" in row.keys() else "",
+            requested_model=row["requested_model"] or "",
+            escalated=bool(row["escalated"]),
             kind=(row["kind"] or _PROXY_KIND)
             if "kind" in row.keys() else _PROXY_KIND,
             user=row["user"] or "",

@@ -486,6 +486,15 @@ class CapabilityRouter:
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         return self._store.list_chat_messages(conversation_id)
 
+    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None:
+        self._store.save_response(owner, response, input_items, create=create)
+
+    def get_response(self, response_id: str, owner: str) -> dict | None:
+        return self._store.get_response(response_id, owner)
+
+    def delete_response(self, response_id: str, owner: str) -> bool:
+        return self._store.delete_response(response_id, owner)
+
     # ── Bad-response reports ─────────────────────────────────────────────────────
 
     def create_report(self, rec: Report) -> Report:

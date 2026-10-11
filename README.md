@@ -96,6 +96,7 @@ claudish-smart
 | `smart_ai_router/competence.py` | Infer competence scores from model name patterns |
 | `smart_ai_router/sync.py` | Fetch live model catalogs from providers |
 | `smart_ai_router/api/proxy.py` | OpenAI-compatible streaming proxy with classification + routing |
+| `smart_ai_router/api/responses_routes.py` | [Responses API](docs/responses.md): streaming, function tools, private continuation |
 | `smart_ai_router/facade.py` | `CapabilityRouter` — main facade wiring everything together |
 | `smart_ai_router/store/sqlite_store.py` | SQLite persistence for models + provider configs |
 | `smart_ai_router/setup.py` | First-run setup wizard |

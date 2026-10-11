@@ -293,3 +293,13 @@ class MatrixStore(ABC):
     @abstractmethod
     def delete_report(self, report_id: int) -> bool:
         """Delete one report. False if nothing matched."""
+
+    # Responses state is independent of web UI conversations, private to its owner.
+    @abstractmethod
+    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None: ...
+
+    @abstractmethod
+    def get_response(self, response_id: str, owner: str) -> dict | None: ...
+
+    @abstractmethod
+    def delete_response(self, response_id: str, owner: str) -> bool: ...
