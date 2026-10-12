@@ -43,7 +43,7 @@ def test_it_offers_the_modes_that_change_the_routing(client):
     # Not the catalog: `model` in a completions body is overwritten with the
     # router's pick, so listing 200 model ids would promise a choice that does
     # not exist. What a caller really selects is the pool — every vendor
-    # (smart-auto), Claude-only (smart-orchestrator), or one vendor.
+    # (smart-auto), tool-capable (smart-orchestrator), or one vendor.
     assert any(_ORCHESTRATOR_MARKERS[0] in i for i in ids)
     assert "smart-auto" in ids
     # An empty catalog has no vendors to pin, so the modes are all that is left.

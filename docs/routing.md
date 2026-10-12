@@ -229,11 +229,14 @@ Every response carries `X-Prompt-Profile` (the profile in words), `X-Routing-Why
 
 ## Earning a place in the orchestrator lane
 
-`smart-orchestrator` admits a model on one test: whether its name contains
-"claude". That string match decides where nearly all the spend goes — on this
-router's first month, 99.9% of it — because a coding client pins its main loop to
-that lane. Whether the rule is *right* is a measurement, and there are two ways
-to make it, neither of which is "widen the rule and see":
+`smart-orchestrator` admits models from any provider that advertise tool support
+and have no failed tool probe (`text` or `unsupported`). Every orchestrator turn
+uses the shared tool-loop checks, even when no tools are attached: measured weak
+`agentic` scores are excluded, the configured `min_tool_health` floor applies to
+fresh observed health, and the agent denylist is respected. Scope, reliability,
+context, vision, structured-output requirements and prompt competence still apply.
+Unmeasured loop ability is unknown, not failure; these models remain eligible.
+This is routing eligibility, not certification of long-running loop reliability.
 
 **A bakeoff.** `python scripts/bakeoff_orchestrator.py` scores candidates on
 tool-call reliability: did it call a tool when the turn needed one, were the
@@ -241,13 +244,13 @@ arguments well-formed, did it stay quiet on the turn that wanted prose, did it
 avoid re-issuing a call it already had the answer to. `--pool` prints who each
 candidate rule would admit, for free. The script's docstring records the last
 run — including the result that the catalog's measured `agentic` index does *not*
-predict this corpus, which is why the shipped filter has not been widened.
+predict this corpus, which is why that index alone does not establish orchestration reliability.
 
 **A canary.** Set *Orchestrator canary model* and *Orchestrator canary share (%)*
-on the Settings page and a named challenger — usually not a Claude — takes that
+on the Settings page and a named challenger  takes that
 share of orchestrator turns. It is routed through the same selection as the pool,
 so scope, capability requirements and the prompt's own bar all still apply: a
-turn the canary doesn't qualify for goes to Claude as it would have. When it
+turn the canary doesn't qualify for goes to the normal capable pool. When it
 fires, the response carries `X-Canary: true` and the usage row is billed against
 the canary, so the Usage page answers what the experiment cost. Default 0 = off.
 

@@ -27,7 +27,7 @@ from:
 
 | Send this | Candidates |
 |---|---|
-| `smart-orchestrator` | Claude only — reliable tool-calling — then routed on the prompt *within* that pool, so a mechanical turn can still land on Haiku |
+| `smart-orchestrator` | Tool-capable models from any provider, filtered by tool probes and loop-health checks, then routed on the prompt |
 | `smart-worker` (or anything else) | every model in scope, cheapest that clears the bar |
 
 Those two are exactly what `GET /v1/models` returns. **If the client sends tool
@@ -59,7 +59,7 @@ restores or removes that file on exit, including on an early one.
 
 | Claude Code slot | Set via | Lane |
 |---|---|---|
-| main loop | `ANTHROPIC_MODEL` | `ll@smart-orchestrator` — the loop recognizes skills and emits tool calls, so it needs a Claude-compliant model |
+| main loop | `ANTHROPIC_MODEL` | `ll@smart-orchestrator` — the loop recognizes skills and emits tool calls, so it needs a tool-capable model |
 | small/fast | `ANTHROPIC_SMALL_FAST_MODEL` | `ll@smart-orchestrator` |
 | subagents | `CLAUDE_CODE_SUBAGENT_MODEL` | `ll@smart-worker` — fan-out work, routed to the cheapest capable model |
 

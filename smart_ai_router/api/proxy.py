@@ -8,7 +8,7 @@ Every POST /v1/chat/completions is:
 
 Routing modes (selected by the incoming `model` name). Both classify the prompt
 and route on the resulting profile; they differ only in the candidate pool:
-  smart-orchestrator  -> Claude models only (reliable skill/workflow tool-calling)
+  smart-orchestrator  -> tool-capable models across providers, with loop-health checks
   smart-worker / *    -> every model in scope, cheapest that qualifies
 
 Supported provider prefixes in the routed model value:
@@ -79,7 +79,7 @@ def _audio_followup(messages: list[dict], prompt: str) -> bool:
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
-# Model-name markers that force the orchestrator (Claude) path.
+# Model-name markers that force the tool-capable orchestrator path.
 _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 
 # Routing-mode names meaning "the whole catalog" — which is also what any
@@ -889,65 +889,15 @@ def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     return _OPENROUTER_BASE, api_key, model_value
 
 
-# Orchestration drives Claude Code's own loop: recognizing skills, emitting
-# Workflow/Agent tool calls, following the tool-use conventions its harness
-# parses. Only Claude models do that reliably, so the candidate pool is forced
-# no matter what the prompt itself needs.
-#
-# Eligibility is a *generation* test, not a competence one, because those are
-# different questions: whether a model can drive the harness at all, versus
-# whether it is strong enough for a given prompt. Conflating them into a single
-# general-competence floor excluded claude-haiku-4.5 (general ≈ 0.68) — the model
-# Claude Code itself ships as its small-fast default — and so pinned every
-# orchestrator request, however mechanical, to Sonnet or above. The prompt
-# profile picks the tier now; this decides only who is allowed in the room.
-#
-# The line is 3.5: Anthropic's tool-use API arrived with Claude 3, but the
-# original March-2024 generation (claude-3-opus/sonnet/haiku) loses the thread
-# over a long agentic loop, while 3.5 and 3.7 Sonnet drove Claude Code itself.
-# Nothing the prompt profile scores captures loop stamina, so it has to live here.
-_ORCHESTRATOR_MIN_GENERATION = (3, 5)
-
-# Legacy ids put the generation immediately after "claude-" (claude-3-haiku,
-# claude-3-5-sonnet, bedrock's claude-v2:1). Current ones put the *family* there
-# instead (claude-sonnet-5, claude-haiku-4.5, claude-opus-4-8), so "no match"
-# means "not a legacy id" — i.e. modern, and eligible — rather than "unknown".
-_LEGACY_CLAUDE_GENERATION = re.compile(r"claude-v?(\d+)(?:[-.](\d+))?")
-
-
+# Tool eligibility is separate from the prompt-specific competence bar.
 def _orchestrator_capable(spec: ModelSpec) -> bool:
-    """Whether `spec` can drive the orchestration loop at all.
-
-    Deliberately not a quality judgment — see _ORCHESTRATOR_MIN_GENERATION.
-    """
-    name = spec.value.lower()
-    if "claude" not in name:
-        return False
-    # claude-instant-* predates tool use entirely, and names no generation where
-    # the pattern looks for one, so it needs saying outright.
-    if "instant" in name:
-        return False
-    gen = _LEGACY_CLAUDE_GENERATION.search(name)
-    if gen is None:
-        return True
-    return (int(gen.group(1)), int(gen.group(2) or 0)) >= _ORCHESTRATOR_MIN_GENERATION
+    """Provider-independent tool eligibility; selection applies loop-health floors."""
+    # shortcut: unprobed models stay eligible; require positive evidence when coverage improves.
+    return spec.tools and spec.tool_probe not in ("text", "unsupported")
 
 
 def _canary_spec(cr) -> ModelSpec | None:
-    """The challenger to try on *this* orchestrator request, or None.
-
-    `_orchestrator_capable` is a string match, so the only way into the lane is
-    to be called Claude — and a bakeoff on a hand-written corpus turned out not
-    to settle whether that is right: the measured agentic index disagreed with
-    measured tool-call reliability in both directions (the best scorer had never
-    been measured; the highest-scoring non-Claude placed last). So a challenger
-    is admitted here, by name and for a share of traffic the operator sets,
-    rather than by widening the rule on evidence that does not support it.
-
-    Returns None unless a model is named, the share is above zero, and this
-    request falls inside it. An unknown name also returns None — a typo in a
-    settings field must not take the lane down.
-    """
+    """Optionally try a named challenger before the normal capable pool."""
     name = _settings.get_str("orchestrator_canary_model").strip()
     share = _settings.get_int("orchestrator_canary_percent")
     if not name or share <= 0:
@@ -1504,27 +1454,15 @@ async def chat_completions(request: Request):
     est_tokens = _estimate_request_tokens(messages, body.get("tools"))
 
     if is_orchestrator:
-        # Orchestration narrows the pool to Claude, then routes on the profile
-        # like any other request — so a mechanical turn (acknowledge a tool
-        # result, small edit) can run on Haiku while a genuinely hard one
-        # escalates to Opus. Previously this branch ignored the profile and took
-        # the cheapest Claude clearing a competence floor, which meant every
-        # orchestrator request paid for a classification it then discarded.
         candidates = [s for s in cr.all_models() if _orchestrator_capable(s)]
         if not candidates:
             raise HTTPException(
                 status_code=422,
-                detail="Orchestrator mode requires a Claude model of generation "
-                       f"{'.'.join(str(n) for n in _ORCHESTRATOR_MIN_GENERATION)}"
-                       " or newer. Configure a 'bedrock' provider or sync an "
-                       "anthropic/claude model.",
+                detail="Orchestrator mode requires a tool-capable model with no failed tool probe.",
             )
     elif pool_pin:
         # `smart-<vendor>` pins the vendor and nothing else: the profile still
-        # picks *which* of that vendor's models, exactly as on the open pool. This
-        # is the general case the Claude-only lane above is a special case of —
-        # the lane stays separate only because it additionally enforces a minimum
-        # generation for loop stamina, which no vendor pin should imply.
+        # picks *which* of that vendor's models, exactly as on the open pool.
         candidates = _pinned_pool(pool_pin, cr.all_models())
         if not candidates:
             raise HTTPException(
@@ -1549,19 +1487,19 @@ async def chat_completions(request: Request):
         )
 
     route_kw = dict(
-        needs_tools=needs_tools,
+        needs_tools=needs_tools or is_orchestrator,
         needs_vision=needs_vision,
         needs_structured=needs_structured,
         est_tokens=est_tokens,
         scope=scope,
-        agent_mode=agent_mode,
+        agent_mode=agent_mode or is_orchestrator,
     )
     # A named challenger takes its share of orchestrator traffic — but only if it
     # would have been picked on the merits. Routed through the same select_from as
     # the pool, so scope, the tool/vision/structured requirements, the context
     # ceiling and the profile's own bar all apply unchanged: a canary that isn't
     # eligible (RuntimeError) or doesn't clear the bar (`qualified` false) loses
-    # the turn to Claude instead of degrading it.
+    # the turn to the normal pool instead of degrading it.
     canary = _canary_spec(cr) if is_orchestrator else None
     decision = None
     if canary is not None:

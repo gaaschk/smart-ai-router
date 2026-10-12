@@ -27,7 +27,7 @@ curl -X POST http://localhost:8001/v1/chat/completions \
 
 The `model` field controls routing behavior. Both modes classify the prompt and
 route on the resulting profile; they differ only in which models are candidates:
-- `smart-orchestrator` — Claude models only (for reliable tool-calling), cheapest that qualifies. A mechanical turn can still land on Haiku; a hard one escalates to Opus.
+- `smart-orchestrator` — tool-capable models from any provider, subject to tool-probe and measured loop-health checks; cheapest that qualifies for the prompt.
 - `smart-worker` or anything else — every model in scope, cheapest that qualifies
 
 Response headers include routing metadata:

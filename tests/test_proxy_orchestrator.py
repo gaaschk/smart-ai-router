@@ -1,13 +1,6 @@
-"""Integration tests for orchestrator-mode routing.
-
-Orchestrator mode exists because only Claude models reliably drive Claude Code's
-own loop — skills, Workflow/Agent tool calls, the harness's tool-use conventions.
-It used to enforce that by taking the cheapest Claude above a general-competence
-floor, ignoring the prompt profile it had just paid to compute. These tests pin
-the replacement: the pool is Claude-only, and *within* that pool the prompt
-decides the tier, so a mechanical turn is not billed at Opus rates.
-"""
+"""Provider-independent orchestrator routing and canary integration tests."""
 import warnings
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -47,8 +40,7 @@ _OPUS = ModelSpec(
     profile={"software_engineering": 0.95, "law_regulatory": 0.90,
              "general_knowledge": 0.93},
 )
-# Cheaper than either Claude and strong enough to win on the worker path — its
-# presence is what proves the pool is actually being narrowed.
+# Cheap, capable fixture; individual tests vary its tool eligibility.
 _LOCAL = ModelSpec(
     "ollama/qwen3-coder:30b", provider="ollama", cost=0, ctx_k=200,
     tools=True, reliability=1.0,
@@ -99,6 +91,8 @@ def _client(*specs, monkeypatch):
     store = SqliteStore(":memory:")
     for spec in specs:
         store.upsert_model(spec)
+        if spec.tool_probe:
+            store.set_tool_probe(spec.value, spec.tool_probe)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return TestClient(create_app(CapabilityRouter(store=store)))
@@ -106,7 +100,9 @@ def _client(*specs, monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
-    return _client(_HAIKU, _OPUS, _LOCAL, monkeypatch=monkeypatch)
+    return _client(_HAIKU, _OPUS, replace(_LOCAL, tools=False),
+                   replace(_OPUS, value="openrouter/openai/gpt-5", cost=10),
+                   monkeypatch=monkeypatch)
 
 
 @pytest.fixture
@@ -137,19 +133,19 @@ _HARD = (
 
 # ── The pool ──────────────────────────────────────────────────────────────────
 
-def test_orchestrator_never_leaves_claude(client):
+def test_orchestrator_requires_tools_even_without_tools_array(client):
     """The local model is cheaper and clears the bar, so the worker path takes
-    it. Orchestrator mode must not, however trivial the prompt."""
+    it. Orchestrator mode must reject it when tool support is absent."""
     assert _chat(client, _TRIVIAL, model="smart-worker").headers[
         "X-Routed-Model"] == "ollama/qwen3-coder:30b"
     assert "claude" in _chat(client, _TRIVIAL).headers["X-Routed-Model"]
 
 
-def test_orchestrator_422s_when_no_claude_is_configured(monkeypatch):
-    client = _client(_LOCAL, monkeypatch=monkeypatch)
+def test_orchestrator_422s_when_no_tool_model_is_configured(monkeypatch):
+    client = _client(replace(_LOCAL, tools=False), monkeypatch=monkeypatch)
     resp = _chat(client, _TRIVIAL)
     assert resp.status_code == 422
-    assert "claude" in resp.json()["detail"].lower()
+    assert "tool" in resp.json()["detail"].lower()
 
 
 # ── The tier, within the pool ─────────────────────────────────────────────────
@@ -176,9 +172,7 @@ def test_orchestrator_reports_why_it_picked(client):
 
 
 def test_orchestrator_still_answers_when_no_claude_qualifies(weak_only):
-    """Narrowing the pool must not turn "the best Claude is not good enough" into
-    a failure — the client cannot fall back to a non-Claude model, so the closest
-    miss is the only useful answer. It is flagged, not refused."""
+    """A competence shortfall returns the closest eligible model, flagged in headers."""
     r = _chat(weak_only, _HARD)
     assert r.status_code == 200
     assert r.headers["X-Routed-Model"] == "openrouter/anthropic/claude-haiku-4.5"
@@ -234,11 +228,7 @@ def test_a_human_client_still_gets_the_caveat(weak_only):
 
 
 # ── The canary ────────────────────────────────────────────────────────────────
-# A named challenger takes a share of orchestrator traffic, because the lane
-# filter is a string match and the measured agentic index turned out not to
-# predict tool-call reliability either way (see scripts/bakeoff_orchestrator.py).
-# It is a way to gather evidence, so it must never cost a turn: an unknown name or
-# a turn the canary doesn't qualify for goes to Claude as before.
+# A named challenger must qualify; otherwise normal pool selection applies.
 
 def _canary(monkeypatch, model, percent=100):
     monkeypatch.setenv("SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL", model)
@@ -254,9 +244,9 @@ def test_no_canary_by_default(client, monkeypatch):
 
 
 def test_a_named_canary_takes_the_turn(client, monkeypatch):
-    _canary(monkeypatch, "ollama/qwen3-coder:30b")
+    _canary(monkeypatch, "openrouter/openai/gpt-5")
     r = _chat(client, _TRIVIAL)
-    assert r.headers["X-Routed-Model"] == "ollama/qwen3-coder:30b"
+    assert r.headers["X-Routed-Model"] == "openrouter/openai/gpt-5"
     assert r.headers["X-Canary"] == "true"
 
 
@@ -298,62 +288,70 @@ def test_the_canary_does_not_touch_the_worker_lane(client, monkeypatch):
     a canary there would only override that with a fixed choice."""
     _canary(monkeypatch, "openrouter/anthropic/claude-opus-4.8")
     r = _chat(client, _TRIVIAL, model="smart-worker")
-    assert r.headers["X-Routed-Model"] == "ollama/qwen3-coder:30b"
+    assert r.headers["X-Routed-Model"] == _LOCAL.value
     assert "X-Canary" not in r.headers
 
 
 def test_a_canary_turn_is_still_logged_and_answered(client, monkeypatch):
-    _canary(monkeypatch, "ollama/qwen3-coder:30b")
+    _canary(monkeypatch, "openrouter/openai/gpt-5")
     r = _chat(client, _TRIVIAL)
     assert r.status_code == 200
     assert r.json()["choices"][0]["message"]["content"] == "answer."
     # Billed against the canary, not the Claude it replaced — otherwise the
     # Usage page could not answer "what did the experiment cost".
     by_model = client.get("/api/usage").json()["by_model"]
-    assert [r["key"] for r in by_model] == ["ollama/qwen3-coder:30b"]
+    assert [r["key"] for r in by_model] == ["openrouter/openai/gpt-5"]
 
 
 # ── Eligibility ───────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("value", [
-    # Modern ids name the family after "claude-", not the generation.
-    "openrouter/anthropic/claude-sonnet-5",
-    "openrouter/anthropic/claude-haiku-4.5",
-    "openrouter/anthropic/claude-sonnet-4.5",
-    "bedrock/anthropic.claude-opus-4-8-v1:0",
-    # A "-latest" alias names no generation at all; excluding it would drop a
-    # live model for lacking a digit, so unknown reads as eligible.
-    "openrouter/anthropic/claude-haiku-latest",
-    # Legacy but loop-capable: both of these drove Claude Code itself. Excluding
-    # them would 422 a deployment whose only Claude is a 3.x Sonnet.
-    "openrouter/anthropic/claude-3-5-sonnet",
-    "bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0",
-])
-def test_capable_models(value):
-    assert _orchestrator_capable(ModelSpec(value))
+@pytest.mark.parametrize("value", ["openrouter/openai/gpt-5", "openrouter/google/gemini-2.5-pro",
+                                        "ollama/qwen3-coder:30b", _HAIKU.value])
+def test_capable_models(value, monkeypatch):
+    spec = replace(_LOCAL, value=value)
+    assert _orchestrator_capable(spec)
+    response = _chat(_client(spec, monkeypatch=monkeypatch), _TRIVIAL)
+    assert response.status_code == 200
+    assert response.headers["X-Routed-Model"] == value
 
 
-@pytest.mark.parametrize("value", [
-    "ollama/qwen3-coder:30b",
-    "openrouter/openai/gpt-5",
-    "openrouter/google/gemini-2.5-pro",
-    # Original March-2024 generation: it can emit a tool call but loses the thread
-    # over a long loop, and nothing in the prompt profile scores loop stamina.
-    "openrouter/anthropic/claude-3-haiku",
-    "openrouter/anthropic/claude-3-opus",
-    # Older still — no tool use at all.
-    "bedrock/anthropic.claude-v2:1",
-    "openrouter/anthropic/claude-instant-1.2",
-])
-def test_incapable_models(value):
-    assert not _orchestrator_capable(ModelSpec(value))
+@pytest.mark.parametrize("changes", [dict(tools=False), dict(tool_probe="text"),
+                                     dict(tool_probe="unsupported")])
+def test_incapable_models(changes):
+    assert not _orchestrator_capable(replace(_HAIKU, **changes))
+
+
+@pytest.mark.parametrize("changes", [dict(agentic=0.01), dict(tool_probe="text"),
+                                     dict(tools=False), dict(reliability=0.1)])
+def test_orchestrator_filters_incapable_openai(changes, monkeypatch):
+    spec = replace(_LOCAL, value="openrouter/openai/gpt-5", **changes)
+    response = _chat(_client(_HAIKU, spec, monkeypatch=monkeypatch), _TRIVIAL)
+    assert response.headers["X-Routed-Model"] == _HAIKU.value
+
+
+def test_openai_can_win_against_claude_without_canary(monkeypatch):
+    spec = replace(_LOCAL, value="openrouter/openai/gpt-5")
+    response = _chat(_client(_HAIKU, _OPUS, spec, monkeypatch=monkeypatch), _TRIVIAL)
+    assert response.headers["X-Routed-Model"] == spec.value
+    assert "X-Canary" not in response.headers
+
+
+def test_orchestrator_applies_agent_denylist_without_tools_array(monkeypatch):
+    monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5")
+    spec = replace(_LOCAL, value="openrouter/openai/gpt-5")
+    response = _chat(_client(_HAIKU, spec, monkeypatch=monkeypatch), _TRIVIAL)
+    assert response.headers["X-Routed-Model"] == _HAIKU.value
+
+
+def test_canary_cannot_bypass_tool_requirement(client, monkeypatch):
+    _canary(monkeypatch, _LOCAL.value)
+    response = _chat(client, _TRIVIAL)
+    assert response.headers["X-Routed-Model"] == _HAIKU.value
+    assert "X-Canary" not in response.headers
 
 
 # ── vendor pins ───────────────────────────────────────────────────────────────
-# `smart-<vendor>` restricts the pool to one vendor and lets the profile pick
-# within it. The point is that vendor stops being undecidable: the Claude-only
-# lane above is the one pool a caller could ask for, so every other vendor was
-# reachable only by the open pool's own cost/quality math choosing it.
+# Vendor pins restrict the pool while retaining prompt-based selection.
 
 _CATALOG = [
     ModelSpec("openrouter/anthropic/claude-sonnet-5", provider="openrouter"),
