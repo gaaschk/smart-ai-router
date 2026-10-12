@@ -90,8 +90,8 @@ class ModelSpec:
     # convention as `agentic` and `observed_tps`.
     #
     # Deliberately a separate column from `agentic` rather than an update to it.
-    # `agentic` is the profiler's benchmark index and AGENTIC_FLOOR plus the
-    # orchestrator's 0.75 bar compare against *that* scale; folding a live
+    # `agentic` is the profiler's benchmark index and AGENTIC_FLOOR compares
+    # against *that* scale; folding a live
     # compliance ratio into it would silently redefine every threshold that reads
     # it. Two numbers that mean different things stay two columns.
     #

@@ -1,11 +1,8 @@
 """Bake off orchestrator-lane candidates on tool-call reliability.
 
-The orchestrator lane admits a model on one test — whether its name contains
-"claude" (api/proxy.py::_orchestrator_capable). That string match decides where
-nearly every interactive request goes, because claudish-smart pins Claude Code's
-main loop and small/fast slot to `smart-orchestrator`. This script exists to
-answer the question the string match assumes: can anything else actually hold a
-tool loop together?
+The orchestrator lane uses provider-independent tool and loop-health checks.
+This script measures behavior beyond the catalog's advertised tool support.
+The September results below describe the historical Claude-only policy.
 
 What to look at, in priority order:
   1. called    — emitted a well-formed tool_call when the turn required one. This
@@ -59,8 +56,7 @@ both restraint and arguments, and excludes claude-sonnet-4 (never measured) and
 gpt-5-nano (never measured), which placed first and fourth. Within the models it
 does admit, 0.505 beat 0.866 and 0.906. So the obvious patch — widen
 _orchestrator_capable to "tools and agentic >= AGENTIC_FLOOR" — is not supported
-by the only measurement there is, and the shipped filter is deliberately
-unchanged. `--pool` prints what that patch would have done.
+by the only measurement there is, and that index alone does not establish reliability. `--pool` prints what that patch would have done.
 
 Two limits on the numbers above, both real: 18 calls per model is a smoke test,
 and a single-turn harness cannot see the fortieth turn of a loop, which is the
@@ -458,7 +454,7 @@ async def bench(cr: CapabilityRouter, model: str,
 
 
 def _candidates(cr: CapabilityRouter) -> tuple[list[str], list[str]]:
-    """(admitted by the shipped name rule, admitted by a measured-agentic rule).
+    """(tool-eligible pool, candidates above the measured-agentic floor).
 
     Both trimmed to what a bakeoff can afford: the models the shipped lane
     actually picks, against the cheapest few that a measured rule would let in.
@@ -475,7 +471,7 @@ def _candidates(cr: CapabilityRouter) -> tuple[list[str], list[str]]:
 def _pool_report(cr: CapabilityRouter) -> None:
     by_name, measured = _candidates(cr)
     models = {s.value: s for s in cr.all_models()}
-    print(f"\nshipped rule — name contains 'claude': {len(by_name)} models")
+    print(f"\ntool eligibility — tools supported, no failed probe: {len(by_name)} models")
     for v in sorted(by_name, key=lambda v: models[v].cost_input)[:12]:
         s = models[v]
         print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")
@@ -484,7 +480,7 @@ def _pool_report(cr: CapabilityRouter) -> None:
         s = models[v]
         print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")
     only_name = [v for v in by_name if models[v].agentic < AGENTIC_FLOOR]
-    print(f"\nadmitted by name but unmeasured or below the floor: {len(only_name)}")
+    print(f"\ntool-eligible but unmeasured or below the floor: {len(only_name)}")
     for v in sorted(only_name, key=lambda v: models[v].cost_input, reverse=True)[:8]:
         s = models[v]
         print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")

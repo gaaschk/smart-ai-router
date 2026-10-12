@@ -46,10 +46,10 @@ def _mint(client, **scope):
     return client.post("/api/keys", json=body, headers=_auth(_ADMIN)).json()["key"]
 
 
-def test_orchestrator_denied_when_claude_out_of_scope(setup):
+def test_orchestrator_denied_when_tool_models_out_of_scope(setup):
     client, _ = setup
-    # This key may only reach ollama models — orchestrator forces Claude → 403.
-    key = _mint(client, scope_models='{"allow": ["ollama/"]}')
+    # This key may only reach ollama models — the only tool-capable model is outside scope → 403.
+    key = _mint(client, scope_models='{"allow": ["missing-provider/"]}')
     resp = client.post(
         "/v1/chat/completions",
         json={"model": "smart-orchestrator",

@@ -862,14 +862,10 @@ SPECS: tuple[SettingSpec, ...] = (
         default="",
         label="Orchestrator canary model",
         group="Measurement",
-        help="One model — usually not a Claude — to try on a slice of "
-        "orchestrator traffic. The orchestrator lane admits a model on whether "
-        "its name contains 'claude', and that string match is where nearly all "
-        "the spend goes; this is how a challenger earns its place on real turns "
-        "instead of a hand-written corpus. Name it exactly as the catalog does. "
-        "Ignored unless the percent below is above zero, and a turn the canary "
-        "does not qualify for falls back to the Claude pool rather than "
-        "degrading.",
+        help="One named tool-capable model to try on a slice of orchestrator "
+        "traffic. Name it exactly as the catalog does. Ignored unless the percent "
+        "below is above zero. The same capability and loop-health checks apply; "
+        "a turn it does not qualify for falls back to the normal capable pool.",
     ),
     SettingSpec(
         key="orchestrator_canary_percent",
