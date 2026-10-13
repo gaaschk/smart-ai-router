@@ -196,7 +196,7 @@ def _todays_date_note() -> str:
 
 
 def _web_search_plugin(profile, model_value: str) -> list[dict] | None:
-    """OpenRouter's web plugin, when the prompt needs facts newer than the model.
+    """OpenRouter's web plugin for current facts or source-sensitive specifics.
 
     Search runs provider-side: OpenRouter does the retrieval, puts the results in
     front of the model, and returns citations as message annotations. That is the
@@ -212,7 +212,8 @@ def _web_search_plugin(profile, model_value: str) -> list[dict] | None:
     """
     if not _settings.get_bool("web_search_enabled"):
         return None
-    if profile is None or not profile.needs_current_info():
+    if profile is None or not (profile.needs_current_info()
+                               or "factual_precision" in profile.demands):
         return None
     if not model_value.startswith("openrouter/"):
         return None

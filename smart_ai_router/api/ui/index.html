@@ -6195,7 +6195,8 @@ function exportChat(kind) {
 // (with nesting by indent), blockquotes, horizontal rules, GFM tables, and
 // links. SECURITY: every run of literal text passes through escapeHtml before
 // any tag is emitted, and only hrefs we construct are inserted — so a reply
-// cannot inject HTML/script. Raw HTML in the source is shown as text.
+// cannot inject HTML/script. Complete HTML documents use sandboxed artifacts;
+// other raw HTML is shown as text.
 function renderMarkdown(src) {
   const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
   let html = '', i = 0;
@@ -6228,6 +6229,18 @@ function renderMarkdown(src) {
         html += `<pre><code>${escapeHtml(src)}</code></pre>`;
       }
       continue;
+    }
+
+    // Models sometimes omit the HTML fence; keep complete documents in the same sandbox.
+    if (/^\s*(?:<!doctype\s+html\b|<html\b)/i.test(line)) {
+      const doc = lines.slice(i).join('\n').match(
+        /^\s*(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>[ \t]*(?=\n|$)/i
+      );
+      if (doc) {
+        html += renderArtifact('html', doc[0]);
+        i += doc[0].split('\n').length;
+        continue;
+      }
     }
 
     // Blank line — nothing to emit; block spacing comes from CSS margins.
@@ -6283,7 +6296,7 @@ function renderMarkdown(src) {
     // Paragraph — gather until a blank line or a block-level starter.
     const para = [];
     while (i < lines.length && lines[i].trim() && !isDivider(lines[i]) &&
-           !/^\s*(#{1,6}\s|>|```+|~~~+|[*+-]\s|\d+[.)]\s)/.test(lines[i])) {
+           !/^\s*(#{1,6}\s|>|```+|~~~+|[*+-]\s|\d+[.)]\s|<!doctype\s+html\b|<html\b)/i.test(lines[i])) {
       para.push(lines[i]); i++;
     }
     if (para.length) html += `<p>${renderInline(para.join('\n'))}</p>`;
