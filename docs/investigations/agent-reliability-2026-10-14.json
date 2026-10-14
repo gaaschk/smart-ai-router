@@ -1,0 +1,5866 @@
+{
+  "deployed_commit": "1520ff127289d9bee19ff5eb2f185467fb26941e",
+  "routing_settings": {
+    "min_tokens_per_second": "30",
+    "min_tool_health": "70"
+  },
+  "runs": [
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:44:10.770895+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2412,
+          "output_tokens": 1694,
+          "cost_usd": 0.0007982000000000002,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 19.29,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 948,
+          "output_tokens": 229,
+          "cost_usd": 0.00013900000000000002,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 3.392,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 543,
+          "output_tokens": 517,
+          "cost_usd": 0.00023395,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 5.652,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2412,
+          "output_tokens": 1563,
+          "cost_usd": 0.0007457999999999999,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 18.136,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 948,
+          "output_tokens": 359,
+          "cost_usd": 0.00019099999999999998,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 6.726,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 543,
+          "output_tokens": 1062,
+          "cost_usd": 0.00045195,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "latency_s": 9.946,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2412,
+          "output_tokens": 1789,
+          "cost_usd": 0.0008362,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 22.242,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 948,
+          "output_tokens": 611,
+          "cost_usd": 0.00029180000000000005,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 9.264,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 543,
+          "output_tokens": 1561,
+          "cost_usd": 0.0006515500000000001,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 13.455,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2412,
+          "output_tokens": 1796,
+          "cost_usd": 0.000839,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 20.325,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 948,
+          "output_tokens": 375,
+          "cost_usd": 0.00019739999999999997,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 5.78,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 543,
+          "output_tokens": 742,
+          "cost_usd": 0.00032395000000000004,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 7.424,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:43:57.460405+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 5,
+          "tool_calls": 5,
+          "input_tokens": 3678,
+          "output_tokens": 478,
+          "cost_usd": 0.00046762400000000003,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 15.85,
+          "violations": {
+            "parallel_constraint_ignored": 1
+          },
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1760,
+          "output_tokens": 295,
+          "cost_usd": 0.000299738,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 12.75,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1008,
+          "output_tokens": 128,
+          "cost_usd": 0.000177056,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 2.974,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 5,
+          "tool_calls": 5,
+          "input_tokens": 3678,
+          "output_tokens": 518,
+          "cost_usd": 0.000383512,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 15.698,
+          "violations": {
+            "parallel_constraint_ignored": 1
+          },
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1760,
+          "output_tokens": 246,
+          "cost_usd": 0.00020810000000000002,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 17.242,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1008,
+          "output_tokens": 191,
+          "cost_usd": 0.00013805799999999998,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "latency_s": 4.002,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 502: {\"error\":{\"message\":\"Invalid chat completion from upstream provider\",\"type\":\"server_error\",\"param\":null,\"code\":\"invalid_upstream_response\"}}",
+          "latency_s": 10.892,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1760,
+          "output_tokens": 381,
+          "cost_usd": 0.00044306999999999994,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 19.606,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1008,
+          "output_tokens": 197,
+          "cost_usd": 0.00024379000000000002,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 6.208,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 502: {\"error\":{\"message\":\"Invalid chat completion from upstream provider\",\"type\":\"server_error\",\"param\":null,\"code\":\"invalid_upstream_response\"}}",
+          "latency_s": 9.721,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1760,
+          "output_tokens": 274,
+          "cost_usd": 0.0003927799999999999,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 9.185,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1008,
+          "output_tokens": 130,
+          "cost_usd": 0.0002123,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 4.193,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:41:56.786596+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 423,
+          "output_tokens": 18,
+          "cost_usd": 2.475e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 1.474,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 391,
+          "output_tokens": 18,
+          "cost_usd": 2.315e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 1.789,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 376,
+          "output_tokens": 28,
+          "cost_usd": 2.44e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 1.041,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 423,
+          "output_tokens": 18,
+          "cost_usd": 2.475e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 0.957,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 391,
+          "output_tokens": 14,
+          "cost_usd": 2.235e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 0.835,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 376,
+          "output_tokens": 27,
+          "cost_usd": 2.42e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "latency_s": 1.5,
+          "violations": {
+            "wrong_answer_or_attribution": 1,
+            "required_tool_bypassed": 1
+          },
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.048,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.005,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:42:42.058027+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 6640,
+          "output_tokens": 399,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 10.794,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 2786,
+          "output_tokens": 161,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 5.969,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1766,
+          "output_tokens": 87,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 4.759,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 6640,
+          "output_tokens": 399,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 7.986,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 2786,
+          "output_tokens": 161,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 5.201,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1766,
+          "output_tokens": 87,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "latency_s": 4.399,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 6640,
+          "output_tokens": 399,
+          "cost_usd": 0.0008635,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 9.401,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 2786,
+          "output_tokens": 161,
+          "cost_usd": 0.0003591,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "latency_s": 4.383,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as measured below the 0.45 tool-loop floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.012,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as measured below the 0.45 tool-loop floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":nul",
+          "latency_s": 0.009,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as measured below the 0.45 tool-loop floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.007,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as measured below the 0.45 tool-loop floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.005,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:41:52.502318+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.358,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.146,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.141,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.12,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.109,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Groq does not support response_format type \\\"json_schema\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\",\"code\":400,\"metadata\":{\"provider_name\":\"Groq\"}},\"user_id\":\"user_39r682rcl6zN0h2xziDSZu2muBG\"}",
+          "latency_s": 0.105,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 1.232,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 0.534,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 0.21,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 0.149,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 0.143,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 400: {\"error\":{\"message\":\"{\\\"error\\\":{\\\"message\\\":\\\"Groq does not support response_format type \\\\\\\"json_schema\\\\\\\" combined with tool calling. Remove response_format or tools, or route to another provider.\\\",\\\"code\\\":400,\\\"metadata\\\":{\\\"provider_name\\\":\\\"Groq\\\"}},\\\"user_id\\\":\\\"user_39r68",
+          "latency_s": 0.125,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1
+        }
+      ]
+    }
+  ],
+  "separate_final_schema_runs": [
+    {
+      "complete": true,
+      "created_at": "2026-10-14T04:00:59.356886+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2109,
+          "output_tokens": 1051,
+          "cost_usd": 0.00052585,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 13.201,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 735,
+          "output_tokens": 618,
+          "cost_usd": 0.00028395000000000004,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 7.645,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 346,
+          "output_tokens": 948,
+          "cost_usd": 0.0003965,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 10.518,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2109,
+          "output_tokens": 2181,
+          "cost_usd": 0.00097785,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 25.611,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 735,
+          "output_tokens": 864,
+          "cost_usd": 0.00038235000000000005,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 9.661,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 346,
+          "output_tokens": 953,
+          "cost_usd": 0.0003985,
+          "models": [
+            "openai/gpt-5-nano",
+            "openai/gpt-5-nano"
+          ],
+          "backends": [
+            "OpenAI",
+            "OpenAI"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 8.987,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.8
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2109,
+          "output_tokens": 2245,
+          "cost_usd": 0.0010034500000000001,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 22.482,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9344640000000002
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 735,
+          "output_tokens": 1092,
+          "cost_usd": 0.00047355,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 12.373,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9580569600000002
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 346,
+          "output_tokens": 1088,
+          "cost_usd": 0.0004525,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 13.927,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9664455680000001
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2109,
+          "output_tokens": 1360,
+          "cost_usd": 0.00064945,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 19.497,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9890048837222403
+        },
+        {
+          "case": "supervisor",
+          "turns": 4,
+          "tool_calls": 3,
+          "input_tokens": 1202,
+          "output_tokens": 1680,
+          "cost_usd": 0.0007321000000000001,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 20.01,
+          "violations": {
+            "irrelevant_or_wrong_arguments": 1
+          },
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01T00:00:00Z",
+                  "2026-10-02T00:00:00Z"
+                ]
+              },
+              "result": {
+                "error": "irrelevant_or_wrong_arguments",
+                "message": "Use only the requested tools, dates, and returned values."
+              }
+            },
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 1,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.994370500465787
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 346,
+          "output_tokens": 950,
+          "cost_usd": 0.0003973,
+          "models": [
+            "openrouter/openai/gpt-5-nano",
+            "openrouter/openai/gpt-5-nano"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\":21,\"simulated\":true,\"source\":\"fixture://weather/paris\"}",
+          "latency_s": 10.091,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-5-nano",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9954964003726297
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T04:00:01.136797+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 5,
+          "tool_calls": 5,
+          "input_tokens": 3308,
+          "output_tokens": 582,
+          "cost_usd": 0.000461004,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 16.299,
+          "violations": {
+            "parallel_constraint_ignored": 1
+          },
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1401,
+          "output_tokens": 261,
+          "cost_usd": 0.000229908,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"difference\": 2300,\n  \"percent_change\": 18.4\n}",
+          "latency_s": 17.475,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 642,
+          "output_tokens": 175,
+          "cost_usd": 0.000144246,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"temperature_c\": 21,\n  \"simulated\": true,\n  \"source\": \"fixture://weather/paris\"\n}",
+          "latency_s": 5.794,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 5,
+          "tool_calls": 5,
+          "input_tokens": 3308,
+          "output_tokens": 561,
+          "cost_usd": 0.00041683,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"difference\": 2300,\n  \"percent_change\": 18.4\n}",
+          "latency_s": 18.107,
+          "violations": {
+            "parallel_constraint_ignored": 1
+          },
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "b": 100,
+                "operation": "multiply",
+                "a": 0.184
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1401,
+          "output_tokens": 333,
+          "cost_usd": 0.00022944399999999998,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 12.142,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 642,
+          "output_tokens": 181,
+          "cost_usd": 0.000147066,
+          "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            "Alibaba",
+            "Alibaba"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"temperature_c\": 21,\n  \"simulated\": true,\n  \"source\": \"fixture://weather/paris\"\n}",
+          "latency_s": 5.163,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 502: {\"error\":{\"message\":\"Invalid chat completion from upstream provider\",\"type\":\"server_error\",\"param\":null,\"code\":\"invalid_upstream_response\"}}",
+          "latency_s": 3.17,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1401,
+          "output_tokens": 346,
+          "cost_usd": 0.00037277,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"difference\": 2300,\n  \"percent_change\": 18.4\n}",
+          "latency_s": 21.377,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 642,
+          "output_tokens": 147,
+          "cost_usd": 0.00016539,
+          "models": [
+            "openrouter/qwen/qwen3.8-flash",
+            "openrouter/qwen/qwen3.8-flash"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 16.24,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.008,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.007,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.008,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:58:17.127608+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 423,
+          "output_tokens": 24,
+          "cost_usd": 2.595e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\n  \\\"error\\\": {\\n    \\\"message\\\": \\\"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages:",
+          "latency_s": 2.444,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "supervisor",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 391,
+          "output_tokens": 48,
+          "cost_usd": 2.915e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\n  \\\"error\\\": {\\n    \\\"message\\\": \\\"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages:",
+          "latency_s": 1.708,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 523,
+          "output_tokens": 45,
+          "cost_usd": 3.515e-05,
+          "models": [
+            "upstage/solar-mini4",
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage",
+            "Upstage"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"simulated\": true,\n  \"source\": \"fixture://weather/paris\",\n  \"temperature_c\": 21\n}",
+          "latency_s": 1.727,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "sales",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 423,
+          "output_tokens": 43,
+          "cost_usd": 2.975e-05,
+          "models": [
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage"
+          ],
+          "task_success": false,
+          "error": "ValueError: provider HTTP 400: {\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\n  \\\"error\\\": {\\n    \\\"message\\\": \\\"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages:",
+          "latency_s": 1.541,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1153,
+          "output_tokens": 89,
+          "cost_usd": 7.545e-05,
+          "models": [
+            "upstage/solar-mini4",
+            "upstage/solar-mini4",
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage",
+            "Upstage",
+            "Upstage"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"difference\": 2300,\n  \"percent_change\": 18.4\n}",
+          "latency_s": 2.526,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 523,
+          "output_tokens": 45,
+          "cost_usd": 3.515e-05,
+          "models": [
+            "upstage/solar-mini4",
+            "upstage/solar-mini4"
+          ],
+          "backends": [
+            "Upstage",
+            "Upstage"
+          ],
+          "task_success": true,
+          "final_text": "{\n  \"simulated\": true,\n  \"source\": \"fixture://weather/paris\",\n  \"temperature_c\": 21\n}",
+          "latency_s": 1.775,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.048,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for Math & formal reasoning @ practitioner (current_info, quantitative), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "supervisor",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface (current_info), needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.004,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        },
+        {
+          "case": "attribution",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 422: {\"error\":{\"message\":\"route: no eligible model for General knowledge @ surface, needs_tools=True (1 excluded as slower than the 30 tokens/sec floor). Run sync() to populate the matrix.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+          "latency_s": 0.003,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/upstage/solar-mini4",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 0.9256679069777922
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:58:49.397239+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 5053,
+          "output_tokens": 399,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 6.308,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1852,
+          "output_tokens": 161,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 3.115,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1004,
+          "output_tokens": 87,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 3.003,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 5053,
+          "output_tokens": 399,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 4.91,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1852,
+          "output_tokens": 161,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 2.867,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1004,
+          "output_tokens": 87,
+          "cost_usd": 0.0,
+          "models": [
+            "anthropic/claude-haiku-5.5",
+            "anthropic/claude-haiku-5.5"
+          ],
+          "backends": [
+            "Anthropic",
+            "Anthropic"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 2.178,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 5053,
+          "output_tokens": 399,
+          "cost_usd": 0.0007048,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 5.489,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1852,
+          "output_tokens": 161,
+          "cost_usd": 0.0002657,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 3.012,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1004,
+          "output_tokens": 87,
+          "cost_usd": 0.0001439,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 1.992,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 5053,
+          "output_tokens": 399,
+          "cost_usd": 0.0007048,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 5.228,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "subtract",
+                "a": 14800,
+                "b": 12500
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "divide",
+                "a": 2300,
+                "b": 12500
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "operation": "multiply",
+                "a": 0.184,
+                "b": 100
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 1852,
+          "output_tokens": 161,
+          "cost_usd": 0.0002657,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\": 2300, \"percent_change\": 18.4}",
+          "latency_s": 3.105,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 1004,
+          "output_tokens": 87,
+          "cost_usd": 0.0001439,
+          "models": [
+            "openrouter/~anthropic/claude-haiku-latest",
+            "openrouter/~anthropic/claude-haiku-latest"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\": 21, \"simulated\": true, \"source\": \"fixture://weather/paris\"}",
+          "latency_s": 2.833,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/~anthropic/claude-haiku-latest",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T03:58:21.986181+00:00",
+      "repeats": 2,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 5,
+          "tool_calls": 4,
+          "input_tokens": 1797,
+          "output_tokens": 1486,
+          "cost_usd": 0.000551775,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq",
+            "Groq",
+            "Groq",
+            "Groq"
+          ],
+          "task_success": false,
+          "final_text": "```json\n{\n  \"difference\": 2300,\n  \"percent_change\": 18.4\n}\n```\n",
+          "latency_s": 2.691,
+          "violations": {
+            "invalid_structured_output": 1
+          },
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 14800,
+                "b": 12500,
+                "operation": "subtract"
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 2300,
+                "b": 12500,
+                "operation": "divide"
+              },
+              "result": {
+                "result": 0.184
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 899,
+          "output_tokens": 260,
+          "cost_usd": 0.000145425,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq",
+            "Groq"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 0.858,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 488,
+          "output_tokens": 267,
+          "cost_usd": 0.0001167,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\":21,\"simulated\":true,\"source\":\"fixture://weather/paris\"}",
+          "latency_s": 0.578,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2274,
+          "output_tokens": 1032,
+          "cost_usd": 0.00043214999999999996,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq",
+            "Groq",
+            "Groq",
+            "Groq",
+            "Groq"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 2.224,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 14800,
+                "b": 12500,
+                "operation": "subtract"
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 2300,
+                "b": 12500,
+                "operation": "divide"
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 0.184,
+                "b": 100,
+                "operation": "multiply"
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 899,
+          "output_tokens": 356,
+          "cost_usd": 0.000155025,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq",
+            "Groq"
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 0.876,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 488,
+          "output_tokens": 192,
+          "cost_usd": 9.42e-05,
+          "models": [
+            "openai/gpt-oss-safeguard-20b",
+            "openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            "Groq",
+            "Groq"
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\":21,\"simulated\":true,\"source\":\"fixture://weather/paris\"}",
+          "latency_s": 0.562,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "chat",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2274,
+          "output_tokens": 960,
+          "cost_usd": 0.00045854999999999995,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 2.622,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 14800,
+                "b": 12500,
+                "operation": "subtract"
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 2300,
+                "b": 12500,
+                "operation": "divide"
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 0.184,
+                "b": 100,
+                "operation": "multiply"
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 899,
+          "output_tokens": 385,
+          "cost_usd": 0.000182925,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 1.115,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 488,
+          "output_tokens": 448,
+          "cost_usd": 0.00017099999999999998,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\":21,\"simulated\":true,\"source\":\"fixture://weather/paris\"}",
+          "latency_s": 0.955,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "sales",
+          "turns": 6,
+          "tool_calls": 5,
+          "input_tokens": 2274,
+          "output_tokens": 752,
+          "cost_usd": 0.00039614999999999995,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 2.218,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-01"
+              },
+              "result": {
+                "date": "2026-10-01",
+                "sales": 12500,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "get_sales",
+              "arguments": {
+                "date": "2026-10-02"
+              },
+              "result": {
+                "date": "2026-10-02",
+                "sales": 14800,
+                "simulated": true
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 14800,
+                "b": 12500,
+                "operation": "subtract"
+              },
+              "result": {
+                "result": 2300
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 2300,
+                "b": 12500,
+                "operation": "divide"
+              },
+              "result": {
+                "result": 0.184
+              }
+            },
+            {
+              "tool": "calculate",
+              "arguments": {
+                "a": 0.184,
+                "b": 100,
+                "operation": "multiply"
+              },
+              "result": {
+                "result": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "supervisor",
+          "turns": 3,
+          "tool_calls": 2,
+          "input_tokens": 899,
+          "output_tokens": 257,
+          "cost_usd": 0.000144525,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"difference\":2300,\"percent_change\":18.4}",
+          "latency_s": 1.247,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "ask_sales_agent",
+              "arguments": {
+                "dates": [
+                  "2026-10-01",
+                  "2026-10-02"
+                ]
+              },
+              "result": {
+                "sales": {
+                  "2026-10-01": 12500,
+                  "2026-10-02": 14800
+                },
+                "simulated": true
+              }
+            },
+            {
+              "tool": "ask_math_agent",
+              "arguments": {
+                "first": 12500,
+                "second": 14800
+              },
+              "result": {
+                "difference": 2300,
+                "percent_change": 18.4
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        },
+        {
+          "case": "attribution",
+          "turns": 2,
+          "tool_calls": 1,
+          "input_tokens": 488,
+          "output_tokens": 248,
+          "cost_usd": 0.00011099999999999999,
+          "models": [
+            "openrouter/openai/gpt-oss-safeguard-20b",
+            "openrouter/openai/gpt-oss-safeguard-20b"
+          ],
+          "backends": [
+            null,
+            null
+          ],
+          "task_success": true,
+          "final_text": "{\"temperature_c\":21,\"simulated\":true,\"source\":\"fixture://weather/paris\"}",
+          "latency_s": 0.687,
+          "violations": {},
+          "trace": [
+            {
+              "tool": "get_simulated_weather",
+              "arguments": {
+                "city": "Paris"
+              },
+              "result": {
+                "temperature_c": 21,
+                "simulated": true,
+                "source": "fixture://weather/paris"
+              }
+            }
+          ],
+          "excess_calls": 0,
+          "reliable_success": true,
+          "catalog_model": "openrouter/openai/gpt-oss-safeguard-20b",
+          "protocol": "responses",
+          "repeat": 1,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        }
+      ]
+    }
+  ],
+  "targeted_qwen_validation_diagnostics": [
+    {
+      "complete": true,
+      "created_at": "2026-10-14T04:23:36.606834+00:00",
+      "repeats": 1,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 502: {\"error\":{\"message\":\"Invalid chat completion from upstream provider\",\"type\":\"server_error\",\"param\":null,\"code\":\"invalid_upstream_response\"}}",
+          "latency_s": 6.821,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "combined",
+          "health_after": 1.0
+        }
+      ],
+      "validation_errors": [
+        {
+          "type": "ValueError",
+          "reason": "Provider ignored parallel_tool_calls=false"
+        }
+      ]
+    },
+    {
+      "complete": true,
+      "created_at": "2026-10-14T04:23:40.368537+00:00",
+      "repeats": 1,
+      "limits": {
+        "max_turns": 8,
+        "max_calls": 16
+      },
+      "cost_note": "direct: provider cost when supplied; responses: catalog token estimate, excludes overhead",
+      "results": [
+        {
+          "case": "sales",
+          "turns": 1,
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "models": [],
+          "backends": [],
+          "task_success": false,
+          "error": "ValueError: router HTTP 502: {\"error\":{\"message\":\"Invalid chat completion from upstream provider\",\"type\":\"server_error\",\"param\":null,\"code\":\"invalid_upstream_response\"}}",
+          "latency_s": 3.722,
+          "violations": {},
+          "trace": [],
+          "excess_calls": 0,
+          "reliable_success": false,
+          "catalog_model": "openrouter/qwen/qwen3.8-flash",
+          "protocol": "responses",
+          "repeat": 0,
+          "schema_mode": "separate",
+          "health_after": 1.0
+        }
+      ],
+      "validation_errors": [
+        {
+          "type": "ValueError",
+          "reason": "Provider ignored parallel_tool_calls=false"
+        }
+      ]
+    }
+  ]
+}

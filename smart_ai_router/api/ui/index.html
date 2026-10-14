@@ -5637,36 +5637,39 @@ function chatRoutingBadge({ routed, profile, why, qualified, domain, complexity,
 }
 
 // ── Reporting a bad reply, and feedback in general ──────────────────────────
-// The context is gathered for the user rather than asked of them: _chatMessages is
-// already the exact history that was sent upstream, and the routing metadata is
-// already in hand. All that's left to ask is the one thing only they know.
-//
-// btn = the ⚑ Report link on an assistant bubble, or null from the ⚑ Feedback
-// tab, which can be pressed on any page. The only difference is what it's about:
-// the tab still attaches the current conversation if there is one (that's what
-// makes a report diagnosable), and always says so before anything is typed.
+// Transcript sharing is opt-in; routing details accompany every report.
+function updateReportContext() {
+  const update = (me) => {
+    const n = _chatMessages.length;
+    const include = n > 0 && document.getElementById('report-include-transcript').checked;
+    document.getElementById('report-modal-context').textContent = n
+      ? `${n} message${n === 1 ? '' : 's'} available` +
+        (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '')
+      : 'No chat open in this tab.';
+    let note = include
+      ? 'The chat transcript and routing details will be included.'
+      : 'Only your description and routing details will be included; no chat content is attached.';
+    if (me && me.reports_public) {
+      note += include && me.reports_public_transcript
+        ? ' This report, including the transcript, will be filed as a public GitHub issue.'
+        : ' This report will be filed as a public GitHub issue.' +
+          (include ? ' The transcript stays on this router.' : '');
+    }
+    document.getElementById('report-modal-note').textContent = note;
+  };
+  update(null);
+  fetchWhoAmI().then(update);
+}
+
+// btn is the assistant bubble's Report link, or null from the Feedback tab.
 function openReportModal(btn) {
   _reportTarget = btn ? btn.closest('.chat-msg') : null;
-  const n = _chatMessages.length;
   document.getElementById('report-modal-title').textContent =
     _reportTarget ? 'Report a bad response' : 'Report a problem';
-  document.getElementById('report-modal-context').textContent = n
-    ? `Attaching this conversation — ${n} message${n === 1 ? '' : 's'}`
-      + (_lastRouting && _lastRouting.routed ? ` · answered by ${_lastRouting.routed}` : '')
-    : 'Nothing is attached — no chat open in this tab.';
-  const note = document.getElementById('report-modal-note');
-  note.textContent = n
-    ? 'The conversation and the routing decision are attached automatically.'
-    : '';
-  // Whether this lands in a public tracker is the operator's setting, and the
-  // one thing the user must know *before* writing rather than after.
-  fetchWhoAmI().then(me => {
-    if (!me || !me.reports_public) return;
-    note.textContent += (note.textContent ? ' ' : '')
-      + (me.reports_public_transcript && n
-        ? 'It is filed as a public issue on the project’s GitHub — including the conversation.'
-        : 'It is filed as a public issue on the project’s GitHub; the conversation itself stays on this router.');
-  });
+  const include = document.getElementById('report-include-transcript');
+  include.checked = false;
+  include.disabled = !_chatMessages.length;
+  updateReportContext();
   const ta = document.getElementById('report-modal-text');
   ta.value = '';
   const status = document.getElementById('report-modal-status');
@@ -5694,6 +5697,8 @@ async function submitReport() {
   // a failed turn leaves a bubble on screen and nothing in _chatMessages).
   const bubble = _reportTarget && _reportTarget.querySelector('.chat-bubble');
   const target = _reportTarget;
+  const includeTranscript = _chatMessages.length > 0
+    && document.getElementById('report-include-transcript').checked;
   let sent = false;
   try {
     const r = await fetch(`${API}/reports`, {
@@ -5701,9 +5706,10 @@ async function submitReport() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         description,
-        conversation_id: _chatConvId || '',
-        transcript: _chatMessages,
-        meta: { ...(_lastRouting || {}), reported_text: (bubble ? bubble.textContent : '').slice(0, 2000) },
+        conversation_id: includeTranscript ? (_chatConvId || '') : '',
+        transcript: includeTranscript ? _chatMessages : [],
+        meta: { ...(_lastRouting || {}),
+          ...(includeTranscript && bubble ? { reported_text: bubble.textContent.slice(0, 2000) } : {}) },
       }),
     });
     if (!r.ok) {
@@ -5718,7 +5724,7 @@ async function submitReport() {
     if (target) {
       closeReportModal();
       target.insertAdjacentHTML('beforeend',
-        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks, the operator can see the whole thread.${issue}</div>`);
+        `<div class="chat-meta">⚑ Reported (#${rep.id}) — thanks${includeTranscript ? ', the operator can see the attached thread' : ''}.${issue}</div>`);
     } else {
       // Filed from the ⚑ Feedback tab: there is no bubble to hang a receipt on,
       // so the modal stays open and becomes the receipt.
@@ -7170,6 +7176,10 @@ initDashboard();
       <textarea class="tags-modal-input" id="report-modal-text" rows="5"
                 style="resize:vertical"
                 placeholder="What was wrong? e.g. it invented a function that doesn't exist, ignored half the question, or answered in the wrong language."></textarea>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin:0.75rem 0">
+        <input type="checkbox" id="report-include-transcript" onchange="updateReportContext()">
+        Include chat transcript
+      </label>
       <div class="chat-meta" id="report-modal-note"></div>
       <div class="modal-warn" id="report-modal-status" style="font-size:0.8rem"></div>
     </div>
