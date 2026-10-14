@@ -81,6 +81,18 @@ def test_a_report_keeps_the_whole_conversation_and_the_routing_decision(open_cli
     assert got["meta"]["routed"] == "ollama/qwen3:8b"
 
 
+def test_a_report_without_chat_content_keeps_only_description_and_routing(open_client):
+    r = open_client.post("/api/reports", json={
+        "description": "The answer was incorrect",
+        "meta": {"routed": "test-model"},
+    })
+    assert r.status_code == 200
+    stored = open_client.get("/api/reports").json()["data"][0]
+    assert stored["transcript"] == []
+    assert stored["conversation_id"] == ""
+    assert stored["meta"] == {"routed": "test-model"}
+
+
 def test_the_snapshot_outlives_the_conversation_it_came_from(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
     open_client.post(f"/api/conversations/{cid}/messages",
