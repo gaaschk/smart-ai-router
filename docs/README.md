@@ -12,3 +12,5 @@ for what it is and how to install it; this is the reference.
 - **[Configuration](configuration.md)** — settings, the store, environment variables.
 - **[Service management](operations.md)** — the macOS LaunchAgent, Pull & Restart.
 - **[GBrain deployment](gbrain-deployment.md)** — how the Mac Mini's GBrain instance is set up and how RAG uses it.
+
+- **[Development roadmap](roadmap.md)** — ordered work, acceptance gates and GitHub workflow.
