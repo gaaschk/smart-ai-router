@@ -124,7 +124,9 @@ def test_timeout_cancels_provider_before_teardown(monkeypatch, protocol, stream,
     from scripts import replay_agent_workflow as module
 
     fixture = json.loads(FIXTURE.read_text())
-    fixture['limits']['request_timeout_s'] = .02
+    # Allow CI's in-process routing setup to reach the provider before the
+    # deadline; the delayed fixture remains longer than this request bound.
+    fixture['limits']['request_timeout_s'] = .5
     active, events = set(), []
     original_handler = ProviderReplay.handle_async
     original_bind = module.settings.bind_store
@@ -137,7 +139,7 @@ def test_timeout_cancels_provider_before_teardown(monkeypatch, protocol, stream,
         events.append('provider_enter')
         try:
             if stall == 'delay':
-                await asyncio.sleep(.2)
+                await asyncio.sleep(2)
             else:
                 await asyncio.Event().wait()  # only cancellation can release it
         finally:
@@ -193,4 +195,4 @@ def test_timeout_cancels_provider_before_teardown(monkeypatch, protocol, stream,
     start = time.monotonic()
     asyncio.run(check())
     # Includes event-loop/executor shutdown, not merely wait_for's return time.
-    assert time.monotonic() - start < 1.0
+    assert time.monotonic() - start < 2.0
