@@ -112,3 +112,85 @@ def test_unexpected_provider_url_fails_closed():
     with pytest.raises(ValueError, match='unexpected URL'):
         provider(httpx.Request('POST', 'https://other.invalid/chat/completions', json={}))
     assert provider.requests == []
+
+
+@pytest.mark.parametrize('protocol', ['chat', 'responses'])
+@pytest.mark.parametrize('stream', [False, True])
+@pytest.mark.parametrize('phase', ['headers', 'body'])
+@pytest.mark.parametrize('stall', ['delay', 'hang'])
+def test_timeout_cancels_provider_before_teardown(monkeypatch, protocol, stream, phase, stall):
+    """No worker thread/task may outlive the clients, restored patches or store."""
+    import time
+    from scripts import replay_agent_workflow as module
+
+    fixture = json.loads(FIXTURE.read_text())
+    fixture['limits']['request_timeout_s'] = .02
+    active, events = set(), []
+    original_handler = ProviderReplay.handle_async
+    original_bind = module.settings.bind_store
+    original_close = httpx.AsyncClient.aclose
+    previous_store = module.settings._store
+
+    async def block():
+        task = asyncio.current_task()
+        active.add(task)
+        events.append('provider_enter')
+        try:
+            if stall == 'delay':
+                await asyncio.sleep(.2)
+            else:
+                await asyncio.Event().wait()  # only cancellation can release it
+        finally:
+            active.remove(task)
+            events.append('provider_exit')
+
+    class StalledBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n' if stream else b'{'
+            await block()
+
+        async def aclose(self):
+            assert not active
+            events.append('body_closed')
+
+    async def stalled_handler(self, request):
+        if phase == 'headers':
+            await block()
+        response = await original_handler(self, request)
+        if phase == 'body':
+            return httpx.Response(200, headers={'content-type': 'text/event-stream' if stream else 'application/json'},
+                                  stream=StalledBody())
+        return response
+
+    async def checked_close(self):
+        assert not active, 'provider still running when a client closes'
+        events.append('client_closed')
+        await original_close(self)
+
+    def checked_restore(store):
+        if store is previous_store:
+            assert not active, 'provider still running when global state restores'
+            events.append('restored')
+        original_bind(store)
+
+    monkeypatch.setattr(ProviderReplay, 'handle_async', stalled_handler)
+    monkeypatch.setattr(httpx.AsyncClient, 'aclose', checked_close)
+    monkeypatch.setattr(module.settings, 'bind_store', checked_restore)
+
+    async def check():
+        before = asyncio.all_tasks()
+        row = await replay_one(fixture, fixture['scenarios'][0], protocol, stream)
+        assert row.get('error', '').startswith('TimeoutError:')
+        assert not row['task_success']
+        assert not active
+        await asyncio.sleep(0)  # allow cancellation callbacks to settle
+        assert not (asyncio.all_tasks() - before), 'request task survived replay teardown'
+        assert events.count('provider_enter') == events.count('provider_exit') == 1
+        assert events.index('provider_exit') < events.index('restored')
+        if phase == 'body':
+            assert 'body_closed' in events
+
+    start = time.monotonic()
+    asyncio.run(check())
+    # Includes event-loop/executor shutdown, not merely wait_for's return time.
+    assert time.monotonic() - start < 1.0

@@ -45,4 +45,13 @@ python -m pytest -q tests/test_workflow_replay.py
 
 For the baseline, export `git archive dd90a6d` into a temporary directory, copy `scripts/replay_agent_workflow.py` and `tests/fixtures/agent_workflow_replay.json` from this branch into the same paths there, then run the replay command from that directory. No source DB, provider key, or production endpoint arguments exist.
 
-Local validation: **10 replay tests passed**; available suite **1319 passed, 1 deselected**, excluding the already-known missing-`httpx2` SDK collection and denied nested macOS sandbox test. Neither local limitation was retried through expanded permissions. CI and independent review remain separate gates for this draft.
+Local validation after timeout review: **26 replay tests passed**; available suite **1335 passed, 1 deselected**, excluding the already-known missing-`httpx2` SDK collection and denied nested macOS sandbox test. Neither local limitation was retried through expanded permissions. CI and independent review remain separate gates for this draft.
+
+
+## Timeout lifecycle correction
+
+Review reproduced a request surviving teardown in the original threaded harness: a 10ms timeout returned in 16ms with the provider thread still active. Commit `27fb268` replaces threaded synchronous clients with async HTTP clients and an in-process ASGI transport. The timeout cancels and awaits the request and provider stream before clients close, global patches restore, or the in-memory DB closes. The replay creates no request executor threads.
+
+Sixteen regression combinations cover both protocols, both response modes, pre-header and mid-body waits, and finite-delay/indefinite cancellable fixtures. They assert provider finalization, stream closure, no surviving request tasks, and total termination under one second including event-loop shutdown for a 20ms request limit. This is an async cancellation contract for the controlled replay transport, not a claim to preempt arbitrary blocking Python code.
+
+Both 28-run datasets were replayed with the corrected harness. Every stored result field except `local_replay_latency_s` matches the published artifacts exactly. The existing artifacts therefore remain the original source-`8fcd190` captures; they are not relabeled as fresh measurements. Outcome, accounting, health, request bodies, errors and fixture hash are unchanged. The earlier raw regression log is untouched.

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import ExitStack
+from contextlib import AsyncExitStack, ExitStack
 import hashlib
 import json
 import os
@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-from fastapi.testclient import TestClient
 
 from scripts.bench_agent_reliability import CASES, chat_payload, run_case
 from smart_ai_router import settings
@@ -36,6 +35,11 @@ class ProviderReplay:
     def __init__(self, fixture, scenario):
         self.fixture, self.scenario = fixture, scenario
         self.requests, self.ledger = [], []
+
+    async def handle_async(self, request):
+        # Awaitable transport boundary: cancellation reaches the provider and
+        # its response stream before the replay closes clients or the DB.
+        return self(request)
 
     def __call__(self, request):
         if str(request.url) != BASE + '/chat/completions':
@@ -104,11 +108,15 @@ def native_reply(response, stream):
 
 async def replay_one(fixture, scenario, protocol, stream):
     provider = ProviderReplay(fixture, scenario)
-    transport = httpx.MockTransport(provider)
+    transport = httpx.MockTransport(provider.handle_async)
+    adapter_transport = None
     original_init = httpx.AsyncClient.__init__
 
     def offline_init(self, *args, **kwargs):
-        kwargs['transport'] = transport  # every async HTTP request is confined to this mock
+        # Only our exact in-process adapter transport may bypass the provider
+        # mock. All other clients (including proxy-created clients) stay offline.
+        if adapter_transport is None or kwargs.get('transport') is not adapter_transport:
+            kwargs['transport'] = transport
         original_init(self, *args, **kwargs)
 
     limits = fixture['limits']
@@ -132,17 +140,15 @@ async def replay_one(fixture, scenario, protocol, stream):
             stack.enter_context(patch('smart_ai_router.api.proxy._OPENROUTER_BASE', BASE))
             stack.enter_context(patch('smart_ai_router.api.proxy._enrich_with_gbrain_context', lambda m, *a, **k: m))
             stack.enter_context(patch('smart_ai_router.api.proxy._schedule_gbrain_save_back', lambda *a, **k: None))
-            client = TestClient(create_app(cr))
-            stack.callback(client.close)
-            direct = stack.enter_context(httpx.Client(transport=transport))
+            adapter_transport = httpx.ASGITransport(app=create_app(cr))
 
             async def request(body):
                 if protocol == 'chat':
                     payload = chat_payload(body, 'replay/supervisor-v1')
                     payload['stream'] = stream
-                    response = await asyncio.to_thread(direct.post, BASE + '/chat/completions', json=payload)
+                    response = await direct.post(BASE + '/chat/completions', json=payload)
                     return native_reply(response, stream)
-                response = await asyncio.to_thread(client.post, '/v1/responses', headers={'Authorization': 'Bearer synthetic-replay-key'},
+                response = await client.post('/v1/responses', headers={'Authorization': 'Bearer synthetic-replay-key'},
                                        json={**body, 'stream': stream})
                 if response.status_code >= 400:
                     raise ValueError(f'router HTTP {response.status_code}: {response.text[:300]}')
@@ -155,8 +161,12 @@ async def replay_one(fixture, scenario, protocol, stream):
                             return event['response']
                 raise ValueError('No terminal Responses event')
 
-            row = await run_case(request, scenario['case'], max_turns=limits['max_turns'],
-                                 max_calls=limits['max_calls'], request_timeout=limits['request_timeout_s'])
+            async with AsyncExitStack() as clients:
+                direct = await clients.enter_async_context(httpx.AsyncClient(transport=transport))
+                client = await clients.enter_async_context(httpx.AsyncClient(
+                    transport=adapter_transport, base_url='http://replay-adapter'))
+                row = await run_case(request, scenario['case'], max_turns=limits['max_turns'],
+                                     max_calls=limits['max_calls'], request_timeout=limits['request_timeout_s'])
             rows = cr.recent_usage('admin', '')
             row.update(scenario=scenario['name'], protocol=protocol, stream=stream,
                 provider_requests=provider.requests, provider_ledger=provider.ledger,

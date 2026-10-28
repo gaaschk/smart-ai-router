@@ -13,3 +13,13 @@ First checkpoint: 10 replay tests passed, including network tripwire, continuati
 Next: publish baseline/fixed evidence, full available test results, stacked draft PR and CI; independent review pending. Missing real trace remains an issue-level gate. No routing-policy change is justified by synthetic fixtures.
 
 Evidence checkpoint: source commit `8fcd190`; 10 focused tests passed; available suite 1319 passed / 1 deselected (same SDK exclusion and prior sandbox denial). Baseline/fixed 28-run artifacts and preserved issue-151 regression log are in `docs/investigations/agent-workflow-replay-2026-10-28/`. Clean Responses workflow health is 0.8 before / 1.0 after #151 in both modes, with unchanged task results and synthetic token/cost totals. All scenarios remain synthetic and original-source evidence is explicitly missing.
+
+## Timeout review correction
+
+Independent review identified a blocking lifecycle defect: `asyncio.wait_for` could cancel an `asyncio.to_thread` waiter while the synchronous request survived teardown. Reproduced on head `10677c0` with a finite controlled provider wait: `TimeoutError`, elapsed 0.016s, `active_after_replay_teardown=true`. The reproduction released the thread explicitly; no live HTTP or indefinite process was used.
+
+Replaced both native and adapter requests with async HTTP clients. The adapter uses a single explicitly allowed in-process ASGI transport; all provider clients remain confined to the mock transport. Request cancellation now propagates through provider awaits/stream iteration before async client cleanup, patch restoration and DB close. No request worker threads are created.
+
+Added 16 lifecycle cases (both protocols × stream/nonstream × headers/body × finite delay/indefinite cancellable wait). They assert TimeoutError, provider finalization before restored state, closed response bodies, zero surviving request tasks, and bounded completion including `asyncio.run` shutdown. Focused suite: **26 passed**. Full available suite and evidence equivalence verification pending at this checkpoint.
+
+Post-fix checkpoint: source `27fb268`. Focused suite 26 passed; full available suite **1335 passed, 1 deselected**, with the same SDK file exclusion and no retry of the denied sandbox action. Fresh 28-run baseline and fixed outputs match every previously published result field except measured local replay latency; original evidence artifacts remain unchanged and correctly labeled with their original source commit. No scenario semantics, billing, health or token outcome changed. Draft PR157 will be updated in place; CI and timeout-fix independent review pending.
