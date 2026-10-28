@@ -822,16 +822,12 @@ SPECS: tuple[SettingSpec, ...] = (
         env="SMART_ROUTER_TOOL_STALL_MAX_TOKENS",
         type="int",
         default=96,
-        label="Count a tool turn as stalled below (tokens)",
+        label="Legacy tool-stall token threshold (unused)",
         group="Routing",
-        help="How short a reply has to be, with tools offered and no tool call "
-        "emitted, before it counts as a stall rather than a brief answer. This is "
-        "a calibration knob and the default is a starting point, not a truth: what "
-        "a stalled reply looks like depends on your clients, since a coding agent's "
-        "shortest useful turn is longer than a chat UI's. Raise it if models are "
-        "being blamed for terse answers; lower it if real stalls are slipping "
-        "through. The observed case that prompted it: a local 30B handed a planning "
-        "prompt returned 52 and 82 tokens, twice, after two minutes each.",
+        help="Retained for compatibility with saved settings. Tool health now counts "
+        "empty replies and recognized unexecutable tool-call text as stalls; "
+        "nonempty final answers are independent of token count. This value no "
+        "longer changes classification.",
         validate=_reject_negative,
     ),
     SettingSpec(

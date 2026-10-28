@@ -1042,8 +1042,9 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
 
     `tools_offered` / `tool_calls` are the sample behind observed_tool_health. A
     stall is a turn that was handed tools and came back with neither a tool call nor
-    a substantive reply — not merely one that answered in prose, which is correct
-    behavior when tools are available but the prompt was a question.
+    nonempty text. Optional tools do not require another call; text length and
+    token counts cannot establish semantic task completion. Recognized leaked
+    tool-call text remains unexecutable and is still a stall.
     """
     if getattr(request.state, "responses_defer_usage", False) and status < 400:
         # The protocol adapter must validate output before accounting it as success.
@@ -1100,7 +1101,7 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
             latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
             tools_offered=tools_offered,
             tool_stalled=tools_offered and not tool_calls and (
-                completion_tokens <= max(0, _settings.get_int("tool_stall_max_tokens"))
+                not content.strip()
                 or _leaks_tool_call(content)
             ),
         ))

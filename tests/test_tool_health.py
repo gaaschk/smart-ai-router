@@ -258,9 +258,9 @@ def _recorded(store):
 
 
 @pytest.mark.parametrize("reply,expected,why", [
-    # The observed failure: tools offered, no call, 82 tokens of nothing.
+    # Token count alone cannot prove whether a short reply completes the task.
     (_reply(content="I'll switch to plan mode.", completion_tokens=82),
-     (True, True), "short reply with no tool call is a stall"),
+     (True, False), "semantic completion cannot be inferred from length"),
     # A real tool call is health, however short the prose around it.
     (_reply(tool_calls=[{"id": "c1", "type": "function",
                          "function": {"name": "enter_plan_mode",
