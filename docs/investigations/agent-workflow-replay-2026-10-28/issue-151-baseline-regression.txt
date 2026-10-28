@@ -1,0 +1,2345 @@
+Preserved pytest baseline output. Temporary synthetic test key strings and user-home paths are redacted; trailing whitespace is normalized. Original SHA256: 3f976ec6ade234b4ac0f81ac0192e3a3906f47514a4ba22c4743cb09d8c5dc0a
+
+FFFF..FFFFF..F....FF.....FF........FFFFFFFFFFFFFFFFFFFFFFFF              [100%]
+=================================== FAILURES ===================================
+________ test_observation_is_independent_of_token_count[18.4%-False-0] _________
+
+tokens = 0, content = '18.4%', stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+________ test_observation_is_independent_of_token_count[18.4%-False-12] ________
+
+tokens = 12, content = '18.4%', stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+________ test_observation_is_independent_of_token_count[18.4%-False-95] ________
+
+tokens = 95, content = '18.4%', stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+________ test_observation_is_independent_of_token_count[18.4%-False-96] ________
+
+tokens = 96, content = '18.4%', stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_______ test_observation_is_independent_of_token_count[18.4%-False-None] _______
+
+tokens = None, content = '18.4%', stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_ test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-0] _
+
+tokens = 0, content = '{"difference":2300,"percent_change":18.4}'
+stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_ test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-12] _
+
+tokens = 12, content = '{"difference":2300,"percent_change":18.4}'
+stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_ test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-95] _
+
+tokens = 95, content = '{"difference":2300,"percent_change":18.4}'
+stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_ test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-96] _
+
+tokens = 96, content = '{"difference":2300,"percent_change":18.4}'
+stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_ test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-None] _
+
+tokens = None, content = '{"difference":2300,"percent_change":18.4}'
+stalled = False
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert True is False
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala... tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=True, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+___________ test_observation_is_independent_of_token_count[-True-97] ___________
+
+tokens = 97, content = '', stalled = True
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert False is True
+E        +  where False = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala...tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=False, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+__________ test_observation_is_independent_of_token_count[-True-1000] __________
+
+tokens = 1000, content = '', stalled = True
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert False is True
+E        +  where False = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala...tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=False, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+________ test_observation_is_independent_of_token_count[ \n\t-True-97] _________
+
+tokens = 97, content = ' \n\t', stalled = True
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert False is True
+E        +  where False = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala...tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=False, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+_______ test_observation_is_independent_of_token_count[ \n\t-True-1000] ________
+
+tokens = 1000, content = ' \n\t', stalled = True
+
+    @pytest.mark.parametrize('tokens', [0, 12, 95, 96, 97, 1000, None])
+    @pytest.mark.parametrize('content,stalled', [
+        ('18.4%', False), ('{"difference":2300,"percent_change":18.4}', False),
+        ('', True), (' \n\t', True), ('<tool_call>{}</tool_call>', True),
+    ])
+    def test_observation_is_independent_of_token_count(tokens, content, stalled):
+        records = []
+        cr = SimpleNamespace(record_usage=records.append, cost_for=lambda *args: .01,
+                             set_tool_probe=lambda *args: None)
+        request = SimpleNamespace(state=SimpleNamespace(user='test'))
+        usage = None if tokens is None else {'prompt_tokens': 10, 'completion_tokens': tokens}
+        _log_usage(cr, request, routed_model='test', domain='general', complexity='basic',
+                   usage=usage, status=200, tools_offered=True, content=content)
+        assert len(records) == 1
+>       assert records[0].tool_stalled is stalled
+E       AssertionError: assert False is True
+E        +  where False = UsageRecord(kind='proxy', modality='text', user='test', key_prefix='', routed_model='test', requested_model='', escala...tokens_estimated=False, profile=None, classifier='', latency_ms=0, tools_offered=True, tool_stalled=False, id=0, ts='').tool_stalled
+
+tests/test_short_final_health.py:26: AssertionError
+__ test_short_final_continuation_accounted_once[18.4%-False-False-chat-False] __
+
+setup = (<starlette.testclient.TestClient object at 0x10ca25040>, <smart_ai_router.facade.CapabilityRouter object at 0x10cd152...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cd140b0>
+protocol = 'chat', required = False, stream = False, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...lassifier='keyword', latency_ms=13, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.088828+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...lassifier='keyword', latency_ms=13, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.088828+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-False-False-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10cd978c0>, <smart_ai_router.facade.CapabilityRouter object at 0x10ce77e...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cd16ff0>
+protocol = 'responses', required = False, stream = False, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.114626+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.114626+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-False-False-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10cfff9b0>, <smart_ai_router.facade.CapabilityRouter object at 0x10cd172...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cf612b0>
+protocol = 'responses', required = True, stream = False, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.150906+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.150906+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+__ test_short_final_continuation_accounted_once[18.4%-False-True-chat-False] ___
+
+setup = (<starlette.testclient.TestClient object at 0x10cf62f30>, <smart_ai_router.facade.CapabilityRouter object at 0x10cfd72...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cfd7470>
+protocol = 'chat', required = False, stream = True, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.173638+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.173638+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-False-True-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10ce74ce0>, <smart_ai_router.facade.CapabilityRouter object at 0x10cf628...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cf624e0>
+protocol = 'responses', required = False, stream = True, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.198714+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.198714+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-False-True-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d0741d0>, <smart_ai_router.facade.CapabilityRouter object at 0x10ccd49...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ca25c40>
+protocol = 'responses', required = True, stream = True, measured = False
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=4, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.224450+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=4, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.224450+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+__ test_short_final_continuation_accounted_once[18.4%-True-False-chat-False] ___
+
+setup = (<starlette.testclient.TestClient object at 0x10d0d6390>, <smart_ai_router.facade.CapabilityRouter object at 0x10d0962...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d076c90>
+protocol = 'chat', required = False, stream = False, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.249424+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.249424+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-True-False-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d129e80>, <smart_ai_router.facade.CapabilityRouter object at 0x10d1190...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d0d7ad0>
+protocol = 'responses', required = False, stream = False, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.275798+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.275798+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-True-False-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d19e660>, <smart_ai_router.facade.CapabilityRouter object at 0x10d0961...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d0d7710>
+protocol = 'responses', required = True, stream = False, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.302208+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.302208+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+___ test_short_final_continuation_accounted_once[18.4%-True-True-chat-False] ___
+
+setup = (<starlette.testclient.TestClient object at 0x10d262cc0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d1e6d...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d22ddc0>
+protocol = 'chat', required = False, stream = True, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.325835+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.325835+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-True-True-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d2dfd10>, <smart_ai_router.facade.CapabilityRouter object at 0x10d2a8a...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d262c00>
+protocol = 'responses', required = False, stream = True, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.350983+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.350983+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[18.4%-True-True-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d38da30>, <smart_ai_router.facade.CapabilityRouter object at 0x10d3417...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d31fbf0>
+protocol = 'responses', required = True, stream = True, measured = True
+content = '18.4%'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.376046+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.376046+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-chat-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d4075f0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d31fc...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d31f650>
+protocol = 'chat', required = False, stream = False, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.399125+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.399125+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d4b2960>, <smart_ai_router.facade.CapabilityRouter object at 0x10d45e8...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d426c90>
+protocol = 'responses', required = False, stream = False, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.424176+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.424176+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d543a70>, <smart_ai_router.facade.CapabilityRouter object at 0x10d4ebc...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d4eb590>
+protocol = 'responses', required = True, stream = False, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.449063+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.449063+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-chat-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d5dc7d0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d55f0...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d542f90>
+protocol = 'chat', required = False, stream = True, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.472578+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.472578+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d5de960>, <smart_ai_router.facade.CapabilityRouter object at 0x10d38c1...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d4eb290>
+protocol = 'responses', required = False, stream = True, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.498829+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.498829+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d704c20>, <smart_ai_router.facade.CapabilityRouter object at 0x10d704d...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d677fe0>
+protocol = 'responses', required = True, stream = True, measured = False
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.547032+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.547032+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-chat-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d60d9d0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d60f7...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d706c90>
+protocol = 'chat', required = False, stream = False, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.570096+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.570096+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d5b18b0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d610f...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d611910>
+protocol = 'responses', required = False, stream = False, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.595233+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.595233+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d4fd0d0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d4fcc...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d5df3b0>
+protocol = 'responses', required = True, stream = False, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.618775+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=2, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.618775+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-chat-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d47c740>, <smart_ai_router.facade.CapabilityRouter object at 0x10d4b23...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d4fdc10>
+protocol = 'chat', required = False, stream = True, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.641831+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.641831+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-responses-False] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d405850>, <smart_ai_router.facade.CapabilityRouter object at 0x10d4251...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d425c10>
+protocol = 'responses', required = False, stream = True, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.666557+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.666557+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+_ test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-responses-True] _
+
+setup = (<starlette.testclient.TestClient object at 0x10d407ef0>, <smart_ai_router.facade.CapabilityRouter object at 0x10d3c34...Authorization': 'Bearer [synthetic-test-key]'}}, {'Authorization': 'Bearer admin-key'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d3c2360>
+protocol = 'responses', required = True, stream = True, measured = True
+content = '{"percent_change":18.4}'
+
+    @pytest.mark.parametrize('protocol,required', [('chat', False), ('responses', False), ('responses', True)])
+    @pytest.mark.parametrize('stream', [False, True])
+    @pytest.mark.parametrize('measured', [False, True])
+    @pytest.mark.parametrize('content', ['18.4%', '{"percent_change":18.4}'])
+    def test_short_final_continuation_accounted_once(setup, monkeypatch, protocol, required, stream, measured, content):
+        client, cr, store, headers, _ = setup
+        usage = {'prompt_tokens': 10, 'completion_tokens': 5}
+        message = {'role': 'assistant', 'content': content}
+        reply = {'choices': [{'index': 0, 'message': message, 'finish_reason': 'stop'}]}
+        if measured:
+            reply['usage'] = usage
+
+        async def forward(self, url, **kwargs):
+            return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
+
+        class Stream:
+            status_code = 200
+            headers = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def aiter_raw(self):
+                chunks = [{'choices': [{'index': 0, 'delta': message, 'finish_reason': None}]},
+                          {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
+                if measured:
+                    chunks.append({'choices': [], 'usage': usage})
+                for chunk in chunks:
+                    yield ('data: ' + json.dumps(chunk) + '\n\n').encode()
+                yield b'data: [DONE]\n\n'
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', forward)
+        monkeypatch.setattr(httpx.AsyncClient, 'stream', lambda *args, **kwargs: Stream())
+        tool = {'name': 'calculate', 'parameters': {'type': 'object', 'properties': {}}, 'strict': False}
+        body = {'model': 'smart-worker', 'stream': stream}
+        if protocol == 'chat':
+            path = '/v1/chat/completions'
+            body.update(tools=[{'type': 'function', 'function': tool}], messages=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': 'call_a', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': 'call_a', 'content': '18.4'}])
+        else:
+            path = '/v1/responses'
+            body.update(tools=[{'type': 'function', **tool}], input=[
+                {'role': 'user', 'content': 'Calculate percent change'},
+                {'type': 'function_call', 'call_id': 'call_a', 'name': 'calculate', 'arguments': '{}'},
+                {'type': 'function_call_output', 'call_id': 'call_a', 'output': '18.4'}])
+            if content.startswith('{'):
+                body['text'] = {'format': {'type': 'json_schema', 'name': 'result', 'strict': True,
+                    'schema': {'type': 'object', 'properties': {'percent_change': {'type': 'number'}},
+                               'required': ['percent_change'], 'additionalProperties': False}}}
+        if required:
+            body['tool_choice'] = 'required'
+        result = client.post(path, headers=headers['alice'], json=body)
+        assert result.status_code == (502 if required and not stream else 200), result.text
+        if protocol == 'responses' and stream:
+            assert ('response.failed' if required else 'response.completed') in result.text
+            assert ('response.completed' if required else 'response.failed') not in result.text
+        rows = cr.recent_usage('alice', '')
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == (502 if required else 200)
+>       assert row.tools_offered and not row.tool_stalled
+E       AssertionError: assert (True and not True)
+E        +  where True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.691961+00:00').tools_offered
+E        +  and   True = UsageRecord(kind='proxy', modality='text', user='alice', key_prefix='[synthetic-test-key]', routed_model='openrouter/test',...classifier='keyword', latency_ms=3, tools_offered=True, tool_stalled=True, id=1, ts='2026-10-28T03:54:57.691961+00:00').tool_stalled
+
+tests/test_short_final_health.py:96: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[proxy] General knowledge @ surface (quantitative) (keyword) → openrouter/test (real: test)
+[proxy] why: cheapest of 1 qualified; binding constraint general_knowledge needed 0.48, has 0.99
+=============================== warnings summary ===============================
+../../..<user-home>/ProjectHome/smart-ai-router/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  <user-home>/ProjectHome/smart-ai-router/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[18.4%-False-0]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[18.4%-False-12]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[18.4%-False-95]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[18.4%-False-96]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[18.4%-False-None]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-0]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-12]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-95]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-96]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[{"difference":2300,"percent_change":18.4}-False-None]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[-True-97]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[-True-1000]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[ \n\t-True-97]
+FAILED tests/test_short_final_health.py::test_observation_is_independent_of_token_count[ \n\t-True-1000]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-False-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-False-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-False-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-True-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-True-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-False-True-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-False-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-False-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-False-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-True-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-True-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[18.4%-True-True-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-False-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-False-True-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-False-responses-True]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-chat-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-responses-False]
+FAILED tests/test_short_final_health.py::test_short_final_continuation_accounted_once[{"percent_change":18.4}-True-True-responses-True]
+38 failed, 21 passed, 1 warning in 0.89s
