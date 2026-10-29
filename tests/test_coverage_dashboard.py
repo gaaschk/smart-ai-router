@@ -5,7 +5,7 @@ from scripts.coverage_dashboard import changed_lines, diff_summary, generate
 
 def test_diff_hunks_include_added_lines_not_deleted_or_context():
     diff = "+++ b/scripts/new.py\n@@ -0,0 +1,2 @@\n+x\n+y\n@@ -8 +10 @@\n-z\n+a\n@@ -12,2 +14,0 @@\n-z\n-z\n"
-    assert changed_lines(diff) == {"scripts/new.py": {1, 2, 10}}
+    assert changed_lines(diff, "scripts/new.py") == {"scripts/new.py": {1, 2, 10}}
 
 
 def test_missing_measurement_is_explicit_and_nonexecutable_lines_excluded():
@@ -39,7 +39,7 @@ def test_dashboard_escapes_labels_and_writes_machine_readable_evidence(tmp_path)
         tmp_path,
         "abc",
         [{"label": "<script>bad</script>", "revision": "old", "percent": 80}],
-        "",
+        {},
     )
     page = (tmp_path / "index.html").read_text()
     assert "<script>" not in page
@@ -82,11 +82,11 @@ def test_cli_changed_line_gate_uses_resolved_ref_and_actual_report(
 
     def git(args, **kw):
         calls.append(args)
-        return (
-            "abc123\n"
-            if "rev-parse" in args
-            else "+++ b/scripts/a.py\n@@ -0,0 +1 @@\n+x\n"
-        )
+        if "rev-parse" in args:
+            return "abc123\n"
+        if "--name-only" in args:
+            return b"scripts/a.py\0"
+        return "+++ b/scripts/a.py\n@@ -0,0 +1 @@\n+x\n"
 
     monkeypatch.setattr(dashboard.subprocess, "check_output", git)
     monkeypatch.setattr(
@@ -113,3 +113,81 @@ def test_cli_changed_line_gate_uses_resolved_ref_and_actual_report(
             dashboard.main()
     assert "--end-of-options" in calls[0]
     assert "abc123" in calls[1]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "space name.py",
+        "tab\tname.py",
+        "line\nname.py",
+        'quote"name.py',
+        "carriage\rname.py",
+        "[glob]*?.py",
+        "unicode-é.py",
+    ],
+)
+def test_real_git_special_path_cannot_bypass_gate(monkeypatch, tmp_path, name):
+    import subprocess
+    import sys
+    from scripts import coverage_dashboard as dashboard
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True)
+
+    git("init", "-q")
+    (tmp_path / "README").write_text("base\n")
+    git("add", ".")
+    config = (
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+    )
+    git(*config, "commit", "-qm", "base")
+    base = git("rev-parse", "HEAD").strip()
+    (tmp_path / "scripts").mkdir()
+    relative = "scripts/" + name
+    (tmp_path / relative).write_text("uncovered = 1\n")
+    git("add", ".")
+    git(*config, "commit", "-qm", "add uncovered script")
+    report = tmp_path / "coverage.json"
+    report.write_text(
+        json.dumps(
+            {
+                "totals": {"percent_covered": 80},
+                "files": {
+                    relative: {
+                        "executed_lines": [],
+                        "missing_lines": [1],
+                        "summary": {"percent_covered": 0},
+                    }
+                },
+            }
+        )
+    )
+    output = tmp_path / "out"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "coverage_dashboard",
+            "--report",
+            str(report),
+            "--output",
+            str(output),
+            "--revision",
+            "test",
+            "--base-ref",
+            base,
+            "--min-diff-coverage",
+            "80",
+        ],
+    )
+    with pytest.raises(SystemExit, match="below"):
+        dashboard.main()
+    assert json.loads((output / "changed-lines.json").read_text())["percent"] == 0
+    assert "0/1 (0.00%)" in (output / "summary.md").read_text()

@@ -3,25 +3,63 @@
 import argparse
 import html
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 
 
-def changed_lines(diff):
-    result = {}
-    path = None
+def changed_lines(diff, path):
+    """Read hunk coordinates for a path supplied independently by Git -z."""
+    lines = set()
     for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-        elif line.startswith("+++ "):
-            path = None
-        elif path and (
-            match := re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
-        ):
+        if match := re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line):
             start, count = int(match[1]), int(match[2] or 1)
-            result.setdefault(path, set()).update(range(start, start + count))
-    return result
+            lines.update(range(start, start + count))
+    return {path: lines}
+
+
+def git_changed_lines(base):
+    # Display patch headers are quoted/delimited for humans, not lossless paths.
+    # NUL-delimited names preserve spaces, tabs, newlines and literal quotes.
+    raw_names = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMT",
+            base,
+            "HEAD",
+            "--",
+            "smart_ai_router",
+            "scripts",
+        ],
+    )
+    names = os.fsdecode(raw_names).split("\0")
+    changed = {}
+    for path in filter(None, names):
+        if not path.endswith(".py"):
+            continue
+        diff = subprocess.check_output(
+            [
+                "git",
+                "--literal-pathspecs",
+                "diff",
+                "--no-ext-diff",
+                "--no-renames",
+                "--unified=0",
+                base,
+                "HEAD",
+                "--",
+                path,
+            ],
+            text=True,
+        )
+        changed.update(changed_lines(diff, path))
+    return changed
 
 
 def diff_summary(files, changed):
@@ -47,7 +85,7 @@ def diff_summary(files, changed):
     }
 
 
-def generate(report, output, revision, history, diff=None):
+def generate(report, output, revision, history, changed=None):
     percent = float(report["totals"]["percent_covered"])
     if not 0 <= percent <= 100:
         raise ValueError("Invalid coverage percentage")
@@ -66,9 +104,7 @@ def generate(report, output, revision, history, diff=None):
         f"<tr><td>{esc(path)}</td><td>{float(data['summary']['percent_covered']):.2f}%</td></tr>"
         for path, data in sorted(report["files"].items())
     )
-    change = (
-        diff_summary(report["files"], changed_lines(diff)) if diff is not None else None
-    )
+    change = diff_summary(report["files"], changed) if changed is not None else None
     (output / "changed-lines.json").write_text(json.dumps(change, indent=2) + "\n")
     text = "Changed-line coverage unavailable (no comparison ref)."
     if change is not None:
@@ -97,7 +133,7 @@ def main():
     parser.add_argument("--base-ref")
     parser.add_argument("--min-diff-coverage", type=float, default=0)
     args = parser.parse_args()
-    diff = None
+    changed = None
     if args.base_ref:
         # Resolve first; never allow a ref value to become a git option.
         base = subprocess.check_output(
@@ -110,28 +146,13 @@ def main():
             ],
             text=True,
         ).strip()
-        diff = subprocess.check_output(
-            [
-                "git",
-                "-c",
-                "core.quotePath=false",
-                "diff",
-                "--no-ext-diff",
-                "--unified=0",
-                base,
-                "HEAD",
-                "--",
-                "smart_ai_router",
-                "scripts",
-            ],
-            text=True,
-        )
+        changed = git_changed_lines(base)
     change = generate(
         json.loads(args.report.read_text()),
         args.output,
         args.revision,
         [json.loads(path.read_text()) for path in args.history],
-        diff,
+        changed,
     )
 
     if args.min_diff_coverage:

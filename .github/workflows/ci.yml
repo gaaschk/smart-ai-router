@@ -69,7 +69,15 @@ jobs:
             args+=(--base-ref "$BASE_REF" --min-diff-coverage 80)
           fi
           .venv/bin/python scripts/coverage_dashboard.py --revision "$GITHUB_SHA" --history docs/coverage/baseline.json "${args[@]}"
-          cat coverage-dashboard/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish coverage dashboard summary
+        if: always()
+        run: |
+          if [[ -f coverage-dashboard/summary.md ]]; then
+            cat coverage-dashboard/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'Coverage dashboard unavailable: report generation failed. See failed step logs.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Check measured coverage floor
         if: always()
