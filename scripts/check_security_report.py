@@ -1,5 +1,6 @@
 """Fail on unreviewed medium/high Bandit findings; keep known risks explicit."""
 
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -17,15 +18,21 @@ def fingerprint(finding):
 def check(report, baseline):
     if report.get("errors"):
         raise ValueError("Bandit could not scan all requested files")
-    reviewed = {
+    # A reviewed occurrence grants one match, not an unlimited exemption.
+    # Fingerprints still omit line numbers so ordinary source shifts are safe.
+    reviewed = Counter(
         item["fingerprint"] for item in baseline["findings"] if item.get("reason")
-    }
-    return [
-        item
-        for item in report["results"]
-        if item["issue_severity"] in {"MEDIUM", "HIGH"}
-        and fingerprint(item) not in reviewed
-    ]
+    )
+    new = []
+    for item in report["results"]:
+        if item["issue_severity"] not in {"MEDIUM", "HIGH"}:
+            continue
+        key = fingerprint(item)
+        if reviewed[key]:
+            reviewed[key] -= 1
+        else:
+            new.append(item)
+    return new
 
 
 def main():
