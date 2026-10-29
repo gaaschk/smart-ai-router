@@ -1,4 +1,5 @@
 """Tests for UI-managed runtime settings (DB → env → default precedence)."""
+
 import sqlite3
 import warnings
 
@@ -21,6 +22,7 @@ def _bound_router():
 
 
 # ── Precedence: DB → env → default ──────────────────────────────────────────────
+
 
 def test_default_when_unset(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_OCR_DPI", raising=False)
@@ -58,10 +60,17 @@ def test_unbound_store_uses_env_then_default(monkeypatch):
 
 # ── Typing / validation ─────────────────────────────────────────────────────────
 
+
 def test_bool_coercion(monkeypatch):
     cr = _bound_router()
-    for raw, want in [("true", True), ("1", True), ("yes", True),
-                      ("false", False), ("0", False), ("", False)]:
+    for raw, want in [
+        ("true", True),
+        ("1", True),
+        ("yes", True),
+        ("false", False),
+        ("0", False),
+        ("", False),
+    ]:
         cr.set_setting("enable_bash", raw)
         assert _settings.get("enable_bash") is want
 
@@ -96,8 +105,9 @@ def test_float_coercion_and_round_trip(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_PUBLIC_DAILY_BUDGET", raising=False)
     cr = _bound_router()
     assert _settings.get("public_daily_budget_usd") == 1.00
-    cr.set_setting("public_daily_budget_usd", _settings.normalize(
-        "public_daily_budget_usd", 2.50))
+    cr.set_setting(
+        "public_daily_budget_usd", _settings.normalize("public_daily_budget_usd", 2.50)
+    )
     assert _settings.get("public_daily_budget_usd") == 2.50
     # A dollar cap of zero is a legitimate choice ("no paid spend"), not garbage.
     assert _settings.normalize("public_daily_budget_usd", 0) == "0.0"
@@ -116,8 +126,12 @@ def test_numeric_specs_reject_negatives():
     dead code — and a negative tier ceiling or window is nonsense that would be
     stored silently."""
     _bound_router()
-    for key in ("public_max_tier", "public_rl_window_s", "public_max_output_tokens",
-                "public_daily_budget_usd"):
+    for key in (
+        "public_max_tier",
+        "public_rl_window_s",
+        "public_max_output_tokens",
+        "public_daily_budget_usd",
+    ):
         with pytest.raises(ValueError):
             _settings.normalize(key, -1)
     assert _settings.normalize("public_max_tier", 0) == "0"
@@ -138,6 +152,7 @@ def test_effective_covers_all_specs():
 
 
 # ── Store round-trip + migration ────────────────────────────────────────────────
+
 
 def test_store_setting_roundtrip():
     store = SqliteStore(":memory:")
@@ -163,6 +178,7 @@ def test_settings_migration_on_preexisting_db(tmp_path):
 
 # ── Live behavior: denylist reads DB over env ───────────────────────────────────
 
+
 def test_denylist_reads_db_over_env(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_MODEL_DENYLIST", "from-env")
     cr = _bound_router()
@@ -172,6 +188,7 @@ def test_denylist_reads_db_over_env(monkeypatch):
 
 
 # ── Endpoint: admin-gating + persistence ────────────────────────────────────────
+
 
 def _client(cr):
     with warnings.catch_warnings():
@@ -198,9 +215,16 @@ def test_settings_require_admin(monkeypatch):
     # Non-admin per-user key → 403 from _require_admin.
     from smart_ai_router.apikeys import generate_key, hash_key, display_prefix
     from smart_ai_router.models import ApiKey
+
     plaintext = generate_key()
-    cr.create_api_key(ApiKey(key_hash=hash_key(plaintext), user="bob",
-                             key_prefix=display_prefix(plaintext), enabled=True))
+    cr.create_api_key(
+        ApiKey(
+            key_hash=hash_key(plaintext),
+            user="bob",
+            key_prefix=display_prefix(plaintext),
+            enabled=True,
+        )
+    )
     r = client.get("/api/settings", headers={"Authorization": f"Bearer {plaintext}"})
     assert r.status_code == 403
 
@@ -210,8 +234,11 @@ def test_put_settings_persists_and_applies(monkeypatch):
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
     hdr = {"Authorization": f"Bearer {_ADMIN}"}
-    r = client.put("/api/settings", headers=hdr,
-                   json={"updates": {"enable_bash": True, "ocr_dpi": 300}})
+    r = client.put(
+        "/api/settings",
+        headers=hdr,
+        json={"updates": {"enable_bash": True, "ocr_dpi": 300}},
+    )
     assert r.status_code == 200
     assert cr.get_setting("enable_bash") == "true"
     assert cr.get_setting("ocr_dpi") == "300"
@@ -226,12 +253,14 @@ def test_put_settings_rejects_bad_value(monkeypatch):
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
     hdr = {"Authorization": f"Bearer {_ADMIN}"}
-    r = client.put("/api/settings", headers=hdr,
-                   json={"updates": {"ocr_dpi": "not-a-number"}})
+    r = client.put(
+        "/api/settings", headers=hdr, json={"updates": {"ocr_dpi": "not-a-number"}}
+    )
     assert r.status_code == 422
 
 
 # ── The triage model refuses "auto" ─────────────────────────────────────────────
+
 
 def test_classifier_model_rejects_auto():
     """Routing triage is a measured regression, not a preference — see
@@ -259,22 +288,29 @@ def test_put_settings_rejects_auto_triage(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
-    r = client.put("/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"},
-                   json={"updates": {"classifier_model": "auto"}})
+    r = client.put(
+        "/api/settings",
+        headers={"Authorization": f"Bearer {_ADMIN}"},
+        json={"updates": {"classifier_model": "auto"}},
+    )
     assert r.status_code == 422
-    assert cr.get_setting("classifier_model") is None   # nothing persisted
+    assert cr.get_setting("classifier_model") is None  # nothing persisted
 
 
 # ── Advisories ride along with the settings payload ─────────────────────────────
+
 
 def test_settings_response_carries_a_classifier_advisory(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "not-pulled:9b")
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
-    rows = {s["key"]: s for s in client.get(
-        "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
-    ).json()["settings"]}
+    rows = {
+        s["key"]: s
+        for s in client.get(
+            "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
+        ).json()["settings"]
+    }
     assert "not in the model catalog" in rows["classifier_model"]["warning"]
     # Every other setting stays quiet — an advisory is per-key, not a banner.
     assert rows["ocr_dpi"]["warning"] == ""
@@ -286,10 +322,20 @@ def test_a_healthy_classifier_pin_produces_no_advisory(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "llama3.1:8b")
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
-    cr.upsert_model(ModelSpec(value="ollama/llama3.1:8b", provider="ollama",
-                              cost=0, reliability=1.0, structured_outputs=True))
+    cr.upsert_model(
+        ModelSpec(
+            value="ollama/llama3.1:8b",
+            provider="ollama",
+            cost=0,
+            reliability=1.0,
+            structured_outputs=True,
+        )
+    )
     client = _client(cr)
-    rows = {s["key"]: s for s in client.get(
-        "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
-    ).json()["settings"]}
+    rows = {
+        s["key"]: s
+        for s in client.get(
+            "/api/settings", headers={"Authorization": f"Bearer {_ADMIN}"}
+        ).json()["settings"]
+    }
     assert rows["classifier_model"]["warning"] == ""

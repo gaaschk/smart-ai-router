@@ -70,6 +70,7 @@ Usage:
   python scripts/bakeoff_orchestrator.py openrouter/z-ai/glm-5.3-flash ...
   python scripts/bakeoff_orchestrator.py --selftest  # scoring checks, no network
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -130,7 +131,10 @@ TOOLS = [
             "description": "Search the workspace for a regex and return matching lines.",
             "parameters": {
                 "type": "object",
-                "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string"},
+                },
                 "required": ["pattern"],
             },
         },
@@ -160,10 +164,10 @@ SYSTEM = (
 class Case:
     name: str
     messages: list[dict]
-    expect: str                            # "call" | "prose" | "either"
-    want_tool: tuple[str, ...] = ()        # any one of these is the right tool
-    want_args: tuple[str, ...] = ()        # argument keys the call must carry
-    forbid: tuple[str, ...] = ()           # calling one of these = stalled loop
+    expect: str  # "call" | "prose" | "either"
+    want_tool: tuple[str, ...] = ()  # any one of these is the right tool
+    want_args: tuple[str, ...] = ()  # argument keys the call must carry
+    forbid: tuple[str, ...] = ()  # calling one of these = stalled loop
     # {tool name: required keys} straight from the offered schemas, so a replayed
     # turn checks the arguments of whichever tool the model actually picked
     # instead of a list written for one expected tool. Empty for the synthetic
@@ -178,7 +182,9 @@ def _turn(user: str) -> list[dict]:
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
 
-def _after_tool(user: str, call_id: str, name: str, args: dict, result: str) -> list[dict]:
+def _after_tool(
+    user: str, call_id: str, name: str, args: dict, result: str
+) -> list[dict]:
     """A continuation turn: the model already called a tool and got a result."""
     return [
         {"role": "system", "content": SYSTEM},
@@ -203,7 +209,9 @@ CASES = [
     Case(
         "read a named file",
         _turn("What Python version does pyproject.toml require?"),
-        expect="call", want_tool=("read_file", "bash"), want_args=("path",),
+        expect="call",
+        want_tool=("read_file", "bash"),
+        want_args=("path",),
     ),
     Case(
         # "path" is not in the prompt, so the model must pick grep over read_file
@@ -211,12 +219,16 @@ CASES = [
         # call scores as args-ok, which is why want_tool is checked first.
         "find where a symbol is defined",
         _turn("Where is AGENTIC_FLOOR defined?"),
-        expect="call", want_tool=("grep", "bash"), want_args=("pattern",),
+        expect="call",
+        want_tool=("grep", "bash"),
+        want_args=("pattern",),
     ),
     Case(
         "run the tests",
         _turn("Run the test suite and tell me if it passes."),
-        expect="call", want_tool=("bash",), want_args=("command",),
+        expect="call",
+        want_tool=("bash",),
+        want_args=("command",),
     ),
     Case(
         # Reading before an exact-string edit is correct, not a miss: all three
@@ -230,7 +242,8 @@ CASES = [
             "In smart_ai_router/router.py the default min_reliability is 0.70. "
             "Change it to 0.75."
         ),
-        expect="call", want_tool=("edit_file", "read_file", "grep"),
+        expect="call",
+        want_tool=("edit_file", "read_file", "grep"),
         want_args=("path",),
     ),
     # ── Restraint: prose is the right answer ─────────────────────────────────
@@ -255,28 +268,37 @@ CASES = [
         "continue after a successful read",
         _after_tool(
             "Add a one-line docstring to the helper in utils.py.",
-            "call_1", "read_file", {"path": "utils.py"},
-            'def clamp(v, lo, hi):\n    return max(lo, min(hi, v))\n',
+            "call_1",
+            "read_file",
+            {"path": "utils.py"},
+            "def clamp(v, lo, hi):\n    return max(lo, min(hi, v))\n",
         ),
-        expect="call", want_tool=("edit_file",),
-        want_args=("path", "old_string", "new_string"), forbid=("read_file",),
+        expect="call",
+        want_tool=("edit_file",),
+        want_args=("path", "old_string", "new_string"),
+        forbid=("read_file",),
     ),
     Case(
         "recover from a failed read",
         _after_tool(
             "Show me what's in config/settings.yaml.",
-            "call_2", "read_file", {"path": "config/settings.yaml"},
+            "call_2",
+            "read_file",
+            {"path": "config/settings.yaml"},
             "Error: ENOENT: no such file or directory",
         ),
         # Either look elsewhere or say it's missing — but not the same call again.
-        expect="either", want_tool=("grep", "bash", "read_file"),
+        expect="either",
+        want_tool=("grep", "bash", "read_file"),
         forbid=(),
     ),
     Case(
         "stop when the work is done",
         _after_tool(
             "Run the test suite and tell me if it passes.",
-            "call_3", "bash", {"command": "pytest -q"},
+            "call_3",
+            "bash",
+            {"command": "pytest -q"},
             "144 passed, 0 failed in 12.03s",
         ),
         expect="prose",
@@ -366,15 +388,16 @@ def replay_cases(rows: list[dict]) -> list[Case]:
                 required[name] = tuple(params.get("required") or ())
         ref = row.get("reference") or {}
         ref_calls = ref.get("tool_calls") or []
-        ref_name = ((ref_calls[0].get("function") or {}).get("name")
-                    if ref_calls else "")
-        cases.append(Case(
-            name=f"{i:03d} {row.get('lane', '?')} ref={ref_name or 'prose'}",
-            messages=row.get("messages") or [],
-            expect="call" if ref_calls else "prose",
-            required_args=required,
-            tools=tools or None,
-        ))
+        ref_name = (ref_calls[0].get("function") or {}).get("name") if ref_calls else ""
+        cases.append(
+            Case(
+                name=f"{i:03d} {row.get('lane', '?')} ref={ref_name or 'prose'}",
+                messages=row.get("messages") or [],
+                expect="call" if ref_calls else "prose",
+                required_args=required,
+                tools=tools or None,
+            )
+        )
     return cases
 
 
@@ -405,8 +428,9 @@ class Result:
         return sum(self.counts.values()) + self.http_err
 
 
-async def bench(cr: CapabilityRouter, model: str,
-                cases: list[Case], repeats: int) -> Result:
+async def bench(
+    cr: CapabilityRouter, model: str, cases: list[Case], repeats: int
+) -> Result:
     spec = cr.get_model(model)
     base_url, api_key, real_model = _resolve_provider(model, cr)
     res = Result(model=model)
@@ -471,19 +495,29 @@ def _candidates(cr: CapabilityRouter) -> tuple[list[str], list[str]]:
 def _pool_report(cr: CapabilityRouter) -> None:
     by_name, measured = _candidates(cr)
     models = {s.value: s for s in cr.all_models()}
-    print(f"\ntool eligibility — tools supported, no failed probe: {len(by_name)} models")
+    print(
+        f"\ntool eligibility — tools supported, no failed probe: {len(by_name)} models"
+    )
     for v in sorted(by_name, key=lambda v: models[v].cost_input)[:12]:
         s = models[v]
-        print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")
-    print(f"\nmeasured rule — tools and agentic >= {AGENTIC_FLOOR}: {len(measured)} models")
+        print(
+            f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}"
+        )
+    print(
+        f"\nmeasured rule — tools and agentic >= {AGENTIC_FLOOR}: {len(measured)} models"
+    )
     for v in measured[:12]:
         s = models[v]
-        print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")
+        print(
+            f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}"
+        )
     only_name = [v for v in by_name if models[v].agentic < AGENTIC_FLOOR]
     print(f"\ntool-eligible but unmeasured or below the floor: {len(only_name)}")
     for v in sorted(only_name, key=lambda v: models[v].cost_input, reverse=True)[:8]:
         s = models[v]
-        print(f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}")
+        print(
+            f"  {s.agentic:>6.3f} agentic  ${s.cost_input:>7.3f}/${s.cost_output:<7.3f}  {v}"
+        )
 
 
 def _default_models(cr: CapabilityRouter) -> list[str]:
@@ -501,19 +535,31 @@ def _default_models(cr: CapabilityRouter) -> list[str]:
 
 def _report(rows: list[Result], cases: list[Case], repeats: int) -> None:
     print("\n" + "=" * 108)
-    print(f"{'model':<44}{'ok':>5}{'MISS':>6}{'over':>6}{'wrong':>7}"
-          f"{'bad':>5}{'stall':>7}{'4xx':>5}{'p50':>8}{'$':>9}")
+    print(
+        f"{'model':<44}{'ok':>5}{'MISS':>6}{'over':>6}{'wrong':>7}"
+        f"{'bad':>5}{'stall':>7}{'4xx':>5}{'p50':>8}{'$':>9}"
+    )
     # Sorted by the failures that execute something wrong (bad_args, stalled)
     # before the ones that merely waste a turn.
-    for r in sorted(rows, key=lambda r: (r.counts["bad_args"] + r.counts["stalled"],
-                                         r.http_err, -r.counts["ok"])):
+    for r in sorted(
+        rows,
+        key=lambda r: (
+            r.counts["bad_args"] + r.counts["stalled"],
+            r.http_err,
+            -r.counts["ok"],
+        ),
+    ):
         p50 = statistics.median(r.lat) if r.lat else 0.0
-        print(f"{r.model:<44}{r.counts['ok']:>5}{r.counts['missed_call']:>6}"
-              f"{r.counts['over_call']:>6}{r.counts['wrong_tool']:>7}"
-              f"{r.counts['bad_args']:>5}{r.counts['stalled']:>7}{r.http_err:>5}"
-              f"{p50:>7.2f}s{r.cost:>9.4f}")
-    print(f"\n{len(cases)} cases x {repeats} repeats; "
-          f"'ok' is out of {len(cases) * repeats}.")
+        print(
+            f"{r.model:<44}{r.counts['ok']:>5}{r.counts['missed_call']:>6}"
+            f"{r.counts['over_call']:>6}{r.counts['wrong_tool']:>7}"
+            f"{r.counts['bad_args']:>5}{r.counts['stalled']:>7}{r.http_err:>5}"
+            f"{p50:>7.2f}s{r.cost:>9.4f}"
+        )
+    print(
+        f"\n{len(cases)} cases x {repeats} repeats; "
+        f"'ok' is out of {len(cases) * repeats}."
+    )
 
 
 def _selftest() -> None:
@@ -537,30 +583,53 @@ def _selftest() -> None:
     # The continuation cases: repeating the call already answered is a stall,
     # whether it is named in `forbid` or matched against the transcript.
     assert score(cont, tc("read_file", {"path": "utils.py"})) == "stalled"
-    assert score(cont, tc("edit_file", {"path": "utils.py", "old_string": "a",
-                                        "new_string": "b"})) == "ok"
+    assert (
+        score(
+            cont,
+            tc("edit_file", {"path": "utils.py", "old_string": "a", "new_string": "b"}),
+        )
+        == "ok"
+    )
     retry = next(c for c in CASES if c.name == "recover from a failed read")
     assert score(retry, tc("read_file", {"path": "config/settings.yaml"})) == "stalled"
     assert score(retry, tc("grep", {"pattern": "settings"})) == "ok"
     assert score(retry, {"content": "That file does not exist."}) == "ok"
     # Cost is measured from the response, not the price list.
     spec = ModelSpec(value="x", cost_input=3.0, cost_output=15.0)
-    assert abs(_cost(spec, {"prompt_tokens": 1_000_000,
-                            "completion_tokens": 0}) - 3.0) < 1e-9
+    assert (
+        abs(_cost(spec, {"prompt_tokens": 1_000_000, "completion_tokens": 0}) - 3.0)
+        < 1e-9
+    )
 
     # ── Replay: a captured turn becomes a case with the incumbent as reference ──
     captured = [
         {
             "lane": "orchestrator",
             "messages": [{"role": "user", "content": "read setup.py"}],
-            "tools": [{"type": "function", "function": {
-                "name": "Read",
-                "parameters": {"type": "object",
-                               "properties": {"file_path": {"type": "string"}},
-                               "required": ["file_path"]}}}],
-            "reference": {"tool_calls": [{"function": {
-                "name": "Read", "arguments": '{"file_path": "setup.py"}'}}],
-                "content_len": 0},
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "Read",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"file_path": {"type": "string"}},
+                            "required": ["file_path"],
+                        },
+                    },
+                }
+            ],
+            "reference": {
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "Read",
+                            "arguments": '{"file_path": "setup.py"}',
+                        }
+                    }
+                ],
+                "content_len": 0,
+            },
         },
         {
             "lane": "orchestrator",
@@ -577,7 +646,9 @@ def _selftest() -> None:
     assert r_call.want_tool == ()
     assert score(r_call, tc("Read", {"file_path": "setup.py"})) == "ok"
     assert score(r_call, tc("Read", {})) == "bad_args"
-    assert score(r_call, tc("Grep", {"pattern": "x"})) == "ok"  # not the ref, still fine
+    assert (
+        score(r_call, tc("Grep", {"pattern": "x"})) == "ok"
+    )  # not the ref, still fine
     assert score(r_prose, {"content": "Don't repeat yourself."}) == "ok"
     assert score(r_prose, tc("Read", {"file_path": "x"})) == "over_call"
     print("selftest ok")
@@ -600,17 +671,20 @@ async def main() -> None:
     if "--replay" in args:
         rows_in = _capture.load()
         if not rows_in:
-            print(f"no captured turns in {_capture.capture_path()} — set "
-                  f"'Capture tool-loop turns (%)' on the Settings page, drive "
-                  f"some tool traffic, then re-run.")
+            print(
+                f"no captured turns in {_capture.capture_path()} — set "
+                f"'Capture tool-loop turns (%)' on the Settings page, drive "
+                f"some tool traffic, then re-run."
+            )
             return
         cases, repeats = replay_cases(rows_in), 1
-        print(f"corpus: {len(cases)} captured turns from "
-              f"{_capture.capture_path()}")
+        print(f"corpus: {len(cases)} captured turns from {_capture.capture_path()}")
     else:
         cases, repeats = CASES, REPEATS
-        print(f"corpus: {len(CASES)} synthetic cases x {REPEATS} repeats — "
-              f"see module docstring, and --replay")
+        print(
+            f"corpus: {len(CASES)} synthetic cases x {REPEATS} repeats — "
+            f"see module docstring, and --replay"
+        )
 
     models = [a for a in args if not a.startswith("--")] or _default_models(cr)
     rows = []
@@ -619,8 +693,10 @@ async def main() -> None:
         r = await bench(cr, m, cases, repeats)
         rows.append(r)
         c = r.counts
-        print(f"  called    {c['ok'] + c['bad_args'] + c['wrong_tool']}/{r.total}"
-              f"  (missed {c['missed_call']}, 4xx {r.http_err})")
+        print(
+            f"  called    {c['ok'] + c['bad_args'] + c['wrong_tool']}/{r.total}"
+            f"  (missed {c['missed_call']}, 4xx {r.http_err})"
+        )
         print(f"  args      {c['bad_args']} malformed")
         print(f"  restraint {c['over_call']} unwanted calls")
         print(f"  progress  {c['stalled']} stalled repeats")

@@ -18,6 +18,7 @@ Path resolution defends against traversal (`..`), absolute-path escapes
 out): the final resolved real path must live under the resolved workspace root,
 checked with a boundary test that can't be fooled by a shared name prefix.
 """
+
 from __future__ import annotations
 
 import os

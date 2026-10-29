@@ -1,4 +1,5 @@
 """Tests for the SQLite chat-history store (conversations + messages)."""
+
 from smart_ai_router.models import ChatMessage, Conversation, generate_conversation_id
 from smart_ai_router.store.sqlite_store import SqliteStore
 
@@ -34,9 +35,15 @@ def test_get_unknown_returns_none():
 def test_messages_get_sequential_ordinals_in_send_order():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())
-    store.add_chat_message(ChatMessage(conversation_id=conv.id, role="user", content="hi"))
-    store.add_chat_message(ChatMessage(conversation_id=conv.id, role="assistant", content="hello"))
-    store.add_chat_message(ChatMessage(conversation_id=conv.id, role="user", content="bye"))
+    store.add_chat_message(
+        ChatMessage(conversation_id=conv.id, role="user", content="hi")
+    )
+    store.add_chat_message(
+        ChatMessage(conversation_id=conv.id, role="assistant", content="hello")
+    )
+    store.add_chat_message(
+        ChatMessage(conversation_id=conv.id, role="user", content="bye")
+    )
 
     msgs = store.list_chat_messages(conv.id)
     assert [m.ordinal for m in msgs] == [0, 1, 2]
@@ -47,10 +54,14 @@ def test_messages_get_sequential_ordinals_in_send_order():
 def test_content_json_flag_round_trips():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())
-    store.add_chat_message(ChatMessage(
-        conversation_id=conv.id, role="user",
-        content='[{"type": "text", "text": "hi"}]', content_json=True,
-    ))
+    store.add_chat_message(
+        ChatMessage(
+            conversation_id=conv.id,
+            role="user",
+            content='[{"type": "text", "text": "hi"}]',
+            content_json=True,
+        )
+    )
     msg = store.list_chat_messages(conv.id)[0]
     assert msg.content_json is True
     assert msg.content == '[{"type": "text", "text": "hi"}]'
@@ -61,7 +72,12 @@ def test_adding_message_bumps_updated_at():
     conv = store.create_conversation(_conv())
     original = conv.updated_at
     msg = store.add_chat_message(
-        ChatMessage(conversation_id=conv.id, role="user", content="x", ts="2099-01-01T00:00:00+00:00")
+        ChatMessage(
+            conversation_id=conv.id,
+            role="user",
+            content="x",
+            ts="2099-01-01T00:00:00+00:00",
+        )
     )
     refreshed = store.get_conversation(conv.id)
     assert refreshed.updated_at == msg.ts == "2099-01-01T00:00:00+00:00"
@@ -82,11 +98,17 @@ def test_update_unknown_returns_false():
 
 # ── Tags (grouping) ────────────────────────────────────────────────────────────
 
+
 def test_tags_round_trip_on_create_and_list():
     store = SqliteStore(":memory:")
-    conv = store.create_conversation(Conversation(
-        id=generate_conversation_id(), user="alice", title="A", tags=["work", "cost"]
-    ))
+    conv = store.create_conversation(
+        Conversation(
+            id=generate_conversation_id(),
+            user="alice",
+            title="A",
+            tags=["work", "cost"],
+        )
+    )
     assert sorted(store.get_conversation(conv.id).tags) == ["cost", "work"]
     assert sorted(store.list_conversations("alice")[0].tags) == ["cost", "work"]
 
@@ -149,6 +171,7 @@ def test_delete_cascades_tags():
 
 # ── Sharing with admin ─────────────────────────────────────────────────────────
 
+
 def test_conversations_are_shared_by_default():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())
@@ -159,15 +182,22 @@ def test_conversations_are_shared_by_default():
 def test_private_thread_is_hidden_from_other_callers_but_not_its_owner():
     store = SqliteStore(":memory:")
     open_thread = store.create_conversation(_conv(title="shared"))
-    secret = store.create_conversation(Conversation(
-        id=generate_conversation_id(), user="alice", title="secret", shared=False
-    ))
+    secret = store.create_conversation(
+        Conversation(
+            id=generate_conversation_id(), user="alice", title="secret", shared=False
+        )
+    )
 
     # The owner sees both; anyone else (admin's cross-user view) sees only the shared.
-    assert {c.title for c in store.list_conversations(caller="alice")} == {"shared", "secret"}
+    assert {c.title for c in store.list_conversations(caller="alice")} == {
+        "shared",
+        "secret",
+    }
     assert {c.title for c in store.list_conversations(caller="admin")} == {"shared"}
     # Scoping to alice as someone else still hides it.
-    assert [c.title for c in store.list_conversations("alice", caller="admin")] == ["shared"]
+    assert [c.title for c in store.list_conversations("alice", caller="admin")] == [
+        "shared"
+    ]
     # caller=None is the fail-safe default: shared only.
     assert [c.title for c in store.list_conversations("alice")] == ["shared"]
     # get_conversation is unfiltered on purpose — the route layer decides who may see
@@ -193,11 +223,18 @@ def test_update_toggles_sharing_without_touching_title_or_recency():
 
 def test_private_threads_are_excluded_from_tag_filters_for_others():
     store = SqliteStore(":memory:")
-    secret = store.create_conversation(Conversation(
-        id=generate_conversation_id(), user="alice", title="secret",
-        shared=False, tags=["work"],
-    ))
-    assert [c.title for c in store.list_conversations(tag="work", caller="alice")] == ["secret"]
+    secret = store.create_conversation(
+        Conversation(
+            id=generate_conversation_id(),
+            user="alice",
+            title="secret",
+            shared=False,
+            tags=["work"],
+        )
+    )
+    assert [c.title for c in store.list_conversations(tag="work", caller="alice")] == [
+        "secret"
+    ]
     assert store.list_conversations(tag="work", caller="admin") == []
     assert store.get_conversation(secret.id).tags == ["work"]
 
@@ -205,9 +242,11 @@ def test_private_threads_are_excluded_from_tag_filters_for_others():
 def test_owner_with_only_private_threads_is_not_a_listed_user():
     store = SqliteStore(":memory:")
     store.create_conversation(_conv(user="bob"))
-    store.create_conversation(Conversation(
-        id=generate_conversation_id(), user="ghost", title="hidden", shared=False
-    ))
+    store.create_conversation(
+        Conversation(
+            id=generate_conversation_id(), user="ghost", title="hidden", shared=False
+        )
+    )
     # Appearing in the owner picker would itself report that "ghost" exists.
     assert store.list_conversation_users(caller="admin") == ["bob"]
     assert store.list_conversation_users() == ["bob"]
@@ -218,8 +257,12 @@ def test_owner_with_only_private_threads_is_not_a_listed_user():
 def test_delete_cascades_messages():
     store = SqliteStore(":memory:")
     conv = store.create_conversation(_conv())
-    store.add_chat_message(ChatMessage(conversation_id=conv.id, role="user", content="a"))
-    store.add_chat_message(ChatMessage(conversation_id=conv.id, role="user", content="b"))
+    store.add_chat_message(
+        ChatMessage(conversation_id=conv.id, role="user", content="a")
+    )
+    store.add_chat_message(
+        ChatMessage(conversation_id=conv.id, role="user", content="b")
+    )
 
     assert store.delete_conversation(conv.id) is True
     assert store.get_conversation(conv.id) is None
@@ -238,7 +281,12 @@ def test_list_orders_newest_updated_first():
     c2 = store.create_conversation(_conv(title="second"))
     # Touch c1 with a far-future ts so it sorts ahead of c2.
     store.add_chat_message(
-        ChatMessage(conversation_id=c1.id, role="user", content="x", ts="2099-01-01T00:00:00+00:00")
+        ChatMessage(
+            conversation_id=c1.id,
+            role="user",
+            content="x",
+            ts="2099-01-01T00:00:00+00:00",
+        )
     )
     titles = [c.title for c in store.list_conversations("alice")]
     assert titles[0] == "first"

@@ -1,4 +1,5 @@
 """Integration test: per-user quota returns 429 before forwarding."""
+
 import warnings
 
 import pytest
@@ -27,21 +28,32 @@ def _auth(token):
 def setup(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     store = SqliteStore(":memory:")
-    store.upsert_model(ModelSpec(
-        "ollama/llama3.1:8b", provider="ollama", cost=0,
-        reliability=1.0, tools=True, competence={"general": 0.85, "coding": 0.85},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            "ollama/llama3.1:8b",
+            provider="ollama",
+            cost=0,
+            reliability=1.0,
+            tools=True,
+            competence={"general": 0.85, "coding": 0.85},
+        )
+    )
     cr = CapabilityRouter(store=store)
     return _client(cr), cr
 
 
 def _mint_key(cr, *, rl_window_s=0, rl_max_req=0, rl_max_tokens=0):
     plaintext = generate_key()
-    cr.create_api_key(ApiKey(
-        key_hash=hash_key(plaintext), user="quota-user",
-        key_prefix=display_prefix(plaintext),
-        rl_window_s=rl_window_s, rl_max_req=rl_max_req, rl_max_tokens=rl_max_tokens,
-    ))
+    cr.create_api_key(
+        ApiKey(
+            key_hash=hash_key(plaintext),
+            user="quota-user",
+            key_prefix=display_prefix(plaintext),
+            rl_window_s=rl_window_s,
+            rl_max_req=rl_max_req,
+            rl_max_tokens=rl_max_tokens,
+        )
+    )
     return plaintext
 
 
@@ -53,8 +65,7 @@ def test_request_quota_returns_429(setup):
 
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "smart-worker",
-              "messages": [{"role": "user", "content": "hi"}]},
+        json={"model": "smart-worker", "messages": [{"role": "user", "content": "hi"}]},
         headers=_auth(key),
     )
     assert resp.status_code == 429
@@ -70,8 +81,7 @@ def test_no_limits_key_is_not_rate_checked(setup):
     # assert the quota gate didn't fire (429 would come before forwarding).
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "smart-worker",
-              "messages": [{"role": "user", "content": "hi"}]},
+        json={"model": "smart-worker", "messages": [{"role": "user", "content": "hi"}]},
         headers=_auth(key),
     )
     assert resp.status_code != 429

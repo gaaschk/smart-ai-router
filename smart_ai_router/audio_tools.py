@@ -4,6 +4,7 @@ Private designed voices use ElevenLabs directly: OpenRouter's speech endpoint
 does not provide voice design or guaranteed access to an account's private voices.
 Credentials remain in the server environment, never in the shell or tool arguments.
 """
+
 from __future__ import annotations
 
 import base64
@@ -37,16 +38,25 @@ def _id(value: str) -> str:
 def _post(path: str, body: dict, *, audio: bool = False):
     key = settings.get_str("elevenlabs_api_key").strip()
     if not key:
-        raise ValueError("Add your ElevenLabs API key in Settings → Voice. "
-                         "An OpenRouter key cannot create private ElevenLabs voices.")
+        raise ValueError(
+            "Add your ElevenLabs API key in Settings → Voice. "
+            "An OpenRouter key cannot create private ElevenLabs voices."
+        )
     with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
-        response = client.post(f"{_BASE}/{path}", headers={"xi-api-key": key},
-                               json=body, params={"output_format": "mp3_44100_128"} if audio else None)
+        response = client.post(
+            f"{_BASE}/{path}",
+            headers={"xi-api-key": key},
+            json=body,
+            params={"output_format": "mp3_44100_128"} if audio else None,
+        )
     if response.status_code != 200:
         detail = response.text.replace(key, "[redacted]")[:500]
         raise ValueError(f"ElevenLabs returned {response.status_code}: {detail}")
     if audio:
-        if response.headers.get("content-type", "").split(";", 1)[0].lower() not in ("audio/mpeg", "audio/mp3"):
+        if response.headers.get("content-type", "").split(";", 1)[0].lower() not in (
+            "audio/mpeg",
+            "audio/mp3",
+        ):
             raise ValueError("ElevenLabs returned a non-audio response")
         if not 0 < len(response.content) <= _MAX_AUDIO:
             raise ValueError("ElevenLabs returned empty or oversized audio")
@@ -80,22 +90,46 @@ def execute_audio_tool(user: str, name: str, args: dict, register_file) -> str:
     try:
         if name == "list_audio_voices":
             directory = resolve_in_workspace(user, "audio/voices")
-            voices = [json.loads(resolve_in_workspace(user, f"audio/voices/{p.name}").read_text())
-                      for p in sorted(directory.glob("*.json"))] if directory.exists() else []
+            voices = (
+                [
+                    json.loads(
+                        resolve_in_workspace(user, f"audio/voices/{p.name}").read_text()
+                    )
+                    for p in sorted(directory.glob("*.json"))
+                ]
+                if directory.exists()
+                else []
+            )
             preview_dir = resolve_in_workspace(user, "audio/previews")
-            previews = [json.loads(resolve_in_workspace(user, f"audio/previews/{p.name}").read_text())
-                        for p in preview_dir.glob("*.json")] if preview_dir.exists() else []
-            previews = sorted((p for p in previews if not p.get("voice_id")),
-                              key=lambda p: (p["created_at"], p["preview_number"]))
+            previews = (
+                [
+                    json.loads(
+                        resolve_in_workspace(
+                            user, f"audio/previews/{p.name}"
+                        ).read_text()
+                    )
+                    for p in preview_dir.glob("*.json")
+                ]
+                if preview_dir.exists()
+                else []
+            )
+            previews = sorted(
+                (p for p in previews if not p.get("voice_id")),
+                key=lambda p: (p["created_at"], p["preview_number"]),
+            )
             return json.dumps({"voices": voices, "previews": previews})
         if name == "design_voice":
             description = _text(args, "description", 20, 1000)
             if register_file is None:
                 raise ValueError("Audio downloads are unavailable for this request")
-            result = _post("text-to-voice/design", {
-                "voice_description": description, "model_id": "eleven_ttv_v3",
-                "auto_generate_text": True,
-            })
+            result = _post(
+                "text-to-voice/design",
+                {
+                    "voice_description": description,
+                    "model_id": "eleven_ttv_v3",
+                    "auto_generate_text": True,
+                },
+            )
             previews = result.get("previews") or []
             if not previews or len(previews) > 3:
                 raise ValueError("ElevenLabs returned no previews or too many previews")
@@ -105,34 +139,63 @@ def execute_audio_tool(user: str, name: str, args: dict, register_file) -> str:
                 if len(encoded) > _MAX_AUDIO * 4 // 3 + 4:
                     raise ValueError("Voice preview exceeds the audio size limit")
                 data = base64.b64decode(encoded, validate=True)
-                if not data or preview.get("media_type") not in ("audio/mpeg", "audio/mp3"):
+                if not data or preview.get("media_type") not in (
+                    "audio/mpeg",
+                    "audio/mp3",
+                ):
                     raise ValueError("ElevenLabs returned an invalid MP3 preview")
                 decoded.append((_id(preview["generated_voice_id"]), data))
             output = []
             created_at = datetime.now(timezone.utc).isoformat()
             for number, (generated_id, data) in enumerate(decoded, 1):
                 preview_id = uuid4().hex
-                link = _download(user, f"audio/previews/{preview_id}.mp3", data, register_file)
-                _store_metadata(user, "previews", preview_id, {
-                    "generated_voice_id": generated_id, "description": description,
-                    "preview_id": preview_id, "preview_number": number,
-                    "created_at": created_at, "download": link,
-                })
+                link = _download(
+                    user, f"audio/previews/{preview_id}.mp3", data, register_file
+                )
+                _store_metadata(
+                    user,
+                    "previews",
+                    preview_id,
+                    {
+                        "generated_voice_id": generated_id,
+                        "description": description,
+                        "preview_id": preview_id,
+                        "preview_number": number,
+                        "created_at": created_at,
+                        "download": link,
+                    },
+                )
                 output.append({"preview_id": preview_id, "download": link})
-            return json.dumps({"previews": output, "preview_text": result.get("text", ""),
-                               "next_step": "Ask the user which preview to save, unless they asked you to choose."})
+            return json.dumps(
+                {
+                    "previews": output,
+                    "preview_text": result.get("text", ""),
+                    "next_step": "Ask the user which preview to save, unless they asked you to choose.",
+                }
+            )
         if name == "save_voice":
             preview_id = _id(_text(args, "preview_id", 1, 100))
             voice_name = _text(args, "name", 1, 100)
             metadata = _metadata(user, "previews", preview_id)
             preview = json.loads(metadata.read_text(encoding="utf-8"))
             if preview.get("voice_id"):
-                return json.dumps({key: preview[key] for key in ("voice_id", "name", "description")})
-            voice = _post("text-to-voice", {"voice_name": voice_name,
-                "voice_description": preview["description"],
-                "generated_voice_id": _id(preview["generated_voice_id"])})
+                return json.dumps(
+                    {key: preview[key] for key in ("voice_id", "name", "description")}
+                )
+            voice = _post(
+                "text-to-voice",
+                {
+                    "voice_name": voice_name,
+                    "voice_description": preview["description"],
+                    "generated_voice_id": _id(preview["generated_voice_id"]),
+                },
+            )
             voice_id = _id(voice["voice_id"])
-            saved = {"voice_id": voice_id, "name": voice_name, "description": preview["description"]}
+            saved = {
+                "voice_id": voice_id,
+                "name": voice_name,
+                "description": preview["description"],
+            }
             _store_metadata(user, "voices", voice_id, saved)
             _store_metadata(user, "previews", preview_id, {**preview, **saved})
             return json.dumps(saved)
@@ -145,7 +208,11 @@ def execute_audio_tool(user: str, name: str, args: dict, register_file) -> str:
                 raise ValueError("Audio output path must end in .mp3")
             if register_file is None:
                 raise ValueError("Audio downloads are unavailable for this request")
-            data = _post(f"text-to-speech/{voice_id}", {"text": text, "model_id": "eleven_v3"}, audio=True)
+            data = _post(
+                f"text-to-speech/{voice_id}",
+                {"text": text, "model_id": "eleven_v3"},
+                audio=True,
+            )
             return "Created audio: " + _download(user, path, data, register_file)
         return f"Error: Unknown audio tool {name!r}"
     except httpx.HTTPError as exc:

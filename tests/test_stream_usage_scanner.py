@@ -6,19 +6,22 @@ top-level `usage` block; the scanner reports it as measured. Providers that
 ignore the flag emit none, so the scanner estimates completion tokens from
 accumulated delta content and prompt tokens from the request messages.
 """
+
 from smart_ai_router.api.proxy import _StreamUsageScanner, _estimate_tokens
 
 
 def _sse(obj):
     import json
+
     return f"data: {json.dumps(obj)}\n\n".encode()
 
 
 def test_extracts_provider_usage_block_when_present():
     scanner = _StreamUsageScanner()
     scanner.feed(_sse({"choices": [{"delta": {"content": "hello"}}]}))
-    scanner.feed(_sse({"choices": [], "usage": {
-        "prompt_tokens": 42, "completion_tokens": 7}}))
+    scanner.feed(
+        _sse({"choices": [], "usage": {"prompt_tokens": 42, "completion_tokens": 7}})
+    )
     scanner.feed(b"data: [DONE]\n\n")
 
     usage, estimated = scanner.resolve([{"role": "user", "content": "hi"}])

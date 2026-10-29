@@ -16,6 +16,7 @@ Supported provider prefixes in the routed model value:
   ollama/<model>               -> stored ollama base_url (default http://localhost:11434)
   bedrock/<model>              -> https://bedrock-runtime.{region}.amazonaws.com/openai/v1
 """
+
 from __future__ import annotations
 
 from functools import partial
@@ -72,10 +73,14 @@ def _agent_tool_schemas(user: str = "") -> list[dict]:
 def _audio_followup(messages: list[dict], prompt: str) -> bool:
     """Keep preview selections in agent mode; explicit Agent Off still wins."""
     previous = next((m for m in reversed(messages) if m.get("role") == "assistant"), {})
-    return (
-        "design_voice(" in _message_text(previous)
-        and bool(re.search(r"\b(use|save|choose|select|pick|first|second|third|preview|[123])\b", prompt, re.I))
+    return "design_voice(" in _message_text(previous) and bool(
+        re.search(
+            r"\b(use|save|choose|select|pick|first|second|third|preview|[123])\b",
+            prompt,
+            re.I,
+        )
     )
+
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
@@ -87,9 +92,15 @@ _ORCHESTRATOR_MARKERS = ("smart-orchestrator", "orchestrator")
 # vendor pin) can be told apart from `smart-opnai` (a typo): the typo has to fail
 # loudly, because silently widening to every vendor looks exactly like a pin that
 # worked, and the caller would never learn its restriction was ignored.
-_OPEN_POOL_NAMES = frozenset({
-    "smart", "smart-auto", "smart-all", "smart-router", "smart-worker",
-})
+_OPEN_POOL_NAMES = frozenset(
+    {
+        "smart",
+        "smart-auto",
+        "smart-all",
+        "smart-router",
+        "smart-worker",
+    }
+)
 
 
 def _pool_pin(requested_model: str) -> str:
@@ -101,7 +112,7 @@ def _pool_pin(requested_model: str) -> str:
     name = requested_model.strip().lower().rsplit("@", 1)[-1]
     if not name.startswith("smart-") or name in _OPEN_POOL_NAMES:
         return ""
-    return name[len("smart-"):]
+    return name[len("smart-") :]
 
 
 def _vendor_tokens(spec: ModelSpec) -> set[str]:
@@ -126,8 +137,10 @@ def _pinned_pool(pin: str, models: list[ModelSpec]) -> list[ModelSpec]:
     vendor — those models ship under x-ai and anthropic. Vendor first so an exact
     vendor never loses to a coincidental substring elsewhere in the catalog.
     """
-    return ([s for s in models if pin in _vendor_tokens(s)]
-            or [s for s in models if pin in s.value.lower()])
+    return [s for s in models if pin in _vendor_tokens(s)] or [
+        s for s in models if pin in s.value.lower()
+    ]
+
 
 def _default_max_tokens() -> int:
     """Output-token ceiling applied when a caller omits max_tokens.
@@ -155,8 +168,9 @@ _UI_CLIENT_VALUE = "ui"
 
 
 def _is_ui_client(request) -> bool:
-    return (request.headers.get(_UI_CLIENT_HEADER) or "").strip().lower() \
-        == _UI_CLIENT_VALUE
+    return (
+        request.headers.get(_UI_CLIENT_HEADER) or ""
+    ).strip().lower() == _UI_CLIENT_VALUE
 
 
 def _rich_output_preamble() -> str:
@@ -212,15 +226,18 @@ def _web_search_plugin(profile, model_value: str) -> list[dict] | None:
     """
     if not _settings.get_bool("web_search_enabled"):
         return None
-    if profile is None or not (profile.needs_current_info()
-                               or "factual_precision" in profile.demands):
+    if profile is None or not (
+        profile.needs_current_info() or "factual_precision" in profile.demands
+    ):
         return None
     if not model_value.startswith("openrouter/"):
         return None
-    return [{
-        "id": "web",
-        "max_results": max(1, _settings.get_int("web_search_max_results")),
-    }]
+    return [
+        {
+            "id": "web",
+            "max_results": max(1, _settings.get_int("web_search_max_results")),
+        }
+    ]
 
 
 def _output_budget(profile, spec=None) -> int:
@@ -347,10 +364,16 @@ def _cache_marked(msg: dict) -> dict | None:
     if isinstance(content, str):
         if not content.strip():
             return None
-        return {**msg, "content": [{
-            "type": "text", "text": content,
-            "cache_control": {"type": "ephemeral"},
-        }]}
+        return {
+            **msg,
+            "content": [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
     if isinstance(content, list):
         for i in range(len(content) - 1, -1, -1):
             block = content[i]
@@ -526,6 +549,7 @@ async def _with_heartbeat(
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _estimate_tokens(text: str) -> int:
     """Rough token count from character length (~4 chars/token). Used as a
     fallback when a streaming provider doesn't return a usage block. Request
@@ -641,7 +665,8 @@ class _StreamUsageScanner:
         """The reassembled calls, in index order and in the shape a non-streamed
         response would have used, so both paths capture the same thing."""
         return [
-            {"function": self._calls[i]} for i in sorted(self._calls)
+            {"function": self._calls[i]}
+            for i in sorted(self._calls)
             if self._calls[i]["name"]
         ]
 
@@ -651,12 +676,12 @@ class _StreamUsageScanner:
         completion tokens from accumulated delta content."""
         if self.usage is not None:
             return self.usage, False
-        prompt_tokens = sum(
-            len(str(m.get("content", ""))) // 4 for m in messages
-        )
+        prompt_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
         return (
-            {"prompt_tokens": prompt_tokens,
-             "completion_tokens": max(0, self._content_len // 4)},
+            {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": max(0, self._content_len // 4),
+            },
             True,
         )
 
@@ -677,7 +702,8 @@ def _message_text(msg: dict) -> str:
         return content
     if isinstance(content, list):
         return " ".join(
-            part.get("text", "") for part in content
+            part.get("text", "")
+            for part in content
             if isinstance(part, dict) and part.get("type") == "text"
         )
     return ""
@@ -752,14 +778,21 @@ def _classify_text(messages: list[dict]) -> str:
     if not earlier:
         return last
     earlier.reverse()
-    return (f"{_CLASSIFY_CONTEXT_HEADING}\n" + "\n\n".join(earlier)
-            + f"\n\n{_CLASSIFY_REQUEST_HEADING}\n{last}")
+    return (
+        f"{_CLASSIFY_CONTEXT_HEADING}\n"
+        + "\n\n".join(earlier)
+        + f"\n\n{_CLASSIFY_REQUEST_HEADING}\n{last}"
+    )
 
 
 def _ollama_base(cr) -> str:
     """OpenAI-compatible base URL for the stored ollama provider (or default)."""
     base_url = next(
-        (p.base_url.rstrip("/") for p in cr.all_providers() if p.kind == "ollama" and p.base_url),
+        (
+            p.base_url.rstrip("/")
+            for p in cr.all_providers()
+            if p.kind == "ollama" and p.base_url
+        ),
         "http://localhost:11434",
     )
     return f"{base_url}/v1"
@@ -783,13 +816,18 @@ def _classifier_targets(cr) -> list[ClassifierTarget]:
     targets: list[ClassifierTarget] = []
     local = classifier_model()
     if local:
-        targets.append(ClassifierTarget(model=local, base_url=_ollama_base(cr), label="llm"))
+        targets.append(
+            ClassifierTarget(model=local, base_url=_ollama_base(cr), label="llm")
+        )
     fallback = classifier_fallback_model()
     or_key = _openrouter_key(cr)
     if fallback and or_key:
         targets.append(
             ClassifierTarget(
-                model=fallback, base_url=_OPENROUTER_BASE, api_key=or_key, label="llm-free"
+                model=fallback,
+                base_url=_OPENROUTER_BASE,
+                api_key=or_key,
+                label="llm-free",
             )
         )
     return targets
@@ -850,14 +888,23 @@ def _bedrock_base(cr) -> tuple[str, str] | None:
     for p in cr.all_providers():
         if p.kind == "bedrock" and p.api_key:
             region = p.base_url.strip() or "us-east-1"
-            return f"https://bedrock-runtime.{region}.amazonaws.com/openai/v1", p.api_key
+            return (
+                f"https://bedrock-runtime.{region}.amazonaws.com/openai/v1",
+                p.api_key,
+            )
     return None
 
 
 def _circuit_policy():
     from smart_ai_router.circuit_breaker import DEFAULTS
-    return {name: (max(1, _settings.get_int(f"circuit_{name}_failures")),
-                   max(1, _settings.get_int(f"circuit_{name}_recovery_seconds"))) for name in DEFAULTS}
+
+    return {
+        name: (
+            max(1, _settings.get_int(f"circuit_{name}_failures")),
+            max(1, _settings.get_int(f"circuit_{name}_recovery_seconds")),
+        )
+        for name in DEFAULTS
+    }
 
 
 @proxy_router.get("/api/provider-circuits")
@@ -866,32 +913,45 @@ async def provider_circuit_status(request: Request):
     if getattr(request.state, "user", "") != "admin":
         raise HTTPException(403, "Admin access required")
     cr = request.app.state.capability_router
-    return {"enabled": _settings.get_bool("provider_circuit_enabled"),
-            "scope": "process", "providers": cr.provider_circuits.snapshot(_circuit_policy())}
+    return {
+        "enabled": _settings.get_bool("provider_circuit_enabled"),
+        "scope": "process",
+        "providers": cr.provider_circuits.snapshot(_circuit_policy()),
+    }
 
 
 def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     """Return (base_url, api_key, real_model_id)."""
     if model_value.startswith("bedrock/"):
-        real_model = model_value[len("bedrock/"):]
+        real_model = model_value[len("bedrock/") :]
         bedrock = _bedrock_base(cr)
         if not bedrock:
-            raise HTTPException(status_code=422, detail="No bedrock provider configured")
+            raise HTTPException(
+                status_code=422, detail="No bedrock provider configured"
+            )
         base_url, api_key = bedrock
         return base_url, api_key, real_model
 
     if model_value.startswith("openrouter/"):
-        real_model = model_value[len("openrouter/"):]
+        real_model = model_value[len("openrouter/") :]
         api_key = next(
-            (p.api_key for p in cr.all_providers() if p.kind == "openrouter" and p.api_key),
+            (
+                p.api_key
+                for p in cr.all_providers()
+                if p.kind == "openrouter" and p.api_key
+            ),
             "",
         )
         return _OPENROUTER_BASE, api_key, real_model
 
     if model_value.startswith("ollama/"):
-        real_model = model_value[len("ollama/"):]
+        real_model = model_value[len("ollama/") :]
         base_url = next(
-            (p.base_url.rstrip("/") for p in cr.all_providers() if p.kind == "ollama" and p.base_url),
+            (
+                p.base_url.rstrip("/")
+                for p in cr.all_providers()
+                if p.kind == "ollama" and p.base_url
+            ),
             "http://localhost:11434",
         )
         return f"{base_url}/v1", "", real_model
@@ -902,7 +962,9 @@ def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
         "",
     )
     if not api_key:
-        raise HTTPException(status_code=422, detail=f"Cannot resolve provider for model {model_value!r}")
+        raise HTTPException(
+            status_code=422, detail=f"Cannot resolve provider for model {model_value!r}"
+        )
     return _OPENROUTER_BASE, api_key, model_value
 
 
@@ -1023,15 +1085,23 @@ def _leaks_tool_call(content: str) -> bool:
     return bool(content) and _LEAKED_CALL.search(content) is not None
 
 
-def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
-               complexity: str, usage: dict | None, status: int,
-               tokens_estimated: bool = False,
-               profile: PromptProfile | None = None,
-               classifier: str = "",
-               started: float = 0.0,
-               tools_offered: bool = False,
-               tool_calls: list | None = None,
-               content: str = "") -> None:
+def _log_usage(
+    cr,
+    request: Request,
+    *,
+    routed_model: str,
+    domain: str,
+    complexity: str,
+    usage: dict | None,
+    status: int,
+    tokens_estimated: bool = False,
+    profile: PromptProfile | None = None,
+    classifier: str = "",
+    started: float = 0.0,
+    tools_offered: bool = False,
+    tool_calls: list | None = None,
+    content: str = "",
+) -> None:
     """Attribute a proxied request to its user in the usage log (best-effort).
 
     Never raises — usage accounting must not break a request that already
@@ -1065,10 +1135,20 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     if getattr(request.state, "responses_defer_usage", False) and status < 400:
         # The protocol adapter must validate output before accounting it as success.
         request.state.responses_usage = partial(
-            _log_usage, cr, request, routed_model=routed_model, domain=domain,
-            complexity=complexity, usage=usage, tokens_estimated=tokens_estimated,
-            profile=profile, classifier=classifier, started=started,
-            tools_offered=tools_offered, tool_calls=tool_calls, content=content,
+            _log_usage,
+            cr,
+            request,
+            routed_model=routed_model,
+            domain=domain,
+            complexity=complexity,
+            usage=usage,
+            tokens_estimated=tokens_estimated,
+            profile=profile,
+            classifier=classifier,
+            started=started,
+            tools_offered=tools_offered,
+            tool_calls=tool_calls,
+            content=content,
         )
         return
     user = getattr(request.state, "user", "") or ""
@@ -1082,18 +1162,26 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
     cost_usd = 0.0
     try:
         if prompt_tokens or completion_tokens:
-            cost_usd = cr.cost_for(
-                routed_model, _billable_prompt(prompt_tokens, cached_tokens),
-                completion_tokens,
-            ) or 0.0
+            cost_usd = (
+                cr.cost_for(
+                    routed_model,
+                    _billable_prompt(prompt_tokens, cached_tokens),
+                    completion_tokens,
+                )
+                or 0.0
+            )
     except Exception:  # noqa: BLE001 — pricing lookup must not break logging
         cost_usd = 0.0
     if cached_tokens:
         # The only visible proof that caching is working, since the count itself
         # isn't persisted (that would be a column and a migration; the corrected
         # cost is what the Usage page actually sums).
-        print(f"[proxy] cache hit: {cached_tokens} of {prompt_tokens} prompt "
-              f"tokens read at 10% on {routed_model}", file=sys.stderr, flush=True)
+        print(
+            f"[proxy] cache hit: {cached_tokens} of {prompt_tokens} prompt "
+            f"tokens read at 10% on {routed_model}",
+            file=sys.stderr,
+            flush=True,
+        )
     if tools_offered and not tool_calls and _leaks_tool_call(content):
         # Proof, not a statistic: it just wrote a call the client cannot run. Say
         # so now rather than waiting for the health average to sink — and keep the
@@ -1103,41 +1191,50 @@ def _log_usage(cr, request: Request, *, routed_model: str, domain: str,
         except Exception:  # noqa: BLE001 — best-effort
             pass
     try:
-        cr.record_usage(UsageRecord(
-            user=user, key_prefix=key_prefix, routed_model=routed_model,
-            requested_model=getattr(request.state, "requested_model", ""),
-            escalated=getattr(request.state, "usage_escalated", False),
-            domain=domain, complexity=complexity,
-            modality=getattr(request.state, "usage_modality", "text"),
-            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-            cost_usd=cost_usd, status=status,
-            tokens_estimated=tokens_estimated,
-            profile=profile.to_dict() if profile is not None else None,
-            classifier=classifier,
-            latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
-            tools_offered=tools_offered,
-            tool_stalled=tools_offered and not tool_calls and (
-                not content.strip()
-                or _leaks_tool_call(content)
-            ),
-        ))
+        cr.record_usage(
+            UsageRecord(
+                user=user,
+                key_prefix=key_prefix,
+                routed_model=routed_model,
+                requested_model=getattr(request.state, "requested_model", ""),
+                escalated=getattr(request.state, "usage_escalated", False),
+                domain=domain,
+                complexity=complexity,
+                modality=getattr(request.state, "usage_modality", "text"),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_usd=cost_usd,
+                status=status,
+                tokens_estimated=tokens_estimated,
+                profile=profile.to_dict() if profile is not None else None,
+                classifier=classifier,
+                latency_ms=int((time.monotonic() - started) * 1000) if started else 0,
+                tools_offered=tools_offered,
+                tool_stalled=tools_offered
+                and not tool_calls
+                and (not content.strip() or _leaks_tool_call(content)),
+            )
+        )
     except Exception:  # noqa: BLE001 — logging is best-effort
         pass
 
 
 def _headers(api_key: str) -> dict[str, str]:
-    h = {"Content-Type": "application/json",
-         # Ask the upstream not to compress: the streaming path forwards raw
-         # socket bytes verbatim (aiter_raw) for immediate token delivery, and
-         # raw bytes must be uncompressed or the browser would see garbage.
-         "Accept-Encoding": "identity",
-         "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router"}
+    h = {
+        "Content-Type": "application/json",
+        # Ask the upstream not to compress: the streaming path forwards raw
+        # socket bytes verbatim (aiter_raw) for immediate token delivery, and
+        # raw bytes must be uncompressed or the browser would see garbage.
+        "Accept-Encoding": "identity",
+        "HTTP-Referer": "https://github.com/smart-ai-router/smart-ai-router",
+    }
     if api_key:
         h["Authorization"] = f"Bearer {api_key}"
     return h
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
+
 
 @proxy_router.get("/v1/models")
 def list_models(request: Request):
@@ -1153,17 +1250,19 @@ def list_models(request: Request):
     surfaces its vendors without a deploy. /api/models still serves the real
     catalog, with the capability flags and prices this shape has nowhere to put.
     """
-    vendors = sorted({
-        v for s in request.app.state.capability_router.all_models()
-        for v in _vendor_tokens(s)
-    })
+    vendors = sorted(
+        {
+            v
+            for s in request.app.state.capability_router.all_models()
+            for v in _vendor_tokens(s)
+        }
+    )
     return {
         "object": "list",
         "data": [
             # created: a constant. OpenAI's typed clients require the field, and
             # a real timestamp would be invented — the modes ship with the code.
-            {"id": name, "object": "model", "created": 0,
-             "owned_by": "smart-ai-router"}
+            {"id": name, "object": "model", "created": 0, "owned_by": "smart-ai-router"}
             for name in ["smart-auto", _ORCHESTRATOR_MARKERS[0]]
             + [f"smart-{v}" for v in vendors]
         ],
@@ -1234,7 +1333,9 @@ def _enrich_with_gbrain_context(
         return enriched
 
     except Exception as e:
-        print(f"[proxy] gbrain context retrieval failed: {e}", file=sys.stderr, flush=True)
+        print(
+            f"[proxy] gbrain context retrieval failed: {e}", file=sys.stderr, flush=True
+        )
         return messages  # Return unchanged on any error
 
 
@@ -1342,7 +1443,8 @@ async def chat_completions(request: Request):
                 lambda: _refine_target(cr),
             )
         _overhead.record(
-            cr, overhead_calls,
+            cr,
+            overhead_calls,
             user=getattr(request.state, "user", "") or "",
             key_prefix=getattr(request.state, "key_prefix", "") or "",
         )
@@ -1375,9 +1477,9 @@ async def chat_completions(request: Request):
         raise HTTPException(
             status_code=422,
             detail="This request includes an image, but no image-capable "
-                   "(vision) model is available for your key. Register a "
-                   "vision-capable model (via ollama or openrouter) or remove "
-                   "the image.",
+            "(vision) model is available for your key. Register a "
+            "vision-capable model (via ollama or openrouter) or remove "
+            "the image.",
         )
 
     # Resolve the tri-state agent flag into a concrete decision.
@@ -1422,8 +1524,8 @@ async def chat_completions(request: Request):
             detail=(
                 "Agent (filesystem) mode is not available for anonymous use. "
                 "Sign in with an API key to use it."
-                if is_anon else
-                "Agent (filesystem) mode is not available on a self-serve account. "
+                if is_anon
+                else "Agent (filesystem) mode is not available on a self-serve account. "
                 "It needs an API key issued by this deployment's operator."
             ),
         )
@@ -1431,14 +1533,14 @@ async def chat_completions(request: Request):
     tools_available = cr.capabilities(scope=scope).tools
     agent_auto = isinstance(agent_flag, str) and agent_flag.lower() == "auto"
     if is_anon or is_self_serve:
-        agent_mode = False          # settled above; auto must not re-enable it
+        agent_mode = False  # settled above; auto must not re-enable it
     elif agent_flag is True:
         if not tools_available:
             raise HTTPException(
                 status_code=422,
                 detail="Agent (filesystem) mode needs a tool-capable model, but "
-                       "none is available for your key. Register a model that "
-                       "supports function calling (via ollama or openrouter).",
+                "none is available for your key. Register a model that "
+                "supports function calling (via ollama or openrouter).",
             )
         agent_mode = True
     elif agent_auto:
@@ -1446,14 +1548,20 @@ async def chat_completions(request: Request):
         agent_mode = (
             not client_brought_tools
             and tools_available
-            and (is_actionable(prompt_text) or (user == "admin" and _audio_followup(messages, prompt_text)))
+            and (
+                is_actionable(prompt_text)
+                or (user == "admin" and _audio_followup(messages, prompt_text))
+            )
         )
     else:
         agent_mode = False
 
     if agent_auto and agent_mode:
-        print(f"[proxy] agent auto-detected for actionable prompt",
-              file=sys.stderr, flush=True)
+        print(
+            f"[proxy] agent auto-detected for actionable prompt",
+            file=sys.stderr,
+            flush=True,
+        )
 
     # 2. Route
     needs_tools = bool(body.get("tools")) or agent_mode
@@ -1486,8 +1594,8 @@ async def chat_completions(request: Request):
             raise HTTPException(
                 status_code=422,
                 detail=f"No model in the catalog matches '{pool_pin}'. Use "
-                       "smart-auto for every vendor, or see /v1/models for the "
-                       "names this deployment can pin.",
+                "smart-auto for every vendor, or see /v1/models for the "
+                "names this deployment can pin.",
             )
     else:
         candidates = None
@@ -1495,13 +1603,15 @@ async def chat_completions(request: Request):
     # A scoped key that can reach none of the pool cannot use it. Checked against
     # the pool rather than after the pick, so the error names the real cause
     # instead of surfacing as a generic "no eligible model".
-    if candidates is not None and scope is not None and not any(
-        scope.permits(s) for s in candidates
+    if (
+        candidates is not None
+        and scope is not None
+        and not any(scope.permits(s) for s in candidates)
     ):
         raise HTTPException(
             status_code=403,
             detail="Your key's scope does not permit any model in the "
-                   f"'{requested_model}' pool.",
+            f"'{requested_model}' pool.",
         )
 
     route_kw = dict(
@@ -1528,19 +1638,43 @@ async def chat_completions(request: Request):
         if attempt is not None and attempt.qualified:
             decision = attempt
 
-    from smart_ai_router.circuit_breaker import CircuitClient, CircuitUnavailable, provider_for
+    from smart_ai_router.circuit_breaker import (
+        CircuitClient,
+        CircuitUnavailable,
+        provider_for,
+    )
+
     circuits_enabled = _settings.get_bool("provider_circuit_enabled")
     circuit_policy = _circuit_policy()
 
     def circuit_exclusions():
-        return {spec.value for spec in cr.all_models()
-                if cr.provider_circuits.blocked(provider_for(spec.value), circuit_policy[provider_for(spec.value)][1])} if circuits_enabled else set()
+        return (
+            {
+                spec.value
+                for spec in cr.all_models()
+                if cr.provider_circuits.blocked(
+                    provider_for(spec.value),
+                    circuit_policy[provider_for(spec.value)][1],
+                )
+            }
+            if circuits_enabled
+            else set()
+        )
 
     if decision is not None and decision.model in circuit_exclusions():
         decision = None
 
     def dispatch_client(client):
-        return CircuitClient(client, cr.provider_circuits, lambda: provider_for(routed_model), circuit_policy) if circuits_enabled else client
+        return (
+            CircuitClient(
+                client,
+                cr.provider_circuits,
+                lambda: provider_for(routed_model),
+                circuit_policy,
+            )
+            if circuits_enabled
+            else client
+        )
 
     canary_used = decision is not None
 
@@ -1548,7 +1682,8 @@ async def chat_completions(request: Request):
         blocked = circuit_exclusions() if apply_circuits else set()
         kw = {**route_kw, "exclude": (exclude | blocked) or None}
         return (
-            cr.select(profile, **kw) if candidates is None
+            cr.select(profile, **kw)
+            if candidates is None
             else cr.select_from(candidates, profile, **kw)
         )
 
@@ -1606,8 +1741,11 @@ async def chat_completions(request: Request):
     # is billed for the rest of the session. Orchestrator mode is always such a
     # client. The response headers still report the truth either way, which is
     # where a program should be reading it from.
-    inject_note = escalated and not (is_orchestrator or bool(body.get("tools"))
-                                       or getattr(request.state, "responses_api", False))
+    inject_note = escalated and not (
+        is_orchestrator
+        or bool(body.get("tools"))
+        or getattr(request.state, "responses_api", False)
+    )
 
     # 3. Resolve provider
     base_url, api_key, real_model = _resolve_provider(routed_model, cr)
@@ -1618,11 +1756,14 @@ async def chat_completions(request: Request):
     mode = "orchestrator" if is_orchestrator else profile.describe()
     if pool_pin:
         mode = f"[pin:{pool_pin} {len(candidates)}] {mode}"
-    print(f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
-          f"{' [CANARY]' if canary_used else ''}"
-          f"{' [ESCALATED]' if claude_tier else ''}"
-          f"{' [UNDERQUALIFIED]' if underqualified else ''}",
-          file=sys.stderr, flush=True)
+    print(
+        f"[proxy] {mode} ({classifier_used}) → {routed_model} (real: {real_model})"
+        f"{' [CANARY]' if canary_used else ''}"
+        f"{' [ESCALATED]' if claude_tier else ''}"
+        f"{' [UNDERQUALIFIED]' if underqualified else ''}",
+        file=sys.stderr,
+        flush=True,
+    )
     print(f"[proxy] why: {decision.explain()}", file=sys.stderr, flush=True)
 
     forward_body = {**body, "model": real_model}
@@ -1631,8 +1772,11 @@ async def chat_completions(request: Request):
     # to reason about a param that isn't going to survive.
     dropped_params = _drop_unsupported(forward_body, routed_spec)
     if dropped_params:
-        print(f"[proxy] dropped for {routed_model}: {', '.join(dropped_params)}",
-              file=sys.stderr, flush=True)
+        print(
+            f"[proxy] dropped for {routed_model}: {', '.join(dropped_params)}",
+            file=sys.stderr,
+            flush=True,
+        )
     # Tell the model what the chat page can render — but only when the caller *is*
     # the chat page, and only after classification, so the note never influences
     # the routing profile it isn't part of. Prepended rather than merged into an
@@ -1646,11 +1790,10 @@ async def chat_completions(request: Request):
         notes = [_todays_date_note()]
         if not forward_body.get("tools"):
             notes.append(_rich_output_preamble())
-        forward_body["messages"] = (
-            [{"role": "system", "content": n} for n in notes if n]
-            + list(forward_body.get("messages") or [])
-        )
-    
+        forward_body["messages"] = [
+            {"role": "system", "content": n} for n in notes if n
+        ] + list(forward_body.get("messages") or [])
+
     # Enrich with GBrain context (personal knowledge retrieval-augmented generation).
     # This injects relevant knowledge from the user's brain before routing to the LLM.
     # Best-effort; if retrieval fails, proceeds normally. Scoped to this caller's
@@ -1660,7 +1803,7 @@ async def chat_completions(request: Request):
     forward_body["messages"] = _enrich_with_gbrain_context(
         forward_body.get("messages") or [], prompt_text, source_id=gbrain_source
     )
-    
+
     # Search the web when the prompt turns on facts that move. Set on forward_body
     # before the agent branch reads it, so an agent round searches too.
     search_plugin = _web_search_plugin(profile, routed_model)
@@ -1819,14 +1962,20 @@ async def chat_completions(request: Request):
         try:
             if attempted:
                 cr.record_model_failure(
-                    failed, status=status, detail=detail, user=user,
+                    failed,
+                    status=status,
+                    detail=detail,
+                    user=user,
                     failed_over_to=nxt.model if nxt else "",
                 )
         except Exception:  # noqa: BLE001 — recording is best-effort
             pass
-        print(f"[proxy] {failed} failed ({status}): {detail[:300]!r}"
-              f"{' → failing over to ' + nxt.model if nxt else ' — no failover'}",
-              file=sys.stderr, flush=True)
+        print(
+            f"[proxy] {failed} failed ({status}): {detail[:300]!r}"
+            f"{' → failing over to ' + nxt.model if nxt else ' — no failover'}",
+            file=sys.stderr,
+            flush=True,
+        )
         if nxt is None:
             return False
         if circuits_enabled:
@@ -1852,6 +2001,7 @@ async def chat_completions(request: Request):
     # activity + the final answer back as SSE. The loop reuses this same
     # provider/keys via a non-streaming call_model closure.
     if agent_mode:
+
         async def _stream_model(req_body: dict) -> AsyncIterator[dict]:
             """Stream one model round from the provider, yielding each
             choices[0].delta dict. The agent loop passes content through live
@@ -1868,14 +2018,19 @@ async def chat_completions(request: Request):
                 try:
                     async with httpx.AsyncClient(timeout=_timeout) as client:
                         async with dispatch_client(client).stream(
-                            "POST", url, headers=_headers(api_key), json=fwd,
+                            "POST",
+                            url,
+                            headers=_headers(api_key),
+                            json=fwd,
                         ) as resp:
                             if resp.status_code >= 400:
                                 err = await resp.aread()
                                 detail = err.decode(errors="replace")
                                 if _fail_over(resp.status_code, detail):
                                     continue
-                                raise RuntimeError(f"provider {resp.status_code}: {detail[:500]}")
+                                raise RuntimeError(
+                                    f"provider {resp.status_code}: {detail[:500]}"
+                                )
                             async for line in resp.aiter_lines():
                                 line = line.strip()
                                 if not line or not line.startswith("data:"):
@@ -1903,17 +2058,28 @@ async def chat_completions(request: Request):
                         continue
                     raise
 
-        _log_usage(cr, request, routed_model=routed_model, domain=domain,
-                   complexity=complexity, usage=None, status=200,
-                   profile=profile, classifier=classifier_used,
-                   started=dispatch_started)
+        _log_usage(
+            cr,
+            request,
+            routed_model=routed_model,
+            domain=domain,
+            complexity=complexity,
+            usage=None,
+            status=200,
+            profile=profile,
+            classifier=classifier_used,
+            started=dispatch_started,
+        )
 
         def _register_file(data: bytes, filename: str, mime: str) -> str:
             """Register an agent-created file in the Files API, owned by the
             caller, so it downloads from the chat and shows in the Files tab."""
             rec = cr.upload_file(
-                data, filename=filename, mime=mime,
-                purpose="assistants", user=user,
+                data,
+                filename=filename,
+                mime=mime,
+                purpose="assistants",
+                user=user,
             )
             return rec.id
 
@@ -1964,15 +2130,25 @@ async def chat_completions(request: Request):
                 if logged:
                     return
                 logged = True
-                usage, estimated = scanner.resolve(messages) if attempted else (
-                    {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, False
+                usage, estimated = (
+                    scanner.resolve(messages)
+                    if attempted
+                    else (
+                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        False,
+                    )
                 )
                 _log_usage(
-                    cr, request,
-                    routed_model=routed_model, domain=domain,
-                    complexity=complexity, usage=usage,
-                    status=status, tokens_estimated=estimated,
-                    profile=profile, classifier=classifier_used,
+                    cr,
+                    request,
+                    routed_model=routed_model,
+                    domain=domain,
+                    complexity=complexity,
+                    usage=usage,
+                    status=status,
+                    tokens_estimated=estimated,
+                    profile=profile,
+                    classifier=classifier_used,
                     started=dispatch_started,
                     # Only a drained stream is a usable sample: a client that hung
                     # up mid-reply leaves a half-built tool call, which would read
@@ -1987,7 +2163,8 @@ async def chat_completions(request: Request):
                 # would read as malformed arguments when replayed.
                 if capture_this and drained:
                     _capture.record(
-                        lane=capture_lane, routed_model=routed_model,
+                        lane=capture_lane,
+                        routed_model=routed_model,
                         messages=forward_body.get("messages") or [],
                         tools=forward_body.get("tools"),
                         tool_calls=scanner.tool_calls(),
@@ -2007,7 +2184,8 @@ async def chat_completions(request: Request):
                     try:
                         async with httpx.AsyncClient(timeout=_timeout) as client:
                             async with dispatch_client(client).stream(
-                                "POST", url,
+                                "POST",
+                                url,
                                 headers=_headers(api_key),
                                 json=forward_body,
                             ) as resp:
@@ -2026,11 +2204,16 @@ async def chat_completions(request: Request):
                                 # Prepend escalation note as a synthetic first delta chunk
                                 if inject_note:
                                     note_chunk = {
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {"role": "assistant", "content": _ESCALATION_NOTE},
-                                            "finish_reason": None,
-                                        }],
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "delta": {
+                                                    "role": "assistant",
+                                                    "content": _ESCALATION_NOTE,
+                                                },
+                                                "finish_reason": None,
+                                            }
+                                        ],
                                     }
                                     yield f"data: {json.dumps(note_chunk)}\n\n".encode()
                                 # Forward each network chunk the instant it arrives.
@@ -2091,7 +2274,9 @@ async def chat_completions(request: Request):
                 except httpx.RequestError as exc:
                     if _fail_over(502, f"Provider unreachable: {exc}"):
                         continue
-                    raise HTTPException(status_code=502, detail=f"Provider unreachable: {exc}")
+                    raise HTTPException(
+                        status_code=502, detail=f"Provider unreachable: {exc}"
+                    )
 
             if resp.status_code >= 400:
                 # The detail goes back to the caller, but the caller is often a
@@ -2114,11 +2299,15 @@ async def chat_completions(request: Request):
         if inject_note and msg:
             msg["content"] = _ESCALATION_NOTE + (msg.get("content") or "")
         _log_usage(
-            cr, request,
-            routed_model=routed_model, domain=domain, complexity=complexity,
+            cr,
+            request,
+            routed_model=routed_model,
+            domain=domain,
+            complexity=complexity,
             usage=data.get("usage") if isinstance(data, dict) else None,
             status=resp.status_code,
-            profile=profile, classifier=classifier_used,
+            profile=profile,
+            classifier=classifier_used,
             started=dispatch_started,
             tools_offered=bool(forward_body.get("tools")),
             tool_calls=msg.get("tool_calls") or [],
@@ -2127,7 +2316,8 @@ async def chat_completions(request: Request):
         if isinstance(data, dict):
             if capture_this:
                 _capture.record(
-                    lane=capture_lane, routed_model=routed_model,
+                    lane=capture_lane,
+                    routed_model=routed_model,
                     messages=forward_body.get("messages") or [],
                     tools=forward_body.get("tools"),
                     tool_calls=msg.get("tool_calls") or [],

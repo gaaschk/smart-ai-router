@@ -3,6 +3,7 @@
 No network: every call either short-circuits before HTTP or goes through an
 httpx MockTransport.
 """
+
 import asyncio
 import datetime as dt
 import json
@@ -45,6 +46,7 @@ def _profile(*needs, demands=(), stakes="low"):
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
+
 def test_parses_clean_json():
     p = _parse_profile(
         '{"domains":[{"field":"law_regulatory","depth":"specialist"}],'
@@ -85,7 +87,9 @@ def test_an_empty_domains_reply_profiles_as_a_trivial_prompt():
 def test_returns_none_when_no_field_survives():
     # Nothing usable → None, so the caller falls through to the next target
     # rather than routing on an empty profile.
-    assert _parse_profile('{"domains":[{"field":"astrology","depth":"frontier"}]}') is None
+    assert (
+        _parse_profile('{"domains":[{"field":"astrology","depth":"frontier"}]}') is None
+    )
 
 
 def test_rejects_garbage():
@@ -103,6 +107,7 @@ def test_unknown_depth_and_stakes_fall_back_to_defaults():
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
 
 def test_disabled_model_env(monkeypatch):
     # Empty env value disables the LLM path.
@@ -131,6 +136,7 @@ def test_fallback_can_be_disabled(monkeypatch):
 
 # ── The HTTP call ─────────────────────────────────────────────────────────────
 
+
 def test_returns_none_when_disabled(monkeypatch):
     # Non-blank prompt, but the model is disabled → None (fall back), no network.
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_MODEL", "")
@@ -143,7 +149,10 @@ def test_returns_none_when_disabled(monkeypatch):
 
 
 def test_returns_none_on_empty_prompt():
-    assert asyncio.run(classify_profile_llm("", base_url="http://localhost:11434/v1")) is None
+    assert (
+        asyncio.run(classify_profile_llm("", base_url="http://localhost:11434/v1"))
+        is None
+    )
 
 
 def _mock_reply(monkeypatch, content: str, captured: dict):
@@ -153,7 +162,9 @@ def _mock_reply(monkeypatch, content: str, captured: dict):
     def handler(request: httpx.Request) -> httpx.Response:
         captured["body"] = json.loads(request.content)
         captured["headers"] = dict(request.headers)
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": content}}]}
+        )
 
     real_client = httpx.AsyncClient
 
@@ -238,8 +249,11 @@ def test_the_classifier_is_told_what_day_it_is(monkeypatch):
         '"demands":["current_info"],"stakes":"low"}',
         captured,
     )
-    asyncio.run(classify_profile_llm("what does an H100 cost?",
-                                     base_url="http://x/v1", model="m"))
+    asyncio.run(
+        classify_profile_llm(
+            "what does an H100 cost?", base_url="http://x/v1", model="m"
+        )
+    )
     sent = captured["body"]["messages"][0]["content"]
     assert dt.date.today().isoformat() in sent
     # And that the gap is described, not just the date: "today is 2026-09-10"
@@ -265,17 +279,21 @@ def test_the_refine_pass_keeps_the_date_too(monkeypatch):
 
     seen: list[str] = []
 
-    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None, kind=""):
+    async def fake(
+        prompt, *, base_url, model=None, api_key="", system_prompt=None, kind=""
+    ):
         seen.append(system_prompt or "")
         return _profile(("law_regulatory", "frontier"), stakes="high")
 
     monkeypatch.setattr(lc, "classify_profile_llm", fake)
-    asyncio.run(classify_profile_two_speed(
-        "does this violate the AI Act?",
-        [ClassifierTarget(model="triage", base_url="http://x/v1")],
-        lambda: ClassifierTarget(model="refine", base_url="http://y/v1"),
-    ))
-    assert len(seen) == 2                      # triage escalated to refine
+    asyncio.run(
+        classify_profile_two_speed(
+            "does this violate the AI Act?",
+            [ClassifierTarget(model="triage", base_url="http://x/v1")],
+            lambda: ClassifierTarget(model="refine", base_url="http://y/v1"),
+        )
+    )
+    assert len(seen) == 2  # triage escalated to refine
     assert dt.date.today().isoformat() in seen[1]
 
 
@@ -292,12 +310,14 @@ def test_http_error_returns_none(monkeypatch):
         return real_client(transport=httpx.MockTransport(handler))
 
     monkeypatch.setattr(lc.httpx, "AsyncClient", fake_client)
-    assert asyncio.run(
-        classify_profile_llm("x", base_url="http://x/v1", model="m")
-    ) is None
+    assert (
+        asyncio.run(classify_profile_llm("x", base_url="http://x/v1", model="m"))
+        is None
+    )
 
 
 # ── The fallback chain ────────────────────────────────────────────────────────
+
 
 def test_chain_falls_through_to_second_target(monkeypatch):
     # First target fails; the chain must try the second.
@@ -325,7 +345,9 @@ def test_chain_falls_through_to_second_target(monkeypatch):
 def test_chain_returns_none_when_all_fail(monkeypatch):
     import smart_ai_router.llm_classifier as lc
 
-    async def always_none(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+    async def always_none(
+        prompt, *, base_url, model=None, api_key="", system_prompt=None
+    ):
         return None
 
     monkeypatch.setattr(lc, "classify_profile_llm", always_none)
@@ -358,8 +380,11 @@ def test_chain_stops_at_first_success(monkeypatch):
 
 # ── Escalation trigger ────────────────────────────────────────────────────────
 
+
 def test_needs_refinement_on_high_stakes():
-    assert needs_refinement(_profile(("medicine_health", "practitioner"), stakes="high"))
+    assert needs_refinement(
+        _profile(("medicine_health", "practitioner"), stakes="high")
+    )
 
 
 def test_needs_refinement_on_two_specialist_fields():
@@ -394,8 +419,9 @@ _REFINE = ClassifierTarget(
 def _stub_two_speed(monkeypatch, triage, refined, calls):
     import smart_ai_router.llm_classifier as lc
 
-    async def fake(prompt, *, base_url, model=None, api_key="", system_prompt=None,
-                   kind="classify"):
+    async def fake(
+        prompt, *, base_url, model=None, api_key="", system_prompt=None, kind="classify"
+    ):
         calls.append(model)
         return refined if model == "big" else triage
 
@@ -415,7 +441,9 @@ def test_two_speed_skips_refine_for_ordinary_prompt(monkeypatch):
 
 def test_two_speed_refines_consequential_prompt(monkeypatch):
     calls: list = []
-    triage = _profile(("law_regulatory", "specialist"), ("natural_science", "specialist"))
+    triage = _profile(
+        ("law_regulatory", "specialist"), ("natural_science", "specialist")
+    )
     refined = _profile(
         ("law_regulatory", "frontier"),
         ("natural_science", "specialist"),
@@ -424,7 +452,9 @@ def test_two_speed_refines_consequential_prompt(monkeypatch):
     )
     _stub_two_speed(monkeypatch, triage, refined, calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("48 jurisdictions of reactor law", [_TRIAGE], lambda: _REFINE)
+        classify_profile_two_speed(
+            "48 jurisdictions of reactor law", [_TRIAGE], lambda: _REFINE
+        )
     )
     assert (profile, label) == (refined, "llm-refined")
     assert calls == ["local", "big"]
@@ -438,7 +468,9 @@ def test_two_speed_can_lower_the_bar(monkeypatch):
     refined = _profile(("general_knowledge", "surface"))
     _stub_two_speed(monkeypatch, triage, refined, calls)
     profile, label = asyncio.run(
-        classify_profile_two_speed("what does GDPR stand for?", [_TRIAGE], lambda: _REFINE)
+        classify_profile_two_speed(
+            "what does GDPR stand for?", [_TRIAGE], lambda: _REFINE
+        )
     )
     assert (profile, label) == (refined, "llm-refined")
 
@@ -479,7 +511,9 @@ def test_two_speed_keeps_triage_when_no_refine_model_is_available(monkeypatch):
     local model's read of the prompt; it must never fail the request."""
     calls: list = []
     triage = _profile(("math_formal", "frontier"))
-    _stub_two_speed(monkeypatch, triage, _profile(("general_knowledge", "surface")), calls)
+    _stub_two_speed(
+        monkeypatch, triage, _profile(("general_knowledge", "surface")), calls
+    )
     assert asyncio.run(
         classify_profile_two_speed("prove it", [_TRIAGE], lambda: None)
     ) == (triage, "llm")
@@ -489,7 +523,9 @@ def test_two_speed_keeps_triage_when_no_refine_model_is_available(monkeypatch):
 def test_two_speed_without_refine_target(monkeypatch):
     calls: list = []
     triage = _profile(("math_formal", "frontier"))
-    _stub_two_speed(monkeypatch, triage, _profile(("general_knowledge", "surface")), calls)
+    _stub_two_speed(
+        monkeypatch, triage, _profile(("general_knowledge", "surface")), calls
+    )
     assert asyncio.run(classify_profile_two_speed("prove it", [_TRIAGE], None)) == (
         triage,
         "llm",
@@ -500,14 +536,19 @@ def test_two_speed_without_refine_target(monkeypatch):
 def test_two_speed_returns_none_when_triage_fails(monkeypatch):
     import smart_ai_router.llm_classifier as lc
 
-    async def always_none(prompt, *, base_url, model=None, api_key="", system_prompt=None):
+    async def always_none(
+        prompt, *, base_url, model=None, api_key="", system_prompt=None
+    ):
         return None
 
     monkeypatch.setattr(lc, "classify_profile_llm", always_none)
-    assert asyncio.run(classify_profile_two_speed("x", [_TRIAGE], lambda: _REFINE)) is None
+    assert (
+        asyncio.run(classify_profile_two_speed("x", [_TRIAGE], lambda: _REFINE)) is None
+    )
 
 
 # ── Legacy label wrappers ─────────────────────────────────────────────────────
+
 
 def test_legacy_classify_llm_derives_labels(monkeypatch):
     captured: dict = {}
@@ -536,11 +577,18 @@ def test_legacy_classify_chain_derives_labels(monkeypatch):
 
 # ── Advisory on the configured triage model ───────────────────────────────────
 
+
 def _catalog_spec(value: str, **kw):
     from smart_ai_router.models import ModelSpec
 
-    return ModelSpec(value=value, provider="ollama", cost=0, reliability=1.0,
-                     structured_outputs=True, **kw)
+    return ModelSpec(
+        value=value,
+        provider="ollama",
+        cost=0,
+        reliability=1.0,
+        structured_outputs=True,
+        **kw,
+    )
 
 
 def test_advisory_silent_when_deliberately_disabled(monkeypatch):

@@ -6,6 +6,7 @@ internal LLM calls (the classifier's refine pass and the model profiler) are
 routed like any prompt, subject to the same denylist and floors, with a pin left
 as the escape hatch and an off switch that stays an off switch.
 """
+
 from __future__ import annotations
 
 from smart_ai_router import helper_models
@@ -17,11 +18,16 @@ from smart_ai_router.taxonomy import FIELD_KEYS
 _TASKS = (helper_models.REFINE, helper_models.PROFILER)
 
 
-def _spec(value: str, cost: int, *, score: float = 0.95,
-          structured: bool = True, **kw) -> ModelSpec:
+def _spec(
+    value: str, cost: int, *, score: float = 0.95, structured: bool = True, **kw
+) -> ModelSpec:
     return ModelSpec(
-        value=value, provider="openrouter", cost=cost, reliability=1.0,
-        structured_outputs=structured, profile={f: score for f in FIELD_KEYS},
+        value=value,
+        provider="openrouter",
+        cost=cost,
+        reliability=1.0,
+        structured_outputs=structured,
+        profile={f: score for f in FIELD_KEYS},
         **kw,
     )
 
@@ -40,6 +46,7 @@ def _env(task: helper_models.HelperTask) -> str:
 
 
 # ── The three states of the setting ───────────────────────────────────────────
+
 
 def test_auto_routes_to_the_cheapest_qualified_model(monkeypatch):
     """The whole point: a cheaper model that clears the bar wins, without anyone
@@ -91,11 +98,14 @@ def test_a_pinned_model_absent_from_the_catalog_is_still_honored(monkeypatch):
 
 def test_auto_is_case_insensitive(monkeypatch):
     monkeypatch.setenv(_env(helper_models.PROFILER), "  Auto ")
-    choice = helper_models.resolve(helper_models.PROFILER, _cr(_spec("openrouter/c", 1)))
+    choice = helper_models.resolve(
+        helper_models.PROFILER, _cr(_spec("openrouter/c", 1))
+    )
     assert choice is not None and choice.pinned is False
 
 
 # ── When routing can't produce a usable answer ────────────────────────────────
+
 
 def test_an_empty_catalog_resolves_to_none(monkeypatch):
     """select() raises on an empty matrix. A helper call is optional by design, so

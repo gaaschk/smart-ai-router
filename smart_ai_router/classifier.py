@@ -20,6 +20,7 @@ where a mis-route is most expensive.
 Domain:     "coding" | "docs" | "reasoning" | "general"
 Complexity: "trivial" | "moderate" | "hard"
 """
+
 from __future__ import annotations
 
 import re
@@ -42,29 +43,83 @@ from smart_ai_router.taxonomy import (
 # file extension, or an unambiguous filesystem verb phrase.
 
 # Verbs that signal "produce/modify an artifact".
-_ACTION_VERBS = frozenset({
-    "create", "make", "generate", "build", "draft", "produce", "write",
-    "save", "export", "download", "compile", "assemble", "put together",
-    "prepare", "turn", "convert",
-})
+_ACTION_VERBS = frozenset(
+    {
+        "create",
+        "make",
+        "generate",
+        "build",
+        "draft",
+        "produce",
+        "write",
+        "save",
+        "export",
+        "download",
+        "compile",
+        "assemble",
+        "put together",
+        "prepare",
+        "turn",
+        "convert",
+    }
+)
 
 # Nouns naming a downloadable artifact. Paired with an action verb these mean
 # "make me this file" — the core create_document use case.
-_ARTIFACT_NOUNS = frozenset({
-    "pdf", "document", "doc", "docx", "word doc", "resume", "cv",
-    "cover letter", "spreadsheet", "excel", "xlsx", "workbook", "csv",
-    "powerpoint", "pptx", "presentation", "slide deck", "slides", "slide",
-    "report", "markdown file", "text file", "file", "handout", "worksheet",
-    "audio", "mp3", "wav", "custom voice", "voice preview", "text-to-speech",
-})
+_ARTIFACT_NOUNS = frozenset(
+    {
+        "pdf",
+        "document",
+        "doc",
+        "docx",
+        "word doc",
+        "resume",
+        "cv",
+        "cover letter",
+        "spreadsheet",
+        "excel",
+        "xlsx",
+        "workbook",
+        "csv",
+        "powerpoint",
+        "pptx",
+        "presentation",
+        "slide deck",
+        "slides",
+        "slide",
+        "report",
+        "markdown file",
+        "text file",
+        "file",
+        "handout",
+        "worksheet",
+        "audio",
+        "mp3",
+        "wav",
+        "custom voice",
+        "voice preview",
+        "text-to-speech",
+    }
+)
 
 # Unambiguous filesystem/agent phrases — actionable on their own (no noun pair
 # needed) because they describe operating on the workspace directly.
 _FS_PHRASES = (
-    "list files", "list the files", "in my workspace", "read the file",
-    "edit the file", "update the file", "open the file", "run this script",
-    "run the script", "save it to", "save this to", "write it to a file",
-    "write to a file", "save as a", "save as an",
+    "list files",
+    "list the files",
+    "in my workspace",
+    "read the file",
+    "edit the file",
+    "update the file",
+    "open the file",
+    "run this script",
+    "run the script",
+    "save it to",
+    "save this to",
+    "write it to a file",
+    "write to a file",
+    "save as a",
+    "save as an",
 )
 
 # An explicit downloadable-file extension anywhere in the prompt.
@@ -94,46 +149,147 @@ def is_actionable(prompt: str) -> bool:
 
 # ── Domain keyword signals ────────────────────────────────────────────────────
 
-_CODING_HINTS = frozenset({
-    "code", "implement", "function", "class", "bug", "fix", "refactor",
-    "test", "unit test", "integration", "compile", "syntax", "script",
-    "module", "import", "library", "dependency", "api", "endpoint",
-    "database", "query", "schema", "migration", "debug",
-})
+_CODING_HINTS = frozenset(
+    {
+        "code",
+        "implement",
+        "function",
+        "class",
+        "bug",
+        "fix",
+        "refactor",
+        "test",
+        "unit test",
+        "integration",
+        "compile",
+        "syntax",
+        "script",
+        "module",
+        "import",
+        "library",
+        "dependency",
+        "api",
+        "endpoint",
+        "database",
+        "query",
+        "schema",
+        "migration",
+        "debug",
+    }
+)
 
-_DOCS_HINTS = frozenset({
-    "document", "documentation", "readme", "guide", "tutorial", "explain",
-    "summarize", "summarise", "write up", "report", "spec", "specification",
-    "writeup", "changelog", "release note", "diataxis", "how-to",
-    "long doc", "article", "write about",
-})
+_DOCS_HINTS = frozenset(
+    {
+        "document",
+        "documentation",
+        "readme",
+        "guide",
+        "tutorial",
+        "explain",
+        "summarize",
+        "summarise",
+        "write up",
+        "report",
+        "spec",
+        "specification",
+        "writeup",
+        "changelog",
+        "release note",
+        "diataxis",
+        "how-to",
+        "long doc",
+        "article",
+        "write about",
+    }
+)
 
-_REASONING_HINTS = frozenset({
-    "architect", "threat model", "security", "design", "plan", "strategy",
-    "analyse", "analyze", "evaluate", "compare", "trade-off", "tradeoff",
-    "decide", "recommend", "review", "assess", "audit", "diagnose",
-    "root cause", "investigate", "brainstorm", "proposal",
-    # Math / science reasoning — derivations, proofs, and quantitative work.
-    "derive", "derivation", "prove", "proof", "theorem", "formula",
-    "equation", "calculate", "compute", "solve for", "integral",
-    "differentiate", "wavefunction", "quantum", "physics",
-})
+_REASONING_HINTS = frozenset(
+    {
+        "architect",
+        "threat model",
+        "security",
+        "design",
+        "plan",
+        "strategy",
+        "analyse",
+        "analyze",
+        "evaluate",
+        "compare",
+        "trade-off",
+        "tradeoff",
+        "decide",
+        "recommend",
+        "review",
+        "assess",
+        "audit",
+        "diagnose",
+        "root cause",
+        "investigate",
+        "brainstorm",
+        "proposal",
+        # Math / science reasoning — derivations, proofs, and quantitative work.
+        "derive",
+        "derivation",
+        "prove",
+        "proof",
+        "theorem",
+        "formula",
+        "equation",
+        "calculate",
+        "compute",
+        "solve for",
+        "integral",
+        "differentiate",
+        "wavefunction",
+        "quantum",
+        "physics",
+    }
+)
 
 # ── Complexity keyword signals ────────────────────────────────────────────────
 
-_HARD_KEYWORDS = frozenset({
-    "architect", "threat model", "refactor", "migrat",
-    "algorithm", "root cause", "security", "audit",
-    "system design", "large-scale", "distributed", "race condition",
-    "production bug", "incident", "postmortem",
-    # Multi-step math/science reasoning — derivations and formal proofs.
-    "derive", "derivation", "prove", "proof", "theorem",
-})
+_HARD_KEYWORDS = frozenset(
+    {
+        "architect",
+        "threat model",
+        "refactor",
+        "migrat",
+        "algorithm",
+        "root cause",
+        "security",
+        "audit",
+        "system design",
+        "large-scale",
+        "distributed",
+        "race condition",
+        "production bug",
+        "incident",
+        "postmortem",
+        # Multi-step math/science reasoning — derivations and formal proofs.
+        "derive",
+        "derivation",
+        "prove",
+        "proof",
+        "theorem",
+    }
+)
 
-_MODERATE_KEYWORDS = frozenset({
-    "design", "implement", "integrate", "debug", "optimise", "optimize",
-    "analyse", "analyze", "test", "review", "plan", "spec",
-})
+_MODERATE_KEYWORDS = frozenset(
+    {
+        "design",
+        "implement",
+        "integrate",
+        "debug",
+        "optimise",
+        "optimize",
+        "analyse",
+        "analyze",
+        "test",
+        "review",
+        "plan",
+        "spec",
+    }
+)
 
 _LEN_MODERATE = 300
 _LEN_HARD = 800
@@ -148,8 +304,8 @@ def classify(prompt: str) -> tuple[str, str]:
     lower = prompt.lower()
 
     # Domain: count keyword hits per domain, pick the clear winner
-    coding_hits    = sum(1 for h in _CODING_HINTS    if h in lower)
-    docs_hits      = sum(1 for h in _DOCS_HINTS      if h in lower)
+    coding_hits = sum(1 for h in _CODING_HINTS if h in lower)
+    docs_hits = sum(1 for h in _DOCS_HINTS if h in lower)
     reasoning_hits = sum(1 for h in _REASONING_HINTS if h in lower)
 
     best = max(coding_hits, docs_hits, reasoning_hits)
@@ -166,7 +322,7 @@ def classify(prompt: str) -> tuple[str, str]:
         domain = "general"
 
     # Complexity: keywords + length
-    hard_hits     = sum(1 for kw in _HARD_KEYWORDS     if kw in lower)
+    hard_hits = sum(1 for kw in _HARD_KEYWORDS if kw in lower)
     moderate_hits = sum(1 for kw in _MODERATE_KEYWORDS if kw in lower)
     length = len(prompt)
 
@@ -192,27 +348,65 @@ def classify(prompt: str) -> tuple[str, str]:
 # ("contract", "audit", "protocol") are either omitted or qualified into a phrase.
 _FIELD_CUES: dict[str, tuple[str, ...]] = {
     "law_regulatory": (
-        r"statut\w*", r"regulat\w*", r"jurisdiction\w*", r"complianc\w*",
-        r"liabilit\w*", r"litigat\w*", r"case law", r"breach of contract",
-        r"contract law", r"gdpr", r"hipaa", r"copyright", r"patent\w*",
+        r"statut\w*",
+        r"regulat\w*",
+        r"jurisdiction\w*",
+        r"complianc\w*",
+        r"liabilit\w*",
+        r"litigat\w*",
+        r"case law",
+        r"breach of contract",
+        r"contract law",
+        r"gdpr",
+        r"hipaa",
+        r"copyright",
+        r"patent\w*",
     ),
     "medicine_health": (
-        r"diagnos\w*", r"dosage", r"dosing", r"mg/kg", r"contraindicat\w*",
-        r"patient\w*", r"clinical\w*", r"symptom\w*", r"prescrib\w*",
+        r"diagnos\w*",
+        r"dosage",
+        r"dosing",
+        r"mg/kg",
+        r"contraindicat\w*",
+        r"patient\w*",
+        r"clinical\w*",
+        r"symptom\w*",
+        r"prescrib\w*",
         r"treatment protocol",
     ),
     "finance_business": (
-        r"gaap", r"ifrs", r"valuation", r"ebitda", r"amortiz\w*",
-        r"balance sheet", r"cash flow", r"securities", r"tax\b", r"taxes",
+        r"gaap",
+        r"ifrs",
+        r"valuation",
+        r"ebitda",
+        r"amortiz\w*",
+        r"balance sheet",
+        r"cash flow",
+        r"securities",
+        r"tax\b",
+        r"taxes",
     ),
     "natural_science": (
-        r"reactor\w*", r"radiation", r"thermodynamic\w*", r"molecul\w*",
-        r"chemistr\w*", r"biolog\w*", r"genom\w*", r"astrophys\w*",
-        r"materials science", r"isotop\w*",
+        r"reactor\w*",
+        r"radiation",
+        r"thermodynamic\w*",
+        r"molecul\w*",
+        r"chemistr\w*",
+        r"biolog\w*",
+        r"genom\w*",
+        r"astrophys\w*",
+        r"materials science",
+        r"isotop\w*",
     ),
     "math_formal": (
-        r"theorem\w*", r"lemma\w*", r"proof", r"prove that", r"integral\w*",
-        r"differential equation\w*", r"topolog\w*", r"eigen\w*",
+        r"theorem\w*",
+        r"lemma\w*",
+        r"proof",
+        r"prove that",
+        r"integral\w*",
+        r"differential equation\w*",
+        r"topolog\w*",
+        r"eigen\w*",
     ),
     # Unlike the fields above, these cues aren't here to raise a competence bar —
     # a story does not need a specialist. They're here so the field gets *named*,
@@ -221,11 +415,24 @@ _FIELD_CUES: dict[str, tuple[str, ...]] = {
     # profiles as general_knowledge, gets a reply-sized ceiling, and comes back
     # as one paragraph cut off mid-sentence — which is the bug these fix.
     "creative_writing": (
-        r"short stor\w*", r"\bstory\b", r"\bstories\b", r"\bnovel\b",
-        r"\bfiction\b", r"screenplay", r"\bscript for\b", r"\bpoem\b",
-        r"\bpoetry\b", r"\bsonnet\b", r"\blyrics\b", r"\bnarrative\b",
-        r"\bprose\b", r"\bmonologue\b", r"\bdialogue between\b",
-        r"\bchapter\b", r"\bworldbuild\w*", r"\bcharacter arc\b",
+        r"short stor\w*",
+        r"\bstory\b",
+        r"\bstories\b",
+        r"\bnovel\b",
+        r"\bfiction\b",
+        r"screenplay",
+        r"\bscript for\b",
+        r"\bpoem\b",
+        r"\bpoetry\b",
+        r"\bsonnet\b",
+        r"\blyrics\b",
+        r"\bnarrative\b",
+        r"\bprose\b",
+        r"\bmonologue\b",
+        r"\bdialogue between\b",
+        r"\bchapter\b",
+        r"\bworldbuild\w*",
+        r"\bcharacter arc\b",
     ),
     # Same purpose as creative_writing: name the field so the output budget is
     # document-sized. The legacy domain heuristic needs *two* keyword hits before
@@ -237,8 +444,13 @@ _FIELD_CUES: dict[str, tuple[str, ...]] = {
     "technical_writing": (
         r"api (?:guide|reference|docs?|documentation)",
         r"(?:user|developer|integration|migration|style|onboarding) guide",
-        r"how-to guide", r"\breadme\b", r"\btutorial\b", r"\brunbook\b",
-        r"release notes", r"\bchangelog\b", r"\bwhitepaper\b",
+        r"how-to guide",
+        r"\breadme\b",
+        r"\btutorial\b",
+        r"\brunbook\b",
+        r"release notes",
+        r"\bchangelog\b",
+        r"\bwhitepaper\b",
         r"write (?:me )?(?:the |a |an )?(?:guide|documentation|tutorial|manual)",
         r"\bdocument(?:ation)? for\b",
     ),
@@ -249,9 +461,14 @@ _FIELD_CUES: dict[str, tuple[str, ...]] = {
         r"explain \w+(?: \w+)? (?:to|for) (?:a |an |my )?"
         r"(?:\d+(?:st|nd|rd|th)[- ]grader|child|kid|beginner|five[- ]year"
         r"|5[- ]year|layperson|non-technical)",
-        r"like i'?m five", r"\beli5\b",
-        r"lesson plan", r"\bcurriculum\b", r"\bsyllabus\b",
-        r"study guide", r"\bworksheet\b", r"teach me\b",
+        r"like i'?m five",
+        r"\beli5\b",
+        r"lesson plan",
+        r"\bcurriculum\b",
+        r"\bsyllabus\b",
+        r"study guide",
+        r"\bworksheet\b",
+        r"teach me\b",
         r"\bwalk me through\b",
     ),
     # Named so translation gets an output budget scaled to the *input*: a ceiling

@@ -13,6 +13,7 @@ recognize as a bug in the code:
 Node runs the shipped function directly via the harness in
 test_voice_speech_text, so there is no second copy of it to drift.
 """
+
 import json
 
 from tests.test_voice_speech_text import _js_function, _run, pytestmark  # noqa: F401
@@ -37,7 +38,7 @@ def test_a_stored_utc_stamp_is_shown_in_local_time():
     put every afternoon message an offset away from when it happened — and around
     midnight, on the wrong day.
     """
-    shown, = _fmt("2026-09-09T18:30:00+00:00")
+    (shown,) = _fmt("2026-09-09T18:30:00+00:00")
     assert "9/9/2026" in shown
     assert "2:30:00 PM" in shown
 
@@ -48,7 +49,7 @@ def test_a_live_turn_with_no_stamp_yet_reads_as_now():
     The failure this guards is not an empty stamp but a wrong one: both
     `new Date("")` and `new Date(0)` are worse than useless here.
     """
-    shown, = _fmt("")
+    (shown,) = _fmt("")
     assert "Invalid" not in shown
     assert "1970" not in shown
     # A year, at minimum — the format itself is the locale's business.
@@ -56,5 +57,5 @@ def test_a_live_turn_with_no_stamp_yet_reads_as_now():
 
 
 def test_an_unparseable_stamp_shows_itself():
-    shown, = _fmt("not a date")
+    (shown,) = _fmt("not a date")
     assert shown == "not a date"

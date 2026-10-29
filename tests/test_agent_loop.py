@@ -1,4 +1,5 @@
 """Agent tool-calling loop: executes tools and terminates on a plain answer."""
+
 import asyncio
 import json
 import time
@@ -33,11 +34,13 @@ def _tool_call(name, args, cid="call_1"):
     return {
         "role": "assistant",
         "content": None,
-        "tool_calls": [{
-            "id": cid,
-            "type": "function",
-            "function": {"name": name, "arguments": json.dumps(args)},
-        }],
+        "tool_calls": [
+            {
+                "id": cid,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args)},
+            }
+        ],
     }
 
 
@@ -48,7 +51,15 @@ def _msg(content):
 def test_loop_executes_tool_then_answers(tmp_path):
     # Model turn 1: call write_file. Turn 2: answer plainly.
     scripted = [
-        {"choices": [{"message": _tool_call("write_file", {"path": "a.txt", "content": "hi"})}]},
+        {
+            "choices": [
+                {
+                    "message": _tool_call(
+                        "write_file", {"path": "a.txt", "content": "hi"}
+                    )
+                }
+            ]
+        },
         {"choices": [{"message": _msg("Done, I wrote the file.")}]},
     ]
     calls = {"n": 0}
@@ -69,7 +80,9 @@ def test_loop_executes_tool_then_answers(tmp_path):
     # The file was actually written to alice's workspace.
     assert tools.execute_tool("alice", "read_file", {"path": "a.txt"}) == "hi"
     # The final answer streamed through.
-    text = "".join(f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices"))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
+    )
     assert "Done, I wrote the file." in text
     assert b"data: [DONE]" in raw
     assert calls["n"] == 2
@@ -87,12 +100,16 @@ def test_loop_stops_at_max_rounds():
         call_model=call_model,
     )
     frames, raw = asyncio.run(_collect(gen))
-    text = "".join(f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices"))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
+    )
     assert "maximum number of tool-call rounds" in text
     assert b"data: [DONE]" in raw
 
 
-@pytest.mark.parametrize("error, detail", [(RuntimeError("boom"), "boom"), (TimeoutError(), "TimeoutError")])
+@pytest.mark.parametrize(
+    "error, detail", [(RuntimeError("boom"), "boom"), (TimeoutError(), "TimeoutError")]
+)
 def test_loop_surfaces_provider_error(error, detail, caplog):
     async def call_model(body):
         raise error
@@ -111,18 +128,23 @@ def test_loop_surfaces_provider_error(error, detail, caplog):
 
 # ── streaming path ───────────────────────────────────────────────────────────
 
+
 def _deltas(*deltas):
     """A stream_model that yields the given delta dicts, once."""
+
     async def stream_model(body):
         for d in deltas:
             yield d
+
     return stream_model
 
 
 def test_stream_plain_answer_passes_tokens_through():
     # A model that just streams text — no tools — should stream verbatim.
     stream_model = _deltas(
-        {"content": "Hello"}, {"content": ", "}, {"content": "world."},
+        {"content": "Hello"},
+        {"content": ", "},
+        {"content": "world."},
     )
     gen = agent_loop.run_agent_loop(
         user="alice",
@@ -131,7 +153,9 @@ def test_stream_plain_answer_passes_tokens_through():
         stream_model=stream_model,
     )
     frames, raw = asyncio.run(_collect(gen))
-    text = "".join(f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices"))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
+    )
     assert "Hello, world." in text
     assert b"data: [DONE]" in raw
 
@@ -140,8 +164,16 @@ def test_stream_reassembles_fragmented_tool_call_then_answers():
     # Round 1: tool call split across fragments (id+name first, args in pieces).
     # Round 2: plain streamed answer.
     round1 = _deltas(
-        {"tool_calls": [{"index": 0, "id": "call_1", "type": "function",
-                          "function": {"name": "write_file", "arguments": ""}}]},
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "write_file", "arguments": ""},
+                }
+            ]
+        },
         {"tool_calls": [{"index": 0, "function": {"arguments": '{"path": "a.txt"'}}]},
         {"tool_calls": [{"index": 0, "function": {"arguments": ', "content": "hi"}'}}]},
     )
@@ -165,7 +197,9 @@ def test_stream_reassembles_fragmented_tool_call_then_answers():
 
     # The reassembled tool call actually executed against the workspace.
     assert tools.execute_tool("alice", "read_file", {"path": "a.txt"}) == "hi"
-    text = "".join(f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices"))
+    text = "".join(
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
+    )
     assert "Wrote it." in text
     assert calls["n"] == 2
 
@@ -173,8 +207,24 @@ def test_stream_reassembles_fragmented_tool_call_then_answers():
 def test_stream_multiple_tool_calls_in_one_round():
     # Two tool calls in a single assistant turn, interleaved by index.
     round1 = _deltas(
-        {"tool_calls": [{"index": 0, "id": "c0", "function": {"name": "write_file", "arguments": '{"path":"a.txt",'}}]},
-        {"tool_calls": [{"index": 1, "id": "c1", "function": {"name": "write_file", "arguments": '{"path":"b.txt",'}}]},
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "c0",
+                    "function": {"name": "write_file", "arguments": '{"path":"a.txt",'},
+                }
+            ]
+        },
+        {
+            "tool_calls": [
+                {
+                    "index": 1,
+                    "id": "c1",
+                    "function": {"name": "write_file", "arguments": '{"path":"b.txt",'},
+                }
+            ]
+        },
         {"tool_calls": [{"index": 0, "function": {"arguments": '"content":"A"}'}}]},
         {"tool_calls": [{"index": 1, "function": {"arguments": '"content":"B"}'}}]},
     )
@@ -231,8 +281,7 @@ def test_stream_empty_answer_emits_note_not_silence():
     )
     frames, raw = asyncio.run(_collect(gen))
     text = "".join(
-        f["choices"][0]["delta"].get("content", "")
-        for f in frames if f.get("choices")
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
     )
     assert "no answer returned" in text
     assert b"data: [DONE]" in raw
@@ -240,6 +289,7 @@ def test_stream_empty_answer_emits_note_not_silence():
 
 def test_nonstreaming_empty_answer_emits_note():
     """Same guarantee on the non-streaming call_model fallback path."""
+
     async def call_model(body):
         return {"choices": [{"message": {"role": "assistant", "content": ""}}]}
 
@@ -251,8 +301,7 @@ def test_nonstreaming_empty_answer_emits_note():
     )
     frames, _ = asyncio.run(_collect(gen))
     text = "".join(
-        f["choices"][0]["delta"].get("content", "")
-        for f in frames if f.get("choices")
+        f["choices"][0]["delta"].get("content", "") for f in frames if f.get("choices")
     )
     assert "no answer returned" in text
 
@@ -285,9 +334,19 @@ def test_tool_execution_does_not_block_the_event_loop():
 
     with mock.patch.dict(agent_loop._tools._DISPATCH, {"read_file": _slow_read}):
         stream_model = _deltas(
-            {"tool_calls": [{"index": 0, "id": "c1", "type": "function",
-                             "function": {"name": "read_file",
-                                          "arguments": '{"path": "a.txt"}'}}]},
+            {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": '{"path": "a.txt"}',
+                        },
+                    }
+                ]
+            },
         )
         # Round 2 answers plainly so the loop terminates.
         calls = {"n": 0}

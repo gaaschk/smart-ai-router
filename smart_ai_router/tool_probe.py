@@ -5,6 +5,7 @@ A model that can't leaks the call as prose in a family-specific syntax
 it instead of running it. Waiting to see that on a live turn costs a user's
 request per model; one cheap probe at sync time costs a fraction of a cent.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,14 +16,28 @@ import httpx
 
 from smart_ai_router import settings as _settings
 
-_TOOL = {"type": "function", "function": {
-    "name": "get_weather", "description": "Get the current weather for a city.",
-    "parameters": {"type": "object", "properties": {"city": {"type": "string"}},
-                   "required": ["city"]}}}
+_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}
 _PROBE_BODY = {
-    "messages": [{"role": "user",
-                  "content": "What's the weather in Paris right now? Use the tool."}],
-    "tools": [_TOOL], "max_tokens": 400, "temperature": 0,
+    "messages": [
+        {
+            "role": "user",
+            "content": "What's the weather in Paris right now? Use the tool.",
+        }
+    ],
+    "tools": [_TOOL],
+    "max_tokens": 400,
+    "temperature": 0,
 }
 _REPROBE_DAYS = 7  # providers change what a model id serves; verdicts expire
 _CONCURRENCY = 8
@@ -53,7 +68,8 @@ async def _probe(client, sem, cr, spec) -> str:
     async with sem:
         try:
             r = await client.post(
-                f"{base_url}/chat/completions", headers=_headers(api_key),
+                f"{base_url}/chat/completions",
+                headers=_headers(api_key),
                 json={**_PROBE_BODY, "model": real_model},
             )
         except httpx.RequestError:
@@ -76,15 +92,19 @@ async def probe_models(cr, *, limit: int = 60, retest: bool = False) -> dict:
         return {"enabled": False}
     stale = (datetime.now(timezone.utc) - timedelta(days=_REPROBE_DAYS)).isoformat()
     todo = [
-        s for s in cr.all_models()
-        if s.provider == "openrouter" and s.tools and s.cost_output <= max_cost
+        s
+        for s in cr.all_models()
+        if s.provider == "openrouter"
+        and s.tools
+        and s.cost_output <= max_cost
         and (retest or not s.tool_probe_at or s.tool_probe_at < stale)
     ]
     batch = todo[:limit]
     sem = asyncio.Semaphore(_CONCURRENCY)
     async with httpx.AsyncClient(timeout=60) as client:
         verdicts = await asyncio.gather(*(_probe(client, sem, cr, s) for s in batch))
-    out: dict = {v: verdicts.count(v)
-                 for v in ("ok", "text", "none", "unsupported", "error")}
+    out: dict = {
+        v: verdicts.count(v) for v in ("ok", "text", "none", "unsupported", "error")
+    }
     out["remaining"] = len(todo) - len(batch)
     return out

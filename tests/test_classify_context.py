@@ -37,6 +37,7 @@ cheapest-first still prefers a free one. The cost:quality bias and the tool-heal
 floor are what address that; this makes sure they are at least being applied to
 the right tier.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -67,6 +68,7 @@ _PLAN = (
 
 
 # ── The regression ────────────────────────────────────────────────────────────
+
 
 def test_a_short_follow_up_carries_the_conversations_work():
     convo = _convo(
@@ -119,6 +121,7 @@ def test_assistant_replies_are_never_included():
 
 # ── What must not change ──────────────────────────────────────────────────────
 
+
 def test_a_first_turn_classifies_exactly_as_before():
     convo = _convo(("user", _PLAN))
     assert _classify_text(convo) == _PLAN == _extract_prompt(convo)
@@ -144,6 +147,7 @@ def test_no_user_message_yields_nothing():
 
 # ── The budget ────────────────────────────────────────────────────────────────
 
+
 def test_context_is_capped(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_CONTEXT_CHARS", "100")
     convo = _convo(*[("user", "a" * 500) for _ in range(20)], ("user", "go"))
@@ -161,18 +165,22 @@ def test_context_is_capped(monkeypatch):
 def test_the_tail_of_a_cut_turn_is_kept(monkeypatch):
     # When a turn has to be cut, its end is the part that led to what came next.
     monkeypatch.setenv("SMART_ROUTER_CLASSIFIER_CONTEXT_CHARS", "20")
-    convo = _convo(("user", "irrelevant preamble " + "THE ACTUAL ASK"),
-                   ("user", "continue"))
+    convo = _convo(
+        ("user", "irrelevant preamble " + "THE ACTUAL ASK"), ("user", "continue")
+    )
     assert "THE ACTUAL ASK" in _classify_text(convo)
 
 
 def test_content_parts_are_read_like_plain_strings():
     # A client sending OpenAI content parts must not lose its context silently.
     convo = [
-        {"role": "user", "content": [
-            {"type": "text", "text": _PLAN},
-            {"type": "image_url", "image_url": {"url": "data:..."}},
-        ]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": _PLAN},
+                {"type": "image_url", "image_url": {"url": "data:..."}},
+            ],
+        },
         {"role": "user", "content": "you do it"},
     ]
     text = _classify_text(convo)

@@ -1,4 +1,5 @@
 """MatrixStore — interface for persisting the capability matrix and provider config."""
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from smart_ai_router.models import (
@@ -97,8 +98,13 @@ class MatrixStore(ABC):
         """Store the verdict of a tool-call probe. Optional, like failures."""
 
     def record_model_failure(
-        self, model: str, *, status: int, detail: str,
-        user: str = "", failed_over_to: str = "",
+        self,
+        model: str,
+        *,
+        status: int,
+        detail: str,
+        user: str = "",
+        failed_over_to: str = "",
     ) -> None:
         """Remember that a dispatch to `model` failed, and why. Optional: a store
         that keeps nothing simply never cools a model down."""
@@ -134,9 +140,7 @@ class MatrixStore(ABC):
         """
 
     @abstractmethod
-    def usage_summary(
-        self, *, user: str | None = None, since_ts: str = ""
-    ) -> dict:
+    def usage_summary(self, *, user: str | None = None, since_ts: str = "") -> dict:
         """Aggregated usage for the dashboard (totals + group-bys).
 
         user=None aggregates all users and includes a by_user breakdown;
@@ -145,9 +149,7 @@ class MatrixStore(ABC):
         """
 
     @abstractmethod
-    def usage_profiles(
-        self, *, since_ts: str = "", limit: int = 200
-    ) -> list[dict]:
+    def usage_profiles(self, *, since_ts: str = "", limit: int = 200) -> list[dict]:
         """Distinct prompt profiles actually routed, most frequent first.
 
         Each entry is {"profile": <normalize_profile-shaped dict>,
@@ -296,7 +298,14 @@ class MatrixStore(ABC):
 
     # Responses state is independent of web UI conversations, private to its owner.
     @abstractmethod
-    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None: ...
+    def save_response(
+        self,
+        owner: str,
+        response: dict,
+        input_items: list[dict],
+        *,
+        create: bool = False,
+    ) -> None: ...
 
     @abstractmethod
     def get_response(self, response_id: str, owner: str) -> dict | None: ...

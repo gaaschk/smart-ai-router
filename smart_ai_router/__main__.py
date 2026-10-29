@@ -1,4 +1,5 @@
 """CLI entry point: `python -m smart_ai_router` or `smart-ai-router`."""
+
 import os
 import sys
 from pathlib import Path
@@ -26,16 +27,19 @@ def _load_dotenv() -> None:
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "setup":
         from smart_ai_router.setup import run_setup
+
         run_setup()
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "keys":
         _load_dotenv()  # so the CLI uses the same DB path config as the server
         from smart_ai_router.keys_cli import run_keys_cli
+
         sys.exit(run_keys_cli(sys.argv[2:]))
 
     if len(sys.argv) > 1 and sys.argv[1] == "review":
         from smart_ai_router.review import run_review_cli
+
         sys.exit(run_review_cli(sys.argv[2:]))
 
     _load_dotenv()

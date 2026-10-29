@@ -27,6 +27,7 @@ so agent mode and web search are reachable from here later — but a tool call i
 silent round trip in the middle of a spoken sentence, and covering that needs the
 model to say "let me look that up" first. Separate problem, separate change.
 """
+
 from __future__ import annotations
 
 import base64
@@ -96,8 +97,11 @@ def _text_of(content: Any) -> str:
         return content
     if isinstance(content, list):
         return " ".join(
-            p["text"] for p in content
-            if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str)
+            p["text"]
+            for p in content
+            if isinstance(p, dict)
+            and p.get("type") == "text"
+            and isinstance(p.get("text"), str)
         )
     return ""
 
@@ -127,14 +131,14 @@ def _audio_of(body: dict[str, Any]) -> tuple[str, str]:
         raise HTTPException(
             status_code=413,
             detail=f"Recording too long — the cap is {_MAX_AUDIO_B64} base64 "
-                   f"characters, about 30 seconds of 48kHz mono audio.",
+            f"characters, about 30 seconds of 48kHz mono audio.",
         )
     fmt = str(body.get("format") or "wav").lower()
     if fmt not in _INPUT_FORMATS:
         raise HTTPException(
             status_code=422,
             detail=f"Unsupported audio format {fmt!r}; "
-                   f"expected one of {sorted(_INPUT_FORMATS)}.",
+            f"expected one of {sorted(_INPUT_FORMATS)}.",
         )
     # Decode to confirm it *is* base64 before spending a provider call on it. The
     # upstream error for a malformed body is generic and arrives after the audio
@@ -148,8 +152,9 @@ def _audio_of(body: dict[str, Any]) -> tuple[str, str]:
     return audio, fmt
 
 
-def _record(cr, request: Request, *, model: str, usage: dict | None,
-            status: int) -> None:
+def _record(
+    cr, request: Request, *, model: str, usage: dict | None, status: int
+) -> None:
     """Attribute the turn in the usage log (best-effort; never raises).
 
     Cost comes from the provider rather than from `cost_for()`: this model is
@@ -159,25 +164,28 @@ def _record(cr, request: Request, *, model: str, usage: dict | None,
     """
     try:
         u = usage or {}
-        cr.record_usage(UsageRecord(
-            kind="proxy",
-            user=getattr(request.state, "user", "") or "",
-            key_prefix=getattr(request.state, "key_prefix", "") or "",
-            routed_model=model,
-            modality="sound",
-            domain="voice",
-            complexity="native",
-            prompt_tokens=int(u.get("prompt_tokens", 0) or 0),
-            completion_tokens=int(u.get("completion_tokens", 0) or 0),
-            cost_usd=float(u.get("cost", 0.0) or 0.0),
-            status=status,
-        ))
+        cr.record_usage(
+            UsageRecord(
+                kind="proxy",
+                user=getattr(request.state, "user", "") or "",
+                key_prefix=getattr(request.state, "key_prefix", "") or "",
+                routed_model=model,
+                modality="sound",
+                domain="voice",
+                complexity="native",
+                prompt_tokens=int(u.get("prompt_tokens", 0) or 0),
+                completion_tokens=int(u.get("completion_tokens", 0) or 0),
+                cost_usd=float(u.get("cost", 0.0) or 0.0),
+                status=status,
+            )
+        )
     except Exception:  # noqa: BLE001 — accounting must not break a finished turn
         pass
 
 
-async def _relay(upstream: httpx.Response, cr, request: Request,
-                 model: str) -> AsyncIterator[bytes]:
+async def _relay(
+    upstream: httpx.Response, cr, request: Request, model: str
+) -> AsyncIterator[bytes]:
     """Forward the upstream SSE verbatim, sniffing the usage chunk on the way past.
 
     Verbatim because the page needs both halves of every delta — `audio.data` to
@@ -226,9 +234,14 @@ async def voice_turn(request: Request):
     base_url, api_key, real_model = _resolve_provider(model, cr)
 
     messages = _history(body.get("messages"))
-    messages.append({"role": "user", "content": [
-        {"type": "input_audio", "input_audio": {"data": audio, "format": fmt}},
-    ]})
+    messages.append(
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_audio", "input_audio": {"data": audio, "format": fmt}},
+            ],
+        }
+    )
 
     payload = {
         "model": real_model,
@@ -244,8 +257,10 @@ async def voice_turn(request: Request):
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=15.0))
     req = client.build_request(
-        "POST", f"{base_url}/chat/completions",
-        headers=_headers(api_key), json=payload,
+        "POST",
+        f"{base_url}/chat/completions",
+        headers=_headers(api_key),
+        json=payload,
     )
     try:
         upstream = await client.send(req, stream=True)
@@ -260,8 +275,10 @@ async def voice_turn(request: Request):
         await upstream.aclose()
         await client.aclose()
         _record(cr, request, model=model, usage=None, status=upstream.status_code)
-        raise HTTPException(status_code=upstream.status_code,
-                            detail=f"Voice model refused the turn: {detail}")
+        raise HTTPException(
+            status_code=upstream.status_code,
+            detail=f"Voice model refused the turn: {detail}",
+        )
 
     async def body_iter() -> AsyncIterator[bytes]:
         try:
@@ -335,7 +352,8 @@ async def audio_speech(request: Request):
     """
     if (getattr(request.state, "user", "") or "") != "admin":
         raise HTTPException(
-            status_code=403, detail="Audio endpoints are limited to the admin key for now."
+            status_code=403,
+            detail="Audio endpoints are limited to the admin key for now.",
         )
 
     body = await request.json()
@@ -354,14 +372,18 @@ async def audio_speech(request: Request):
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0))
     req = client.build_request(
-        "POST", f"{base_url}/audio/speech",
-        headers=_auth_headers(api_key), json=forwarded,
+        "POST",
+        f"{base_url}/audio/speech",
+        headers=_auth_headers(api_key),
+        json=forwarded,
     )
     try:
         upstream = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Audio model unreachable: {exc}") from None
+        raise HTTPException(
+            status_code=502, detail=f"Audio model unreachable: {exc}"
+        ) from None
 
     if upstream.status_code != 200:
         detail = (await upstream.aread()).decode(errors="replace")[:1000]
@@ -412,7 +434,8 @@ async def audio_transcriptions(request: Request):
     """
     if (getattr(request.state, "user", "") or "") != "admin":
         raise HTTPException(
-            status_code=403, detail="Audio endpoints are limited to the admin key for now."
+            status_code=403,
+            detail="Audio endpoints are limited to the admin key for now.",
         )
 
     form = await request.form()
@@ -431,7 +454,9 @@ async def audio_transcriptions(request: Request):
     # httpx generates the correct multipart/form-data boundary; see _auth_headers.
     # `model` is always the router-resolved one, ignoring whatever the client sent,
     # just like /v1/chat/completions ignores the requested model name.
-    files: dict[str, Any] = {"file": (upload.filename, upload.file, upload.content_type)}
+    files: dict[str, Any] = {
+        "file": (upload.filename, upload.file, upload.content_type)
+    }
     forwarded_form: dict[str, Any] = {"model": real_model}
     for k, v in form.multi_items():
         if k in ("file", "model"):
@@ -440,7 +465,8 @@ async def audio_transcriptions(request: Request):
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0))
     req = client.build_request(
-        "POST", f"{base_url}/audio/transcriptions",
+        "POST",
+        f"{base_url}/audio/transcriptions",
         headers=_auth_headers(api_key),
         files=files,
         data=forwarded_form,
@@ -449,7 +475,9 @@ async def audio_transcriptions(request: Request):
         upstream = await client.send(req)
     except httpx.HTTPError as exc:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Audio model unreachable: {exc}") from None
+        raise HTTPException(
+            status_code=502, detail=f"Audio model unreachable: {exc}"
+        ) from None
     finally:
         await client.aclose()
 
@@ -481,11 +509,15 @@ async def audio_models(request: Request):
     for key in ("tts_model", "stt_model"):
         val = _settings.get_str(key).strip()
         if val:
-            base, _, real_model = _resolve_provider(val, request.app.state.capability_router)
-            out.append({
-                "key": key,
-                "value": val,
-                "provider": base,
-                "model": real_model,
-            })
+            base, _, real_model = _resolve_provider(
+                val, request.app.state.capability_router
+            )
+            out.append(
+                {
+                    "key": key,
+                    "value": val,
+                    "provider": base,
+                    "model": real_model,
+                }
+            )
     return JSONResponse(out)

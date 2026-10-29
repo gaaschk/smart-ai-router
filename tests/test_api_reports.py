@@ -10,6 +10,7 @@ The rest is the trust boundary. Anyone may file a report, anonymous visitors
 included; only the operator may read or clear one, because a report is somebody
 else's chat.
 """
+
 import json
 import warnings
 
@@ -49,21 +50,30 @@ def open_client(monkeypatch):
 def scoped(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     client = _client(CapabilityRouter(store=SqliteStore(":memory:")))
-    alice = client.post("/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)).json()["key"]
+    alice = client.post(
+        "/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)
+    ).json()["key"]
     return client, alice
 
 
 def _file(client, headers=None, **body):
-    payload = {"description": "It said Sydney; the capital is Canberra.",
-               "transcript": _TURNS, **body}
+    payload = {
+        "description": "It said Sydney; the capital is Canberra.",
+        "transcript": _TURNS,
+        **body,
+    }
     return client.post("/api/reports", json=payload, headers=headers or {})
 
 
 # ── the context is gathered, not asked for ────────────────────────────────────
 
+
 def test_a_report_keeps_the_whole_conversation_and_the_routing_decision(open_client):
-    r = _file(open_client, conversation_id="conv-x",
-              meta={"routed": "ollama/qwen3:8b", "profile": "General knowledge @ basic"})
+    r = _file(
+        open_client,
+        conversation_id="conv-x",
+        meta={"routed": "ollama/qwen3:8b", "profile": "General knowledge @ basic"},
+    )
     assert r.status_code == 200
     rep = r.json()
     assert rep["id"] > 0 and rep["ts"]
@@ -82,10 +92,13 @@ def test_a_report_keeps_the_whole_conversation_and_the_routing_decision(open_cli
 
 
 def test_a_report_without_chat_content_keeps_only_description_and_routing(open_client):
-    r = open_client.post("/api/reports", json={
-        "description": "The answer was incorrect",
-        "meta": {"routed": "test-model"},
-    })
+    r = open_client.post(
+        "/api/reports",
+        json={
+            "description": "The answer was incorrect",
+            "meta": {"routed": "test-model"},
+        },
+    )
     assert r.status_code == 200
     stored = open_client.get("/api/reports").json()["data"][0]
     assert stored["transcript"] == []
@@ -95,8 +108,10 @@ def test_a_report_without_chat_content_keeps_only_description_and_routing(open_c
 
 def test_the_snapshot_outlives_the_conversation_it_came_from(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
-    open_client.post(f"/api/conversations/{cid}/messages",
-                     json={"role": "user", "content": "What's the capital of Australia?"})
+    open_client.post(
+        f"/api/conversations/{cid}/messages",
+        json={"role": "user", "content": "What's the capital of Australia?"},
+    )
     _file(open_client, conversation_id=cid)
 
     open_client.delete(f"/api/conversations/{cid}")
@@ -116,11 +131,13 @@ def test_a_thread_that_was_never_saved_is_still_reportable(open_client):
 def test_reports_come_back_newest_first(open_client):
     _file(open_client, description="first")
     _file(open_client, description="second")
-    assert [r["description"] for r in open_client.get("/api/reports").json()["data"]] \
-        == ["second", "first"]
+    assert [
+        r["description"] for r in open_client.get("/api/reports").json()["data"]
+    ] == ["second", "first"]
 
 
 # ── untrusted input: the body is whatever the browser sent ────────────────────
+
 
 def test_a_report_with_nothing_written_in_it_is_refused(open_client):
     # The description is the one thing the feature actually asks the user for; an
@@ -134,7 +151,10 @@ def test_an_oversized_transcript_keeps_its_most_recent_turns(open_client):
     # Trimming from the front, because the reported reply is at the end. Dropping
     # the tail would throw away the only turn the report is actually about.
     filler = [{"role": "user", "content": "x" * 20_000} for _ in range(40)]
-    r = _file(open_client, transcript=filler + [{"role": "assistant", "content": "the bad answer"}])
+    r = _file(
+        open_client,
+        transcript=filler + [{"role": "assistant", "content": "the bad answer"}],
+    )
     assert r.status_code == 200
     kept = open_client.get("/api/reports").json()["data"][0]["transcript"]
     assert kept[-1]["content"] == "the bad answer"
@@ -160,6 +180,7 @@ def test_an_unreasonable_meta_blob_is_refused(open_client):
 
 # ── who may file, and who may read ───────────────────────────────────────────
 
+
 def test_filing_is_reachable_without_a_key_and_reading_is_not(scoped):
     client, alice = scoped
     # Public chat's allow-list carries the exact path only, so an anonymous
@@ -174,13 +195,19 @@ def test_filing_is_reachable_without_a_key_and_reading_is_not(scoped):
     assert client.delete("/api/reports/1", headers=_auth(alice)).status_code == 403
 
     listed = client.get("/api/reports", headers=_auth(_ADMIN)).json()["data"]
-    assert [r["user"] for r in listed] == ["alice"]   # attributed to the reporter
+    assert [r["user"] for r in listed] == ["alice"]  # attributed to the reporter
 
 
 def test_admin_can_clear_a_report_it_has_acted_on(scoped):
     client, _ = scoped
     rid = _file(client, headers=_auth(_ADMIN)).json()["id"]
-    assert client.delete(f"/api/reports/{rid}", headers=_auth(_ADMIN)).json()["deleted"] is True
+    assert (
+        client.delete(f"/api/reports/{rid}", headers=_auth(_ADMIN)).json()["deleted"]
+        is True
+    )
     assert client.get("/api/reports", headers=_auth(_ADMIN)).json()["data"] == []
     # A second delete is not an error; it just has nothing to delete.
-    assert client.delete(f"/api/reports/{rid}", headers=_auth(_ADMIN)).json()["deleted"] is False
+    assert (
+        client.delete(f"/api/reports/{rid}", headers=_auth(_ADMIN)).json()["deleted"]
+        is False
+    )

@@ -17,6 +17,7 @@ These tests pin the properties that make measuring it from live traffic safe:
   - it survives a catalog sync, because the catalog cannot know it;
   - unmeasured is exempt, and the floor is off until an operator sets one.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -44,24 +45,37 @@ def _store(*specs):
 def _turn(store, model, *, tools=True, stalled=False, status=200, kind="proxy"):
     """One recorded turn. `stalled` is the observation, already reduced to a bit
     by the proxy — these tests cover what the store does with it."""
-    store.record_usage(UsageRecord(
-        user="u", routed_model=model, kind=kind, status=status,
-        completion_tokens=200, latency_ms=1000,
-        tools_offered=tools, tool_stalled=stalled,
-    ))
+    store.record_usage(
+        UsageRecord(
+            user="u",
+            routed_model=model,
+            kind=kind,
+            status=status,
+            completion_tokens=200,
+            latency_ms=1000,
+            tools_offered=tools,
+            tool_stalled=stalled,
+        )
+    )
 
 
 def _health(store, model):
-    return next(s.observed_tool_health for s in store.all_models()
-                if s.value == model)
+    return next(s.observed_tool_health for s in store.all_models() if s.value == model)
 
 
 def _coder(name, cost=0, **kw):
-    return ModelSpec(name, cost=cost, reliability=1.0, tools=True,
-                     profile={"software_engineering": 0.95}, **kw)
+    return ModelSpec(
+        name,
+        cost=cost,
+        reliability=1.0,
+        tools=True,
+        profile={"software_engineering": 0.95},
+        **kw,
+    )
 
 
 # ── The measurement ───────────────────────────────────────────────────────────
+
 
 def test_unmeasured_reads_as_zero():
     store = _store(_coder("m"))
@@ -130,19 +144,22 @@ def test_it_survives_a_catalog_sync():
     # clients. A sync that reset it would discard the only data we can't refetch.
     store = _store(_coder("m"))
     _turn(store, "m", stalled=True)
-    store.upsert_model(_coder("m"))          # as a sync would
+    store.upsert_model(_coder("m"))  # as a sync would
     assert _health(store, "m") == 0.8
 
 
 # ── The floor ─────────────────────────────────────────────────────────────────
 
+
 def _route(store, monkeypatch, floor=0, stale_days=30):
     monkeypatch.setenv("SMART_ROUTER_MIN_TOOL_HEALTH", str(floor))
     monkeypatch.setenv("SMART_ROUTER_TPS_STALENESS_DAYS", str(stale_days))
     return select(
-        store, needs_tools=True,
+        store,
+        needs_tools=True,
         profile=PromptProfile(
-            domains=(DomainNeed("software_engineering", "practitioner"),)),
+            domains=(DomainNeed("software_engineering", "practitioner"),)
+        ),
     )
 
 
@@ -181,8 +198,8 @@ def test_a_stale_reading_stops_counting(monkeypatch):
     _stall_until_unhealthy(store, "cheap")
     when = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
     store._conn.execute(
-        "UPDATE models SET observed_tool_health_at = ? WHERE value = ?",
-        (when, "cheap"))
+        "UPDATE models SET observed_tool_health_at = ? WHERE value = ?", (when, "cheap")
+    )
     store._conn.commit()
     assert _route(store, monkeypatch, floor=70).model == "cheap"
 
@@ -190,8 +207,7 @@ def test_a_stale_reading_stops_counting(monkeypatch):
 def test_a_benchmarked_weak_model_is_still_excluded_on_its_own(monkeypatch):
     # The two readings are independent: the `agentic` index must keep working with
     # no tool-health floor set at all.
-    store = _store(_coder("weak", cost=0, agentic=0.10),
-                   _coder("dear", cost=5))
+    store = _store(_coder("weak", cost=0, agentic=0.10), _coder("dear", cost=5))
     assert _route(store, monkeypatch, floor=0).model == "dear"
 
 
@@ -199,11 +215,16 @@ def test_a_benchmarked_weak_model_is_still_excluded_on_its_own(monkeypatch):
 # The tests above take the stall bit as given. These pin where it comes from,
 # which is the part that decides whether any of the rest measures the right thing.
 
-_TOOLS = [{
-    "type": "function",
-    "function": {"name": "enter_plan_mode", "description": "switch to planning",
-                 "parameters": {"type": "object", "properties": {}}},
-}]
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_plan_mode",
+            "description": "switch to planning",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+]
 
 
 def _reply(*, content="", tool_calls=None, completion_tokens=200):
@@ -213,9 +234,11 @@ def _reply(*, content="", tool_calls=None, completion_tokens=200):
     return {
         "id": "cmpl-1",
         "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 24000,
-                  "completion_tokens": completion_tokens,
-                  "total_tokens": 24000 + completion_tokens},
+        "usage": {
+            "prompt_tokens": 24000,
+            "completion_tokens": completion_tokens,
+            "total_tokens": 24000 + completion_tokens,
+        },
     }
 
 
@@ -238,11 +261,15 @@ def _proxy(reply, monkeypatch, **body):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         client = TestClient(create_app(CapabilityRouter(store=store)))
-    r = client.post("/v1/chat/completions", json={
-        "model": "smart-auto", "stream": False,
-        "messages": [{"role": "user", "content": "write the plan"}],
-        **body,
-    })
+    r = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "smart-auto",
+            "stream": False,
+            "messages": [{"role": "user", "content": "write the plan"}],
+            **body,
+        },
+    )
     assert r.status_code == 200, r.text
     return store
 
@@ -257,20 +284,38 @@ def _recorded(store):
     return bool(row["tools_offered"]), bool(row["tool_stalled"])
 
 
-@pytest.mark.parametrize("reply,expected,why", [
-    # Token count alone cannot prove whether a short reply completes the task.
-    (_reply(content="I'll switch to plan mode.", completion_tokens=82),
-     (True, False), "semantic completion cannot be inferred from length"),
-    # A real tool call is health, however short the prose around it.
-    (_reply(tool_calls=[{"id": "c1", "type": "function",
-                         "function": {"name": "enter_plan_mode",
-                                      "arguments": "{}"}}],
-            completion_tokens=12),
-     (True, False), "a tool call is never a stall, even a terse one"),
-    # A substantive prose answer is a legitimate reply to a question.
-    (_reply(content="x" * 400, completion_tokens=900),
-     (True, False), "a real answer is not a stall"),
-])
+@pytest.mark.parametrize(
+    "reply,expected,why",
+    [
+        # Token count alone cannot prove whether a short reply completes the task.
+        (
+            _reply(content="I'll switch to plan mode.", completion_tokens=82),
+            (True, False),
+            "semantic completion cannot be inferred from length",
+        ),
+        # A real tool call is health, however short the prose around it.
+        (
+            _reply(
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "enter_plan_mode", "arguments": "{}"},
+                    }
+                ],
+                completion_tokens=12,
+            ),
+            (True, False),
+            "a tool call is never a stall, even a terse one",
+        ),
+        # A substantive prose answer is a legitimate reply to a question.
+        (
+            _reply(content="x" * 400, completion_tokens=900),
+            (True, False),
+            "a real answer is not a stall",
+        ),
+    ],
+)
 def test_the_proxy_derives_the_stall_bit(reply, expected, why, monkeypatch):
     assert _recorded(_proxy(reply, monkeypatch, tools=_TOOLS)) == expected, why
 

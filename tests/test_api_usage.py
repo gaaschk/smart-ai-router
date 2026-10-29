@@ -3,6 +3,7 @@
 Scoped like conversations: the admin identity sees all users (with a by_user
 breakdown); a per-user key sees only its own rows and no by_user.
 """
+
 import warnings
 
 import pytest
@@ -28,10 +29,16 @@ def _auth(token):
 
 def _rec(user, model, ts, **kw):
     return UsageRecord(
-        user=user, key_prefix=user[:4], routed_model=model,
-        domain=kw.get("domain", "coding"), complexity=kw.get("complexity", "moderate"),
-        prompt_tokens=kw.get("pt", 100), completion_tokens=kw.get("ct", 50),
-        cost_usd=kw.get("cost", 0.01), status=200, ts=ts,
+        user=user,
+        key_prefix=user[:4],
+        routed_model=model,
+        domain=kw.get("domain", "coding"),
+        complexity=kw.get("complexity", "moderate"),
+        prompt_tokens=kw.get("pt", 100),
+        completion_tokens=kw.get("ct", 50),
+        cost_usd=kw.get("cost", 0.01),
+        status=200,
+        ts=ts,
     )
 
 
@@ -53,9 +60,7 @@ def admin_client(monkeypatch, store):
 
 def test_admin_sees_all_users_and_by_user(admin_client):
     # days=365000 → window easily covers the 2099 rows.
-    body = admin_client.get(
-        "/api/usage?days=365000", headers=_auth(_ADMIN)
-    ).json()
+    body = admin_client.get("/api/usage?days=365000", headers=_auth(_ADMIN)).json()
     assert body["totals"]["requests"] == 2
     assert body["by_user"] is not None
     users = {r["key"] for r in body["by_user"]}
@@ -80,6 +85,7 @@ def test_days_window_bounds_which_rows_count(monkeypatch):
     # 30-day one; a 10-day-old row is inside both. Timestamps are computed
     # relative to now so the assertions don't drift with the calendar.
     from datetime import datetime, timedelta, timezone
+
     now = datetime.now(timezone.utc)
     ten_days = (now - timedelta(days=10)).isoformat()
     sixty_days = (now - timedelta(days=60)).isoformat()
@@ -101,6 +107,7 @@ def test_hours_window_sees_inside_a_single_day(monkeypatch):
     # What the sub-day options are for: two rows in the same calendar day, which
     # `days` cannot separate at all.
     from datetime import datetime, timedelta, timezone
+
     now = datetime.now(timezone.utc)
 
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
@@ -110,11 +117,13 @@ def test_hours_window_sees_inside_a_single_day(monkeypatch):
     client = _client(CapabilityRouter(store=s))
 
     def req(qs):
-        return client.get(f"/api/usage{qs}", headers=_auth(_ADMIN)).json()["totals"]["requests"]
+        return client.get(f"/api/usage{qs}", headers=_auth(_ADMIN)).json()["totals"][
+            "requests"
+        ]
 
-    assert req("?hours=1") == 1     # only the 30-minute-old row
-    assert req("?hours=12") == 2    # both
-    assert req("") == 2             # default 30 days still covers both
+    assert req("?hours=1") == 1  # only the 30-minute-old row
+    assert req("?hours=12") == 2  # both
+    assert req("") == 2  # default 30 days still covers both
     # hours wins when both are sent, and a nonsense value is clamped rather than
     # returning an empty window.
     assert req("?days=90&hours=1") == 1

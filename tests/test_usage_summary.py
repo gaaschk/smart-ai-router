@@ -5,36 +5,74 @@ per-domain / per-user breakdowns, computed in SQL. Admin (user=None) sees all
 users and a by_user block; a scoped user sees only their own rows and no
 by_user.
 """
+
 import sqlite3
 
 from smart_ai_router.models import UsageRecord
 from smart_ai_router.store.sqlite_store import SqliteStore
 
 
-def _rec(user, model, ts, *, pt=100, ct=50, cost=0.01, domain="coding",
-         complexity="moderate", estimated=False):
+def _rec(
+    user,
+    model,
+    ts,
+    *,
+    pt=100,
+    ct=50,
+    cost=0.01,
+    domain="coding",
+    complexity="moderate",
+    estimated=False,
+):
     return UsageRecord(
-        user=user, key_prefix=user[:4], routed_model=model, domain=domain,
-        complexity=complexity, prompt_tokens=pt, completion_tokens=ct,
-        cost_usd=cost, status=200, tokens_estimated=estimated, ts=ts,
+        user=user,
+        key_prefix=user[:4],
+        routed_model=model,
+        domain=domain,
+        complexity=complexity,
+        prompt_tokens=pt,
+        completion_tokens=ct,
+        cost_usd=cost,
+        status=200,
+        tokens_estimated=estimated,
+        ts=ts,
     )
 
 
 def _seed(store):
     # alice: 2 requests (one estimated), bob: 1 request, different models/days.
     store.record_usage(_rec("alice", "openrouter/gpt-4", "2026-07-01T10:00:00+00:00"))
-    store.record_usage(_rec("alice", "ollama/llama3", "2026-07-02T10:00:00+00:00",
-                            estimated=True, cost=0.0))
-    store.record_usage(_rec("bob", "openrouter/gpt-4", "2026-07-02T12:00:00+00:00",
-                            domain="docs", complexity="trivial", cost=0.02))
+    store.record_usage(
+        _rec(
+            "alice",
+            "ollama/llama3",
+            "2026-07-02T10:00:00+00:00",
+            estimated=True,
+            cost=0.0,
+        )
+    )
+    store.record_usage(
+        _rec(
+            "bob",
+            "openrouter/gpt-4",
+            "2026-07-02T12:00:00+00:00",
+            domain="docs",
+            complexity="trivial",
+            cost=0.02,
+        )
+    )
 
 
 def test_negative_usage_cost_is_logged_as_zero_with_model_warning(caplog):
     store = SqliteStore(":memory:")
-    store.record_usage(_rec("alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00",
-                            cost=-1000.0))
-    store.record_usage(_rec("alice", "openrouter/x/paid", "2026-07-01T11:00:00+00:00",
-                            cost=0.02))
+    store.record_usage(
+        _rec(
+            "alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00", cost=-1000.0
+        )
+    )
+    store.record_usage(
+        _rec("alice", "openrouter/x/paid", "2026-07-01T11:00:00+00:00", cost=0.02)
+    )
     summary = store.usage_summary()
     assert summary["totals"]["cost_usd"] == 0.02
     by_model = {r["key"]: r for r in summary["by_model"]}
@@ -46,7 +84,9 @@ def test_negative_usage_cost_is_logged_as_zero_with_model_warning(caplog):
 def test_startup_cleans_historical_negative_usage_cost(tmp_path):
     path = tmp_path / "usage.db"
     store = SqliteStore(str(path))
-    store.record_usage(_rec("alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00"))
+    store.record_usage(
+        _rec("alice", "openrouter/x/variable", "2026-07-01T10:00:00+00:00")
+    )
     # Reproduce a row written by the older pricing calculation.
     with sqlite3.connect(path) as conn:
         conn.execute("UPDATE usage_log SET cost_usd=-1000")
@@ -152,16 +192,20 @@ def test_empty_window_returns_zeroed_totals_not_none():
     summary = store.usage_summary()
     t = summary["totals"]
     assert t == {
-        "requests": 0, "prompt_tokens": 0, "completion_tokens": 0,
-        "cost_usd": 0.0, "estimated_rows": 0,
+        "requests": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_usd": 0.0,
+        "estimated_rows": 0,
     }
     assert summary["by_model"] == []
 
 
 def test_tokens_estimated_round_trips_through_record_and_read():
     store = SqliteStore(":memory:")
-    store.record_usage(_rec("alice", "ollama/x", "2026-07-01T00:00:00+00:00",
-                            estimated=True))
+    store.record_usage(
+        _rec("alice", "ollama/x", "2026-07-01T00:00:00+00:00", estimated=True)
+    )
     rec = store.recent_usage("alice", "2026-07-01T00:00:00+00:00")[0]
     assert rec.tokens_estimated is True
 
@@ -198,6 +242,7 @@ def test_migration_adds_tokens_estimated_to_preexisting_db(tmp_path):
 
 
 # ── Classifier attribution ────────────────────────────────────────────────────
+
 
 def test_by_classifier_groups_and_sums():
     """The mix is the point: this is how a deployment notices that every request

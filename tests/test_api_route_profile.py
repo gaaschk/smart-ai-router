@@ -1,4 +1,5 @@
 """Integration tests for POST /api/route — profile and legacy request shapes."""
+
 import warnings
 
 import pytest
@@ -23,30 +24,54 @@ def client(monkeypatch):
     store = SqliteStore(":memory:")
     # The pair the old router got wrong: both cleared one 0.88 coding bar, and
     # the cheap one won a prompt that also needed regulatory depth.
-    store.upsert_model(ModelSpec(
-        value="cheap-coder", provider="openrouter", cost=1, ctx_k=200,
-        reliability=1.0,
-        profile={"software_engineering": 0.95, "law_regulatory": 0.55,
-                 "general_knowledge": 0.70},
-        competence={"coding": 0.95, "reasoning": 0.55, "docs": 0.7, "general": 0.7},
-    ))
-    store.upsert_model(ModelSpec(
-        value="pricey-frontier", provider="openrouter", cost=12, ctx_k=200,
-        reliability=1.0,
-        profile={"software_engineering": 0.94, "law_regulatory": 0.95,
-                 "general_knowledge": 0.95},
-        competence={"coding": 0.94, "reasoning": 0.95, "docs": 0.94, "general": 0.95},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="cheap-coder",
+            provider="openrouter",
+            cost=1,
+            ctx_k=200,
+            reliability=1.0,
+            profile={
+                "software_engineering": 0.95,
+                "law_regulatory": 0.55,
+                "general_knowledge": 0.70,
+            },
+            competence={"coding": 0.95, "reasoning": 0.55, "docs": 0.7, "general": 0.7},
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="pricey-frontier",
+            provider="openrouter",
+            cost=12,
+            ctx_k=200,
+            reliability=1.0,
+            profile={
+                "software_engineering": 0.94,
+                "law_regulatory": 0.95,
+                "general_knowledge": 0.95,
+            },
+            competence={
+                "coding": 0.94,
+                "reasoning": 0.95,
+                "docs": 0.94,
+                "general": 0.95,
+            },
+        )
+    )
     return _client(CapabilityRouter(store=store))
 
 
 def test_profile_request_requires_every_field(client):
-    r = client.post("/api/route", json={
-        "domains": [
-            {"field": "law_regulatory", "depth": "specialist"},
-            {"field": "software_engineering", "depth": "specialist"},
-        ],
-    })
+    r = client.post(
+        "/api/route",
+        json={
+            "domains": [
+                {"field": "law_regulatory", "depth": "specialist"},
+                {"field": "software_engineering", "depth": "specialist"},
+            ],
+        },
+    )
     assert r.status_code == 200
     d = r.json()
     assert d["model"] == "pricey-frontier"
@@ -57,18 +82,24 @@ def test_profile_request_requires_every_field(client):
 
 
 def test_single_field_profile_takes_the_cheap_model(client):
-    r = client.post("/api/route", json={
-        "domains": [{"field": "software_engineering", "depth": "specialist"}],
-    })
+    r = client.post(
+        "/api/route",
+        json={
+            "domains": [{"field": "software_engineering", "depth": "specialist"}],
+        },
+    )
     assert r.json()["model"] == "cheap-coder"
 
 
 def test_unqualified_pick_is_flagged(client):
-    r = client.post("/api/route", json={
-        "domains": [{"field": "law_regulatory", "depth": "frontier"}],
-        "demands": ["factual_precision"],
-        "stakes": "high",
-    })
+    r = client.post(
+        "/api/route",
+        json={
+            "domains": [{"field": "law_regulatory", "depth": "frontier"}],
+            "demands": ["factual_precision"],
+            "stakes": "high",
+        },
+    )
     d = r.json()
     assert r.status_code == 200
     assert d["qualified"] is False
@@ -86,9 +117,12 @@ def test_legacy_label_request_still_works(client):
 
 
 def test_legacy_labels_are_derived_from_the_profile(client):
-    r = client.post("/api/route", json={
-        "domains": [{"field": "law_regulatory", "depth": "frontier"}],
-    })
+    r = client.post(
+        "/api/route",
+        json={
+            "domains": [{"field": "law_regulatory", "depth": "frontier"}],
+        },
+    )
     d = r.json()
     assert (d["domain"], d["complexity"]) == ("reasoning", "expert")
 
@@ -96,9 +130,12 @@ def test_legacy_labels_are_derived_from_the_profile(client):
 def test_unknown_field_is_a_422_not_a_silent_default(client):
     # Silently routing a prompt whose fields we didn't understand is how a
     # demanding request gets answered by a cheap model.
-    r = client.post("/api/route", json={
-        "domains": [{"field": "astrology", "depth": "frontier"}],
-    })
+    r = client.post(
+        "/api/route",
+        json={
+            "domains": [{"field": "astrology", "depth": "frontier"}],
+        },
+    )
     assert r.status_code == 422
     assert "law_regulatory" in r.json()["detail"]
 

@@ -1,4 +1,5 @@
 """Process-local provider availability circuits; independent of semantic model health."""
+
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import logging
@@ -10,12 +11,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULTS = {'openrouter': (5, 60), 'ollama': (3, 30), 'bedrock': (10, 120)}
+DEFAULTS = {"openrouter": (5, 60), "ollama": (3, 30), "bedrock": (10, 120)}
 
 
 def provider_for(model):
-    prefix = model.split('/', 1)[0]
-    return prefix if prefix in DEFAULTS else 'openrouter'
+    prefix = model.split("/", 1)[0]
+    return prefix if prefix in DEFAULTS else "openrouter"
 
 
 @dataclass
@@ -45,18 +46,26 @@ class ProviderCircuits:
     def blocked(self, provider, recovery):
         with self.lock:
             state = self.states[provider]
-            return state.probe or (state.opened_at is not None and self.clock() - state.opened_at < recovery)
+            return state.probe or (
+                state.opened_at is not None
+                and self.clock() - state.opened_at < recovery
+            )
 
     def acquire(self, provider, recovery):
         with self.lock:
             state = self.states[provider]
-            if state.probe or (state.opened_at is not None and self.clock() - state.opened_at < recovery):
+            if state.probe or (
+                state.opened_at is not None
+                and self.clock() - state.opened_at < recovery
+            ):
                 state.rejected += 1
-                raise CircuitUnavailable(f'Provider circuit is open: {provider}')
+                raise CircuitUnavailable(f"Provider circuit is open: {provider}")
             if state.opened_at is not None:
                 state.probe = True
                 state.recovery_attempts += 1
-                logger.info("provider_circuit provider=%s transition=open->half_open", provider)
+                logger.info(
+                    "provider_circuit provider=%s transition=open->half_open", provider
+                )
             return state.generation, state.probe
 
     def finish(self, provider, lease, threshold, outcome):
@@ -75,7 +84,10 @@ class ProviderCircuits:
                 state.failures = 0
                 if probe:
                     state.recoveries += 1
-                    logger.info("provider_circuit provider=%s transition=half_open->closed", provider)
+                    logger.info(
+                        "provider_circuit provider=%s transition=half_open->closed",
+                        provider,
+                    )
                     state.opened_at = None
                     state.probe = False
                     state.generation += 1
@@ -83,7 +95,11 @@ class ProviderCircuits:
                 state.failed_attempts += 1
                 state.failures += 1
                 if probe or state.failures >= threshold:
-                    logger.warning("provider_circuit provider=%s transition=%s->open", provider, "half_open" if probe else "closed")
+                    logger.warning(
+                        "provider_circuit provider=%s transition=%s->open",
+                        provider,
+                        "half_open" if probe else "closed",
+                    )
                     state.opened_at = self.clock()
                     state.probe = False
                     state.generation += 1
@@ -96,25 +112,43 @@ class ProviderCircuits:
     def snapshot(self, policy):
         with self.lock:
             now = self.clock()
-            return {provider: {
-                'state': ('half_open' if state.probe or (state.opened_at is not None and
-                          now - state.opened_at >= policy[provider][1]) else
-                          'open' if state.opened_at is not None else 'closed'),
-                'consecutive_failures': state.failures,
-                'failed_attempts': state.failed_attempts,
-                'successful_attempts': state.successful_attempts,
-                'rejected_attempts': state.rejected,
-                'recovery_attempts': state.recovery_attempts,
-                'recoveries': state.recoveries,
-                'fallbacks': state.fallbacks,
-                'failure_threshold': policy[provider][0], 'recovery_seconds': policy[provider][1],
-            } for provider, state in self.states.items()}
+            return {
+                provider: {
+                    "state": (
+                        "half_open"
+                        if state.probe
+                        or (
+                            state.opened_at is not None
+                            and now - state.opened_at >= policy[provider][1]
+                        )
+                        else "open"
+                        if state.opened_at is not None
+                        else "closed"
+                    ),
+                    "consecutive_failures": state.failures,
+                    "failed_attempts": state.failed_attempts,
+                    "successful_attempts": state.successful_attempts,
+                    "rejected_attempts": state.rejected,
+                    "recovery_attempts": state.recovery_attempts,
+                    "recoveries": state.recoveries,
+                    "fallbacks": state.fallbacks,
+                    "failure_threshold": policy[provider][0],
+                    "recovery_seconds": policy[provider][1],
+                }
+                for provider, state in self.states.items()
+            }
 
 
 class CircuitClient:
     """Wrap only dispatch, so no lease is held while profiling or validating input."""
+
     def __init__(self, client, circuits, provider, policy):
-        self.client, self.circuits, self.provider, self.policy = client, circuits, provider, policy
+        self.client, self.circuits, self.provider, self.policy = (
+            client,
+            circuits,
+            provider,
+            policy,
+        )
 
     def _lease(self):
         provider = self.provider()
@@ -145,7 +179,12 @@ class CircuitClient:
         try:
             async with self.client.stream(*args, **kwargs) as response:
                 if response.status_code >= 400:
-                    self.circuits.finish(provider, lease, threshold, self._reachable(response.status_code))
+                    self.circuits.finish(
+                        provider,
+                        lease,
+                        threshold,
+                        self._reachable(response.status_code),
+                    )
                     recorded = True  # update before proxy chooses its fallback
                 yield response
                 if not recorded:

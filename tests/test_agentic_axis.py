@@ -12,6 +12,7 @@ store (a new column on an existing DB) and sync (the only thing that populates
 it). The router's use of it lives in test_router_select.py, and the mapping
 itself in test_profiler.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,6 +31,7 @@ def _store() -> SqliteStore:
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
+
 
 def test_agentic_round_trips():
     store = _store()
@@ -78,12 +80,18 @@ def test_pre_migration_rows_read_as_unmeasured():
 
 # ── Sync wiring ───────────────────────────────────────────────────────────────
 
+
 def _fake_urlopen(payload):
     def _open(req, timeout=0):
         class _Resp(BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
         return _Resp(json.dumps(payload).encode())
+
     return _open
 
 
@@ -104,11 +112,19 @@ def _openrouter_model(mid, **benchmarks):
 def test_sync_puts_the_measured_index_on_the_axis(monkeypatch):
     store = _store()
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
-        _fake_urlopen({"data": [
-            _openrouter_model("anthropic/claude-haiku-4.5",
-                              intelligence_index=29.9, agentic_index=16.5),
-        ]}),
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            {
+                "data": [
+                    _openrouter_model(
+                        "anthropic/claude-haiku-4.5",
+                        intelligence_index=29.9,
+                        agentic_index=16.5,
+                    ),
+                ]
+            }
+        ),
     )
     sync_from_providers(store, openrouter_key="x")
     spec = store.get("openrouter/anthropic/claude-haiku-4.5")
@@ -120,11 +136,19 @@ def test_sync_no_longer_lets_the_index_dent_a_field(monkeypatch):
     `operations_process` carried its agentic score instead of its knowledge."""
     store = _store()
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
-        _fake_urlopen({"data": [
-            _openrouter_model("anthropic/claude-haiku-4.5",
-                              intelligence_index=29.9, agentic_index=16.5),
-        ]}),
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            {
+                "data": [
+                    _openrouter_model(
+                        "anthropic/claude-haiku-4.5",
+                        intelligence_index=29.9,
+                        agentic_index=16.5,
+                    ),
+                ]
+            }
+        ),
     )
     sync_from_providers(store, openrouter_key="x")
     spec = store.get("openrouter/anthropic/claude-haiku-4.5")
@@ -137,7 +161,8 @@ def test_sync_no_longer_lets_the_index_dent_a_field(monkeypatch):
 def test_a_model_with_no_benchmarks_syncs_as_unmeasured(monkeypatch):
     store = _store()
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"data": [_openrouter_model("vendor/plain")]}),
     )
     sync_from_providers(store, openrouter_key="x")
@@ -152,7 +177,8 @@ def test_local_and_bedrock_models_are_unmeasured(monkeypatch):
     assert all(s.agentic == 0.0 for s in store.all_models())
 
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"models": [{"name": "qwen3:30b", "size": 20_000_000_000}]}),
     )
     sync_from_providers(store, ollama_base_url="http://x")
@@ -171,11 +197,13 @@ def test_a_new_catalog_signal_cannot_be_dropped_silently(monkeypatch):
     """
     real = sync_mod.extract_catalog_signals
     monkeypatch.setattr(
-        sync_mod, "extract_catalog_signals",
+        sync_mod,
+        "extract_catalog_signals",
         lambda entry: {**real(entry), "brand_new_index": 1.0},
     )
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"data": [_openrouter_model("vendor/plain")]}),
     )
     with pytest.raises(TypeError, match="brand_new_index"):

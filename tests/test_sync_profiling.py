@@ -13,6 +13,7 @@ side of it is paying for the same judgment on every sync.
 Offline throughout — the rating call is monkeypatched and no test registers an
 enabled provider that would fetch a catalog.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +35,7 @@ _ADMIN = "admin-secret"
 
 
 # ── Which models sync flags for profiling ─────────────────────────────────────
+
 
 def test_a_first_sync_flags_every_new_model():
     store = SqliteStore(":memory:")
@@ -58,22 +60,27 @@ def test_a_model_that_only_changed_level_is_not_re_profiled():
     store.upsert_model(dataclasses.replace(haiku, ctx_k=haiku.ctx_k + 1, cost=99))
 
     r = sync_from_providers(store, bedrock_key="x")
-    assert r.updated == 1              # it did change...
-    assert r.needs_profiling == []     # ...but not in a way the rater can see
+    assert r.updated == 1  # it did change...
+    assert r.needs_profiling == []  # ...but not in a way the rater can see
 
 
 def test_a_rewritten_description_is_re_profiled():
     """The description is the only shape evidence sync has, so a rewrite means
     the stored judgment rests on evidence that no longer stands."""
     store = SqliteStore(":memory:")
-    prior = ModelSpec(value="m", profile={f: 0.8 for f in FIELD_KEYS},
-                      description="general assistant")
+    prior = ModelSpec(
+        value="m", profile={f: 0.8 for f in FIELD_KEYS}, description="general assistant"
+    )
     store.upsert_model(prior)
     existing = {s.value: s for s in store.all_models()}
 
     result = SyncResult()
-    _apply_spec(store, dataclasses.replace(prior, description="agentic coding model"),
-                existing, result)
+    _apply_spec(
+        store,
+        dataclasses.replace(prior, description="agentic coding model"),
+        existing,
+        result,
+    )
     assert result.needs_profiling == ["m"]
 
 
@@ -84,8 +91,9 @@ def test_a_description_appearing_where_there_was_none_is_profiled():
     existing = {s.value: s for s in store.all_models()}
 
     result = SyncResult()
-    _apply_spec(store, dataclasses.replace(prior, description="coding model"),
-                existing, result)
+    _apply_spec(
+        store, dataclasses.replace(prior, description="coding model"), existing, result
+    )
     assert result.needs_profiling == ["m"]
 
 
@@ -93,8 +101,11 @@ def test_a_description_going_missing_is_not_profiled():
     """A catalog that drops a blurb gives the rater strictly less to work with;
     re-rating on that would replace a judgment with a worse one."""
     store = SqliteStore(":memory:")
-    prior = ModelSpec(value="m", profile={f: 0.8 for f in FIELD_KEYS},
-                      description="agentic coding model")
+    prior = ModelSpec(
+        value="m",
+        profile={f: 0.8 for f in FIELD_KEYS},
+        description="agentic coding model",
+    )
     store.upsert_model(prior)
     existing = {s.value: s for s in store.all_models()}
 
@@ -104,6 +115,7 @@ def test_a_description_going_missing_is_not_profiled():
 
 
 # ── The endpoint ──────────────────────────────────────────────────────────────
+
 
 def _client(cr) -> TestClient:
     with warnings.catch_warnings():
@@ -115,23 +127,34 @@ def _seed(store: SqliteStore, *, with_key: bool = True) -> None:
     """A bedrock provider (deterministic, no network) plus a *disabled*
     openrouter provider that supplies the profiler's key without its catalog
     being fetched."""
-    store.upsert_provider(ProviderConfig(name="bedrock", kind="bedrock",
-                                         api_key="aws", enabled=True))
-    store.upsert_provider(ProviderConfig(
-        name="openrouter", kind="openrouter",
-        api_key="sk-or-test" if with_key else "", enabled=False,
-    ))
+    store.upsert_provider(
+        ProviderConfig(name="bedrock", kind="bedrock", api_key="aws", enabled=True)
+    )
+    store.upsert_provider(
+        ProviderConfig(
+            name="openrouter",
+            kind="openrouter",
+            api_key="sk-or-test" if with_key else "",
+            enabled=False,
+        )
+    )
     # A model for the profiler to route to. Profiling picks its rater by routing
     # now, so a run needs something in the catalog that clears the profiler's bar
     # (general_knowledge @ specialist) and honors a json_schema — the bedrock
     # models this sync introduces do neither. Priced at the top so it never wins
     # the traffic these tests audit, and pre-noted so `only_missing` runs skip
     # rating it: it is here to *do* the rating, not to receive one.
-    store.upsert_model(ModelSpec(
-        value="openrouter/rater", provider="openrouter", cost=12, reliability=1.0,
-        structured_outputs=True, profile={f: 0.95 for f in FIELD_KEYS},
-        profile_note="seeded rater",
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/rater",
+            provider="openrouter",
+            cost=12,
+            reliability=1.0,
+            structured_outputs=True,
+            profile={f: 0.95 for f in FIELD_KEYS},
+            profile_note="seeded rater",
+        )
+    )
 
 
 def _fake_rating(monkeypatch, ratings=None, note="rated"):
@@ -146,8 +169,9 @@ def _fake_rating(monkeypatch, ratings=None, note="rated"):
 
 
 def _sync(client, **body):
-    return client.post("/api/sync", json=body,
-                       headers={"Authorization": f"Bearer {_ADMIN}"})
+    return client.post(
+        "/api/sync", json=body, headers={"Authorization": f"Bearer {_ADMIN}"}
+    )
 
 
 def test_sync_profiles_the_models_it_just_added(monkeypatch):
@@ -250,7 +274,7 @@ def test_a_broken_profiler_does_not_fail_the_sync(monkeypatch):
     r = _sync(client)
     assert r.status_code == 200
     d = r.json()
-    assert d["added"] == 3                      # the catalog still landed
+    assert d["added"] == 3  # the catalog still landed
     assert d["profiled"] is None
     assert any("rater exploded" in e for e in d["errors"])
     assert d["profile_pending"] == 3
@@ -267,11 +291,13 @@ def test_a_non_admin_sync_is_rejected(monkeypatch):
     store = SqliteStore(":memory:")
     _seed(store)
     client = _client(CapabilityRouter(store=store))
-    key = client.post("/api/keys", json={"user": "alice"},
-                      headers={"Authorization": f"Bearer {_ADMIN}"}).json()["key"]
+    key = client.post(
+        "/api/keys",
+        json={"user": "alice"},
+        headers={"Authorization": f"Bearer {_ADMIN}"},
+    ).json()["key"]
 
-    r = client.post("/api/sync", json={},
-                    headers={"Authorization": f"Bearer {key}"})
+    r = client.post("/api/sync", json={}, headers={"Authorization": f"Bearer {key}"})
     assert r.status_code == 403
     assert seen == []
 
@@ -303,19 +329,23 @@ def test_sync_profiling_re_rates_a_model_whose_description_changed(monkeypatch):
     _fake_rating(monkeypatch, {"software_engineering": "specialty"}, note="recoded")
     store = SqliteStore(":memory:")
     _seed(store)
-    store.upsert_model(ModelSpec(
-        value="openrouter/m", provider="openrouter", cost=1, reliability=1.0,
-        profile={f: 0.8 for f in FIELD_KEYS},
-        profile_ratings={"medicine_health": "unsuited"},
-        profile_note="stale judgment", description="old blurb",
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/m",
+            provider="openrouter",
+            cost=1,
+            reliability=1.0,
+            profile={f: 0.8 for f in FIELD_KEYS},
+            profile_ratings={"medicine_health": "unsuited"},
+            profile_note="stale judgment",
+            description="old blurb",
+        )
+    )
     cr = CapabilityRouter(store=store)
 
     # Flagged exactly as a rewritten description would flag it.
     result = SyncResult(updated=1, needs_profiling=["openrouter/m"])
-    report, pending = asyncio.run(
-        _profile_new_models(cr, result, None)
-    )
+    report, pending = asyncio.run(_profile_new_models(cr, result, None))
 
     assert pending == 0
     assert report.enrich["rated"] == 1
@@ -333,18 +363,29 @@ def test_the_audit_replays_against_the_whole_catalog(monkeypatch):
     store = SqliteStore(":memory:")
     _seed(store)
     # A cheap model already in the catalog, unrated and untouched by this sync.
-    store.upsert_model(ModelSpec(
-        value="openrouter/cheap", provider="openrouter", cost=1, reliability=1.0,
-        profile={f: 0.9 for f in FIELD_KEYS},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/cheap",
+            provider="openrouter",
+            cost=1,
+            reliability=1.0,
+            profile={f: 0.9 for f in FIELD_KEYS},
+        )
+    )
     from smart_ai_router.models import UsageRecord
 
-    store.record_usage(UsageRecord(
-        user="u", routed_model="openrouter/cheap",
-        profile={"domains": [{"field": "law_regulatory", "depth": "specialist"}],
-                 "demands": [], "stakes": "low"},
-        ts="2026-08-19T00:00:00+00:00",
-    ))
+    store.record_usage(
+        UsageRecord(
+            user="u",
+            routed_model="openrouter/cheap",
+            profile={
+                "domains": [{"field": "law_regulatory", "depth": "specialist"}],
+                "demands": [],
+                "stakes": "low",
+            },
+            ts="2026-08-19T00:00:00+00:00",
+        )
+    )
     client = _client(CapabilityRouter(store=store))
 
     d = _sync(client).json()

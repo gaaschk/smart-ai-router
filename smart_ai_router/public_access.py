@@ -50,6 +50,7 @@ Rate limiting and concurrency are deliberately **in-process**: they reset on
 restart, which is the right trade for abuse control (cheap, no write per request)
 where the budget — the thing that costs real money — is DB-backed and survives.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -102,6 +103,7 @@ def is_anon_user(user: str) -> bool:
 
 
 # ── Session identity ────────────────────────────────────────────────────────────
+
 
 def _secret(cr) -> bytes:
     """The cookie-signing secret, generated once and persisted.
@@ -205,6 +207,7 @@ def refresh_due(session: Session, *, now_s: int | None = None) -> bool:
 
 # ── Same-origin check ───────────────────────────────────────────────────────────
 
+
 def is_same_origin_browser_request(request) -> bool:
     """Whether this looks like the chat page calling its own server.
 
@@ -299,6 +302,7 @@ def client_ip(request) -> str:
 
 # ── Spend cap ───────────────────────────────────────────────────────────────────
 
+
 def utc_day_start() -> str:
     """Midnight UTC today, as the ISO string the usage log stores.
 
@@ -316,7 +320,7 @@ class BudgetStatus:
 
     spent_usd: float
     cap_usd: float
-    degraded: bool          # True → tier ceiling drops to free/local
+    degraded: bool  # True → tier ceiling drops to free/local
     remaining_usd: float
 
 
@@ -333,9 +337,13 @@ def budget_status(cr) -> BudgetStatus:
     except Exception:  # noqa: BLE001
         # An accounting failure must not silently uncap the bill: assume the cap
         # is blown and serve free models until the store answers again.
-        return BudgetStatus(spent_usd=0.0, cap_usd=cap, degraded=True, remaining_usd=0.0)
+        return BudgetStatus(
+            spent_usd=0.0, cap_usd=cap, degraded=True, remaining_usd=0.0
+        )
     if cap <= 0:
-        return BudgetStatus(spent_usd=spent, cap_usd=cap, degraded=True, remaining_usd=0.0)
+        return BudgetStatus(
+            spent_usd=spent, cap_usd=cap, degraded=True, remaining_usd=0.0
+        )
     return BudgetStatus(
         spent_usd=spent,
         cap_usd=cap,
@@ -346,6 +354,7 @@ def budget_status(cr) -> BudgetStatus:
 
 # ── Policy as a synthetic key ───────────────────────────────────────────────────
 
+
 def tier_ceiling(cr) -> int:
     """The cost-tier ceiling anonymous traffic gets right now.
 
@@ -354,9 +363,7 @@ def tier_ceiling(cr) -> int:
     mechanism: everything else here only decides which of the two applies.
     """
     key = (
-        "public_degraded_max_tier"
-        if budget_status(cr).degraded
-        else "public_max_tier"
+        "public_degraded_max_tier" if budget_status(cr).degraded else "public_max_tier"
     )
     return max(0, _settings.get_int(key))
 
@@ -450,6 +457,7 @@ def reset_rate_limits() -> None:
 
 
 # ── Concurrency ─────────────────────────────────────────────────────────────────
+
 
 class _Concurrency:
     """Deployment-wide cap on in-flight anonymous requests.

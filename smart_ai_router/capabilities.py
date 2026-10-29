@@ -9,6 +9,7 @@ future bedrock — if any reachable row has the column set, the feature is on.
 Computed live from the current model list on each call (cheap: a few scans);
 never cached, so provider/scope/denylist changes take effect immediately.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,10 +22,11 @@ from smart_ai_router.scope import ModelScope
 @dataclass(frozen=True)
 class Capabilities:
     """What a deployment can do, derived from its reachable models."""
-    vision: bool = False          # any reachable model accepts image input
-    tools: bool = False           # any reachable model does function/tool calling
-    max_context_k: int = 0        # largest context window (K tokens) reachable
-    model_count: int = 0          # number of reachable models
+
+    vision: bool = False  # any reachable model accepts image input
+    tools: bool = False  # any reachable model does function/tool calling
+    max_context_k: int = 0  # largest context window (K tokens) reachable
+    model_count: int = 0  # number of reachable models
     providers: tuple[str, ...] = ()  # distinct providers among reachable models
 
 
@@ -42,7 +44,8 @@ def reachable_models(
     """
     min_rel = (
         DEFAULT_THRESHOLDS["min_reliability"]
-        if min_reliability is None else min_reliability
+        if min_reliability is None
+        else min_reliability
     )
     deny = _denylisted()
     out = []

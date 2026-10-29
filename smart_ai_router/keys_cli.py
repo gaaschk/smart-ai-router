@@ -12,6 +12,7 @@ Subcommands:
     enable  <prefix>              Re-enable a key
     delete  <prefix>              Delete a key permanently
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,16 +59,18 @@ def _cmd_add(cr: CapabilityRouter, args) -> int:
         print("error: user must not be empty", file=sys.stderr)
         return 2
     plaintext = generate_key()
-    cr.create_api_key(ApiKey(
-        key_hash=hash_key(plaintext),
-        user=user,
-        key_prefix=display_prefix(plaintext),
-        scope_models=args.scope or "",
-        max_tier=args.max_tier,
-        rl_window_s=args.window_s,
-        rl_max_req=args.max_req,
-        rl_max_tokens=args.max_tokens,
-    ))
+    cr.create_api_key(
+        ApiKey(
+            key_hash=hash_key(plaintext),
+            user=user,
+            key_prefix=display_prefix(plaintext),
+            scope_models=args.scope or "",
+            max_tier=args.max_tier,
+            rl_window_s=args.window_s,
+            rl_max_req=args.max_req,
+            rl_max_tokens=args.max_tokens,
+        )
+    )
     print(f"Created key for {user!r}. Save it now — it will NOT be shown again:\n")
     print(f"    {plaintext}\n")
     return 0
@@ -100,16 +103,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_add = sub.add_parser("add", help="mint a new key (prints plaintext once)")
     p_add.add_argument("user", help="identity label for the key")
-    p_add.add_argument("--scope", default="",
-                       help='scope_models JSON, e.g. \'{"allow":["ollama/"]}\'')
-    p_add.add_argument("--max-tier", type=int, default=0, dest="max_tier",
-                       help="cost-tier ceiling (0 = no ceiling)")
-    p_add.add_argument("--window-s", type=int, default=0, dest="window_s",
-                       help="rate-limit window seconds (0 = no limit)")
-    p_add.add_argument("--max-req", type=int, default=0, dest="max_req",
-                       help="max requests per window")
-    p_add.add_argument("--max-tokens", type=int, default=0, dest="max_tokens",
-                       help="max tokens per window")
+    p_add.add_argument(
+        "--scope", default="", help='scope_models JSON, e.g. \'{"allow":["ollama/"]}\''
+    )
+    p_add.add_argument(
+        "--max-tier",
+        type=int,
+        default=0,
+        dest="max_tier",
+        help="cost-tier ceiling (0 = no ceiling)",
+    )
+    p_add.add_argument(
+        "--window-s",
+        type=int,
+        default=0,
+        dest="window_s",
+        help="rate-limit window seconds (0 = no limit)",
+    )
+    p_add.add_argument(
+        "--max-req", type=int, default=0, dest="max_req", help="max requests per window"
+    )
+    p_add.add_argument(
+        "--max-tokens",
+        type=int,
+        default=0,
+        dest="max_tokens",
+        help="max tokens per window",
+    )
 
     p_dis = sub.add_parser("disable", help="revoke a key (reversible)")
     p_dis.add_argument("prefix", help="key prefix (from `keys list`)")
