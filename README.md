@@ -1,5 +1,7 @@
 # smart-ai-router
 
+[![CI and coverage gate](https://github.com/gaaschk/smart-ai-router/actions/workflows/ci.yml/badge.svg)](https://github.com/gaaschk/smart-ai-router/actions/workflows/ci.yml)
+
 A vendor-agnostic LLM capability router that classifies each prompt and routes it to the cheapest model that clears the quality bar. Sits in front of OpenRouter, Ollama, and AWS Bedrock as a single OpenAI-compatible endpoint.
 
 ## What it does
@@ -123,8 +125,10 @@ claudish-smart
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Run tests with statement and branch coverage
+python -m coverage run -m pytest
+python -m coverage report
+python -m coverage html
 
 # Run the server directly (without launchd)
 smart-ai-router
@@ -142,6 +146,10 @@ The review is a structured daily audit that checks code quality, usability,
 design consistency, UX coherence, missing or weak features, architecture, performance,
 scalability, maintainability, and operational risk. It writes a markdown report to a
 stable location so the operator can rerun it manually or inspect the scheduled output.
+
+See [coverage and local validation](docs/testing.md) for the measured baseline,
+CI reports, platform limitations, and the regression floor. The badge above shows
+the CI/coverage-gate status, not a live coverage percentage.
 
 ## Requirements
 

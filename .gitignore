@@ -15,3 +15,13 @@ node_modules/
 # uv lockfile — deliberately excluded
 uv.lock
 .gstack/
+
+# Local test/coverage output
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+coverage.txt
+htmlcov/
+test-results.xml
+.pytest_cache/

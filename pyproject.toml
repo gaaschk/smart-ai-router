@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "coverage[toml]>=7.10,<8",
     "httpx",
     "openai>=3.29,<4",
     "openai-agents>=0.23,<1",
@@ -36,3 +37,17 @@ smart-ai-router-review = "smart_ai_router.review:run_review_cli"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["smart_ai_router", "scripts"]
+relative_files = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+# Baseline: 80.48% combined statement/branch coverage on af7d089.
+fail_under = 80
+
+[tool.coverage.html]
+directory = "htmlcov"
