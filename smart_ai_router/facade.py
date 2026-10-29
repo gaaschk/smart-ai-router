@@ -33,6 +33,8 @@ class CapabilityRouter:
         store: MatrixStore | None = None,
         thresholds: dict | None = None,
     ):
+        from smart_ai_router.circuit_breaker import ProviderCircuits
+        self.provider_circuits = ProviderCircuits()
         self._store = store or SqliteStore()
         self._thresholds = thresholds  # None → use DEFAULT_THRESHOLDS
 

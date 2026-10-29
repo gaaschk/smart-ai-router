@@ -854,6 +854,22 @@ def _bedrock_base(cr) -> tuple[str, str] | None:
     return None
 
 
+def _circuit_policy():
+    from smart_ai_router.circuit_breaker import DEFAULTS
+    return {name: (max(1, _settings.get_int(f"circuit_{name}_failures")),
+                   max(1, _settings.get_int(f"circuit_{name}_recovery_seconds"))) for name in DEFAULTS}
+
+
+@proxy_router.get("/api/provider-circuits")
+async def provider_circuit_status(request: Request):
+    # Explicitly restricted even if the surrounding app's API policy changes.
+    if getattr(request.state, "user", "") != "admin":
+        raise HTTPException(403, "Admin access required")
+    cr = request.app.state.capability_router
+    return {"enabled": _settings.get_bool("provider_circuit_enabled"),
+            "scope": "process", "providers": cr.provider_circuits.snapshot(_circuit_policy())}
+
+
 def _resolve_provider(model_value: str, cr) -> tuple[str, str, str]:
     """Return (base_url, api_key, real_model_id)."""
     if model_value.startswith("bedrock/"):
@@ -1512,10 +1528,24 @@ async def chat_completions(request: Request):
         if attempt is not None and attempt.qualified:
             decision = attempt
 
+    from smart_ai_router.circuit_breaker import CircuitClient, provider_for
+    circuits_enabled = _settings.get_bool("provider_circuit_enabled")
+    circuit_policy = _circuit_policy()
+
+    def circuit_exclusions():
+        return {spec.value for spec in cr.all_models()
+                if cr.provider_circuits.blocked(provider_for(spec.value), circuit_policy[provider_for(spec.value)][1])} if circuits_enabled else set()
+
+    if decision is not None and decision.model in circuit_exclusions():
+        decision = None
+
+    def dispatch_client(client):
+        return CircuitClient(client, cr.provider_circuits, lambda: provider_for(routed_model), circuit_policy) if circuits_enabled else client
+
     canary_used = decision is not None
 
     def _pick(exclude: set[str]):
-        kw = {**route_kw, "exclude": exclude or None}
+        kw = {**route_kw, "exclude": (exclude | circuit_exclusions()) or None}
         return (
             cr.select(profile, **kw) if candidates is None
             else cr.select_from(candidates, profile, **kw)
@@ -1536,7 +1566,7 @@ async def chat_completions(request: Request):
                     raise
                 decision = _pick(set())
     except RuntimeError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=503 if circuit_exclusions() else 422, detail=str(exc))
     routed_model = decision.model
     request.state.routed_model = routed_model
 
@@ -1821,7 +1851,7 @@ async def chat_completions(request: Request):
                     fwd["max_tokens"] = min(int(fwd["max_tokens"]), ceiling)
                 try:
                     async with httpx.AsyncClient(timeout=_timeout) as client:
-                        async with client.stream(
+                        async with dispatch_client(client).stream(
                             "POST", url, headers=_headers(api_key), json=fwd,
                         ) as resp:
                             if resp.status_code >= 400:
@@ -1954,7 +1984,7 @@ async def chat_completions(request: Request):
                 while True:
                     try:
                         async with httpx.AsyncClient(timeout=_timeout) as client:
-                            async with client.stream(
+                            async with dispatch_client(client).stream(
                                 "POST", url,
                                 headers=_headers(api_key),
                                 json=forward_body,
@@ -2021,7 +2051,7 @@ async def chat_completions(request: Request):
         while True:
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 try:
-                    resp = await client.post(
+                    resp = await dispatch_client(client).post(
                         url,
                         headers=_headers(api_key),
                         json=forward_body,
