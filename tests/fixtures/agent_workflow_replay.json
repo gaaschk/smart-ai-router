@@ -1,0 +1,233 @@
+{
+  "fixture_version": 1,
+  "provenance": {
+    "kind": "synthetic reconstruction",
+    "source": "docs/investigations/agent-tool-reliability-2026-10-14.md",
+    "missing": [
+      "original sanitized framework request/response trace",
+      "framework version and agent prompt version",
+      "concrete original provider/backend revision"
+    ],
+    "framework": "repository run_case loop; no CrewAI execution",
+    "prompt_schema_version": "bench_agent_reliability CASES at 2107fae",
+    "model": "openrouter/replay/supervisor-v1",
+    "backend": "in-process httpx MockTransport; no real model"
+  },
+  "limits": {
+    "max_turns": 6,
+    "max_calls": 6,
+    "request_timeout_s": 2,
+    "max_synthetic_latency_ms": 600,
+    "max_synthetic_cost_usd": 0.0002
+  },
+  "billing": {
+    "input_tokens_per_reply": 10,
+    "output_tokens_per_reply": 5,
+    "usd_per_million_input": 1,
+    "usd_per_million_output": 2,
+    "latency_ms_per_reply": 100,
+    "note": "Synthetic token counts, rates and latency, not provider measurements; actual external spend is zero."
+  },
+  "scenarios": [
+    {
+      "name": "clean",
+      "case": "supervisor",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "sales-1",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": [\"2026-10-01\", \"2026-10-02\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "math-1",
+              "type": "function",
+              "function": {
+                "name": "ask_math_agent",
+                "arguments": "{\"first\": 12500, \"second\": 14800}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "{\"difference\": 2300, \"percent_change\": 18.4}"
+        }
+      ]
+    },
+    {
+      "name": "recovered_repeat_and_wrong_arguments",
+      "case": "supervisor",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "sales-1",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": [\"2026-10-01\", \"2026-10-02\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "sales-repeat",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": [\"2026-10-01\", \"2026-10-02\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "math-wrong",
+              "type": "function",
+              "function": {
+                "name": "ask_math_agent",
+                "arguments": "{\"first\": 15, \"second\": 10}"
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "math-1",
+              "type": "function",
+              "function": {
+                "name": "ask_math_agent",
+                "arguments": "{\"first\": 12500, \"second\": 14800}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "{\"difference\": 2300, \"percent_change\": 18.4}"
+        }
+      ]
+    },
+    {
+      "name": "schema_rejection",
+      "case": "supervisor",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "invalid-dates",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": []}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "parallel_rejection",
+      "case": "supervisor",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "sales-1",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": [\"2026-10-01\", \"2026-10-02\"]}"
+              }
+            },
+            {
+              "id": "math-1",
+              "type": "function",
+              "function": {
+                "name": "ask_math_agent",
+                "arguments": "{\"first\": 12500, \"second\": 14800}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "{\"difference\": 2300, \"percent_change\": 18.4}"
+        }
+      ]
+    },
+    {
+      "name": "wrong_final",
+      "case": "supervisor",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "sales-1",
+              "type": "function",
+              "function": {
+                "name": "ask_sales_agent",
+                "arguments": "{\"dates\": [\"2026-10-01\", \"2026-10-02\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "math-1",
+              "type": "function",
+              "function": {
+                "name": "ask_math_agent",
+                "arguments": "{\"first\": 12500, \"second\": 14800}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "{\"difference\":5,\"percent_change\":50}"
+        }
+      ]
+    },
+    {
+      "name": "invented_attribution",
+      "case": "attribution",
+      "turns": [
+        {
+          "calls": [
+            {
+              "id": "weather-1",
+              "type": "function",
+              "function": {
+                "name": "get_simulated_weather",
+                "arguments": "{\"city\": \"Paris\"}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "{\"temperature_c\":21,\"simulated\":false,\"source\":\"https://invented.example\"}"
+        }
+      ]
+    },
+    {
+      "name": "provider_error",
+      "case": "supervisor",
+      "turns": [
+        {
+          "http_status": 503
+        }
+      ]
+    }
+  ]
+}
