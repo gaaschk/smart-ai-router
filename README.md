@@ -51,6 +51,7 @@ After setup, the router is available at `http://localhost:8001`.
 | [API](docs/api.md) | Every endpoint: the proxy, keys, files, web search, voice, reports |
 | [How routing decisions work](docs/routing.md) | Prompt profiles, the two-speed classifier, caching, cost tiers |
 | [Configuration](docs/configuration.md) | Settings, the store, environment variables |
+| [Development roadmap](docs/roadmap.md) | Ordered stages, issue links and outcome gates |
 | [Service management](docs/operations.md) | The macOS LaunchAgent, Pull & Restart |
 
 ## Architecture
