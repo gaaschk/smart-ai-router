@@ -45,3 +45,43 @@ python -m coverage report
 ```
 
 The deselection above reflects a previously verified host denial (`sandbox_apply: Operation not permitted`), not an application skip to improve coverage. Do not retry by weakening the host sandbox. On a host where that case is permitted, run it normally. No provider keys, live provider calls or production DB are needed for the suite. A partial run's successful floor check does not substitute for the full CI run.
+
+## Coverage dashboard and changed lines
+
+CI now produces `coverage-dashboard/index.html`, a current numeric `badge.svg`,
+`snapshot.json`, `changed-lines.json`, and a Markdown summary in the existing
+SHA/version artifact. The dashboard compares the verified Linux Python3.12 baseline
+with this run and lists per-file coverage. The README numeric badge is explicitly
+a **dated baseline**, not a remotely updated live badge. The existing status badge
+continues to show CI state. No service, publish credential or write permission is used.
+
+For local reports or a longer downloaded history:
+
+```sh
+python -m coverage json
+python scripts/coverage_dashboard.py --revision "$(git rev-parse HEAD)" \
+  --base-ref origin/main --history docs/coverage/baseline.json \
+  --history /path/to/earlier-run/coverage-dashboard/snapshot.json
+```
+
+Repeat `--history` for archived snapshots from matching environments. This is an
+offline trend dashboard; supplied snapshots are not a claim to contain every run.
+The artifact retention remains90days; preserve downloaded snapshots for longer
+history. Do not mix Python versions or partial/local suites without labeling them.
+
+Changed-line coverage intersects added/modified diff lines with coverage.py's
+executed/missing executable statements. Comments/blank lines and tests outside
+source roots are excluded; files missing measurements are explicitly listed.
+No executable changed lines is N/A, not100%. This is line coverage, not changed-
+branch coverage. CI compares PR base to the tested merge revision, or prior push
+revision to the tested push. Before adding the diff gate, the new dashboard measured56/70changed executable
+lines covered (80.0%) in the full local run. An80%changed-line floor now blocks
+measured regressions; missing file measurements fail closed. Empty diffs remain
+N/A. Additional CLI gate tests improve coverage without changing that measured
+starting floor. The existing80%combined floor also remains in force.
+
+Automatic PR conversation comments require write permissions and remain disabled.
+The check summary provides the PR-visible report without broadening token access.
+A live numeric README badge or externally hosted permanent dashboard would require
+a publishing destination/update mechanism; this task supplies self-contained
+per-run artifacts and the accurate dated baseline instead.
