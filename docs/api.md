@@ -365,7 +365,9 @@ This is the browser's own speech recognition and synthesis, not a speech-to-spee
 Two requirements, both browser-side:
 
 - **A secure context.** `http://localhost:8001` counts; `http://your-host.local:8001` does not, and the microphone is blocked there. Put the router behind TLS to use voice from another machine.
-- **A browser with a speech engine.** Use **Safari** (Apple's recogniser) or **Chrome** (Google's). **Opera, Brave and Vivaldi are Chromium without that access** — they expose the `SpeechRecognition` interface, accept the request, and then never report anything at all. The page detects that by timing out and says so, rather than sitting on "Starting…" forever.
+- **A browser with a speech engine.** Use **Safari** (Apple's recogniser) or **Chrome** (Google's). Some Chromium builds expose `SpeechRecognition` without a working recognition service. The page detects that by timing out and says so, rather than sitting on "Starting…" forever.
+
+See the [browser compatibility matrix and verification checklist](browser-compatibility.md). Browser speech recognition may send audio to the browser vendor even when the router uses a local model.
 
 ### Model-native voice (🔊 Talk — admin only)
 
