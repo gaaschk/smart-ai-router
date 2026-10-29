@@ -32,6 +32,10 @@ class _State:
     fallbacks: int = 0
 
 
+class CircuitUnavailable(RuntimeError):
+    """Local admission rejected; no provider request was attempted."""
+
+
 class ProviderCircuits:
     def __init__(self, clock=time.monotonic):
         self.clock = clock
@@ -48,7 +52,7 @@ class ProviderCircuits:
             state = self.states[provider]
             if state.probe or (state.opened_at is not None and self.clock() - state.opened_at < recovery):
                 state.rejected += 1
-                raise httpx.ConnectError(f'Provider circuit is open: {provider}')
+                raise CircuitUnavailable(f'Provider circuit is open: {provider}')
             if state.opened_at is not None:
                 state.probe = True
                 state.recovery_attempts += 1

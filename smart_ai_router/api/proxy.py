@@ -1528,7 +1528,7 @@ async def chat_completions(request: Request):
         if attempt is not None and attempt.qualified:
             decision = attempt
 
-    from smart_ai_router.circuit_breaker import CircuitClient, provider_for
+    from smart_ai_router.circuit_breaker import CircuitClient, CircuitUnavailable, provider_for
     circuits_enabled = _settings.get_bool("provider_circuit_enabled")
     circuit_policy = _circuit_policy()
 
@@ -1798,11 +1798,12 @@ async def chat_completions(request: Request):
 
     tried: set[str] = set()
 
-    def _fail_over(status: int, detail: str) -> bool:
-        """Record that the current pick failed, then re-point the request at the
+    def _fail_over(status: int, detail: str, *, attempted: bool = True) -> bool:
+        """Record an attempted model failure, then re-point the request at the
         next-best model. False when failover is exhausted or off, in which case
         the caller reports the failure instead.
 
+        Local circuit rejections use attempted=False: no model failure or cooldown.
         Only valid before any reply bytes have gone out — after that the client
         has half an answer and a different model can't finish it.
         """
@@ -1816,10 +1817,11 @@ async def chat_completions(request: Request):
             except RuntimeError:
                 nxt = None
         try:
-            cr.record_model_failure(
-                failed, status=status, detail=detail, user=user,
-                failed_over_to=nxt.model if nxt else "",
-            )
+            if attempted:
+                cr.record_model_failure(
+                    failed, status=status, detail=detail, user=user,
+                    failed_over_to=nxt.model if nxt else "",
+                )
         except Exception:  # noqa: BLE001 — recording is best-effort
             pass
         print(f"[proxy] {failed} failed ({status}): {detail[:300]!r}"
@@ -1892,6 +1894,10 @@ async def chat_completions(request: Request):
                                         sent = True
                                         yield delta
                             return
+                except CircuitUnavailable as exc:
+                    if not sent and _fail_over(503, str(exc), attempted=False):
+                        continue
+                    raise HTTPException(status_code=503, detail=str(exc)) from exc
                 except httpx.RequestError as exc:
                     if not sent and _fail_over(502, str(exc) or type(exc).__name__):
                         continue
@@ -1953,12 +1959,14 @@ async def chat_completions(request: Request):
             logged = False  # guard: log usage exactly once (drain or error)
             drained = False  # the reply arrived whole (see capture below)
 
-            def _record(status: int) -> None:
+            def _record(status: int, *, attempted: bool = True) -> None:
                 nonlocal logged
                 if logged:
                     return
                 logged = True
-                usage, estimated = scanner.resolve(messages)
+                usage, estimated = scanner.resolve(messages) if attempted else (
+                    {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, False
+                )
                 _log_usage(
                     cr, request,
                     routed_model=routed_model, domain=domain,
@@ -2040,6 +2048,12 @@ async def chat_completions(request: Request):
                                 drained = True
                                 _record(resp.status_code)
                                 return
+                    except CircuitUnavailable as exc:
+                        if not sent and _fail_over(503, str(exc), attempted=False):
+                            continue
+                        _record(503, attempted=False)
+                        yield _sse_error(str(exc), 503)
+                        return
                     except httpx.RequestError as exc:
                         _record(502)
                         if not sent and _fail_over(502, f"proxy upstream error: {exc}"):
@@ -2070,6 +2084,10 @@ async def chat_completions(request: Request):
                         headers=_headers(api_key),
                         json=forward_body,
                     )
+                except CircuitUnavailable as exc:
+                    if _fail_over(503, str(exc), attempted=False):
+                        continue
+                    raise HTTPException(status_code=503, detail=str(exc)) from exc
                 except httpx.RequestError as exc:
                     if _fail_over(502, f"Provider unreachable: {exc}"):
                         continue

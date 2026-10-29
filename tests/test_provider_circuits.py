@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from smart_ai_router.circuit_breaker import CircuitClient, DEFAULTS, ProviderCircuits
+from smart_ai_router.circuit_breaker import CircuitClient, CircuitUnavailable, DEFAULTS, ProviderCircuits
 from tests.test_proxy_failover import _client, _spec, _Stream, _OK
 
 
@@ -21,7 +21,7 @@ def test_closed_open_half_open_recovery_and_stale_completion():
     assert not c.blocked('openrouter', 60)
     probe = c.acquire('openrouter', 60)
     assert c.snapshot(DEFAULTS)['openrouter']['state'] == 'half_open'
-    with pytest.raises(httpx.ConnectError):
+    with pytest.raises(CircuitUnavailable):
         c.acquire('openrouter', 60)
     c.finish('openrouter', probe, 1, True)
     assert c.snapshot(DEFAULTS)['openrouter']['state'] == 'closed'
@@ -48,7 +48,7 @@ def test_half_open_allows_only_one_concurrent_probe():
         try:
             c.acquire('openrouter', 60)
             return True
-        except httpx.ConnectError:
+        except CircuitUnavailable:
             return False
     with ThreadPoolExecutor(max_workers=8) as pool:
         assert sum(pool.map(attempt, range(16))) == 1
@@ -280,3 +280,90 @@ def test_asgi_disconnect_releases_recovery_lease(monkeypatch):
         assert circuits.snapshot(DEFAULTS)["openrouter"]["failed_attempts"] == 1
         circuits.acquire("openrouter", 60)
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('protocol,stream', [('chat', False), ('chat', True), ('responses', False), ('responses', True), ('chat', 'agent')])
+@pytest.mark.parametrize('backup', [False, True])
+def test_concurrent_recovery_rejection_does_not_fail_model(monkeypatch, protocol, stream, backup):
+    import threading
+
+    c = _client(monkeypatch)
+    c.store.set_setting('provider_circuit_enabled', 'true')
+    if backup:
+        local = _spec('ollama/backup', 6)
+        local.provider = 'ollama'
+        c.store.upsert_model(local)
+    circuits = c.app.state.capability_router.provider_circuits
+    now = [0]
+    circuits.clock = lambda: now[0]
+    circuits.finish('openrouter', circuits.acquire('openrouter', 60), 1, False)
+    now[0] = 60
+    acquire = circuits.acquire
+    selected = threading.Barrier(2)
+    loser_done = threading.Event()
+    sent = []
+
+    def concurrent_acquire(provider, recovery):
+        if provider == 'openrouter':
+            selected.wait(timeout=5)  # both requests selected before either leases
+        return acquire(provider, recovery)
+
+    async def post(self, url, **kwargs):
+        sent.append(kwargs['json']['model'])
+        if kwargs['json']['model'] != 'backup':
+            assert await asyncio.to_thread(loser_done.wait, 5)
+        return httpx.Response(200, json=_OK, request=httpx.Request('POST', url))
+
+    class HeldStream(_Stream):
+        async def __aenter__(self):
+            if self.hold:
+                assert await asyncio.to_thread(loser_done.wait, 5)
+            return self
+
+    def streaming(self, method, url, **kwargs):
+        sent.append(kwargs['json']['model'])
+        response = HeldStream(200, b'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+
+        response.hold = kwargs['json']['model'] != 'backup'
+        return response
+
+    monkeypatch.setattr(httpx.AsyncClient, 'stream', streaming)
+    monkeypatch.setattr(circuits, 'acquire', concurrent_acquire)
+    monkeypatch.setattr(httpx.AsyncClient, 'post', post)
+    body = {'model': 'auto', 'stream': stream}
+    if stream == 'agent':
+        body['agent'] = True
+        body['stream'] = True
+    if protocol == 'chat':
+        path = '/v1/chat/completions'
+        body['messages'] = [{'role': 'user', 'content': 'Refactor this Python parser.'}]
+    else:
+        path = '/v1/responses'
+        body['input'] = 'Refactor this Python parser.'
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(c.post, path, json=body) for _ in range(2)]
+        for future in futures:
+            future.add_done_callback(lambda _: loser_done.set())
+        responses = [future.result(timeout=10) for future in futures]
+    if backup:
+        assert all(r.status_code == 200 and 'Provider circuit is open' not in r.text for r in responses)
+    elif stream:
+        assert all(r.status_code == 200 for r in responses)
+        assert sum('Provider circuit is open' in r.text for r in responses) == 1
+        assert any(('503' if protocol == 'chat' else 'response.failed') in r.text for r in responses)
+    else:
+        assert sorted(r.status_code for r in responses) == [200, 503]
+    assert len(sent) == (2 if backup else 1)
+    assert c.store.recent_model_failures('1970-01-01') == []
+    rows = c.store.recent_usage('', '1970-01-01')
+    # Agent accounting has its own kind and is excluded by recent_usage.
+    expected = 0 if stream == 'agent' else (2 if stream or backup else 1)
+    assert len(rows) == expected
+    if stream is True and not backup:
+        rejected = [row for row in rows if row.status == 503]
+        assert len(rejected) == 1
+        assert rejected[0].prompt_tokens == rejected[0].completion_tokens == 0
+    state = circuits.snapshot(DEFAULTS)['openrouter']
+    assert state['failed_attempts'] == 1
+    assert state['rejected_attempts'] == 1
+    assert state['recoveries'] == 1
