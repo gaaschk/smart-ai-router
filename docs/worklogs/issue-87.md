@@ -1,0 +1,3 @@
+# Issue87 CI checkpoint
+
+Stacked on coverage draft158 atd32c2fb. Added Python3.10/3.11/3.12 matrix and unique coverage artifacts in existing workflow. Fatal Ruff rules pass; formatting reports154files needing changes. Bandit1.9.4 reports53findings (2high/11medium/40low), including legacy SHA1persistent namespace IDs; no blanket suppressions or silent migration. pip-audit2.10.1 audits97packages with zero known vulnerabilities. Formatting/security scans remain explicitly report-only pending triage; owner branch protection/deployment unchanged. YAML/TOML parse; no new workflow token permissions. CI matrix results and independent review pending.
