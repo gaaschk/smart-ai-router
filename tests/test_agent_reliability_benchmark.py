@@ -131,8 +131,8 @@ def test_benchmark_bounds_waits_and_keeps_transport_errors_separate():
     assert result['tool_calls'] == 0
 
 
-def test_existing_stall_heuristic_mislabels_a_short_valid_final_answer():
-    """Characterization: documents a production defect, not a desired scoring rule."""
+def test_short_valid_final_answer_is_not_a_stall():
+    """Regression: optional tools permit a short structured final answer."""
     from types import SimpleNamespace
     from smart_ai_router.api.proxy import _log_usage
     records = []
@@ -141,4 +141,4 @@ def test_existing_stall_heuristic_mislabels_a_short_valid_final_answer():
     _log_usage(router, request, routed_model='test', domain='reasoning', complexity='basic',
                usage={'prompt_tokens': 10, 'completion_tokens': 12}, status=200,
                tools_offered=True, tool_calls=[], content='{"difference":2300,"percent_change":18.4}')
-    assert records[0].tool_stalled is True
+    assert records[0].tool_stalled is False
