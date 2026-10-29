@@ -84,8 +84,8 @@ def test_cli_changed_line_gate_uses_resolved_ref_and_actual_report(
         calls.append(args)
         if "rev-parse" in args:
             return "abc123\n"
-        if "--name-only" in args:
-            return b"scripts/a.py\0"
+        if "--name-status" in args:
+            return b"A\0scripts/a.py\0"
         return "+++ b/scripts/a.py\n@@ -0,0 +1 @@\n+x\n"
 
     monkeypatch.setattr(dashboard.subprocess, "check_output", git)
@@ -191,3 +191,86 @@ def test_real_git_special_path_cannot_bypass_gate(monkeypatch, tmp_path, name):
         dashboard.main()
     assert json.loads((output / "changed-lines.json").read_text())["percent"] == 0
     assert "0/1 (0.00%)" in (output / "summary.md").read_text()
+
+
+@pytest.mark.parametrize(
+    "edited,covered", [(False, False), (True, True), (True, False)]
+)
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("scripts/old.py", "scripts/new.py"),
+        ('scripts/old \t\n\r"[x]é.py', 'scripts/new \t\n\r"[x]é.py'),
+        ("outside/old.py", "scripts/moved.py"),
+    ],
+)
+def test_real_git_rename_cli_counts_only_edits(tmp_path, old, new, edited, covered):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from scripts import coverage_dashboard as dashboard
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True)
+
+    git("init", "-q")
+    source = tmp_path / old
+    source.parent.mkdir(parents=True)
+    lines = [f"value_{i} = {i}\n" for i in range(20)]
+    source.write_text("".join(lines))
+    git("add", ".")
+    config = (
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+    )
+    git(*config, "commit", "-qm", "base")
+    base = git("rev-parse", "HEAD").strip()
+    destination = tmp_path / new
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(destination)
+    if edited:
+        lines[9] = "value_9 = 999\n"
+        destination.write_text("".join(lines))
+    git("add", "-A")
+    git(*config, "commit", "-qm", "rename")
+    status = git("diff", "--name-status", "--find-renames", base, "HEAD")
+    assert status.startswith("R")
+    report = {
+        "totals": {"percent_covered": 80},
+        "files": {
+            new: {
+                "executed_lines": [10] if covered else [],
+                "missing_lines": [n for n in range(1, 21) if not covered or n != 10],
+                "summary": {"percent_covered": 5 if covered else 0},
+            }
+        },
+    }
+    (tmp_path / "coverage.json").write_text(json.dumps(report))
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(dashboard.__file__).resolve()),
+            "--report",
+            "coverage.json",
+            "--output",
+            "out",
+            "--revision",
+            "test",
+            "--base-ref",
+            base,
+            "--min-diff-coverage",
+            "80",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == (1 if edited and not covered else 0), result.stderr
+    summary = json.loads((tmp_path / "out/changed-lines.json").read_text())
+    assert summary["executable"] == (1 if edited else 0)
+    assert summary["covered"] == (1 if edited and covered else 0)
+    assert summary["percent"] == ((100 if covered else 0) if edited else None)

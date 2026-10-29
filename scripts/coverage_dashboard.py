@@ -27,38 +27,49 @@ def git_changed_lines(base):
             "git",
             "diff",
             "--no-ext-diff",
-            "--no-renames",
-            "--name-only",
+            "--name-status",
             "-z",
-            "--diff-filter=ACMT",
+            "--find-renames",
+            "--diff-filter=AMRT",
             base,
             "HEAD",
             "--",
-            "smart_ai_router",
-            "scripts",
         ],
     )
-    names = os.fsdecode(raw_names).split("\0")
+    # Detect renames repository-wide before filtering destinations: a move into
+    # our scope must retain its old blob even when the source was outside it.
+    names = iter(os.fsdecode(raw_names).split("\0"))
     changed = {}
-    for path in filter(None, names):
-        if not path.endswith(".py"):
+    for status in names:
+        if not status:
             continue
+        old = next(names)
+        path = next(names) if status.startswith("R") else old
+        if not path.startswith(("smart_ai_router/", "scripts/")) or not path.endswith(
+            ".py"
+        ):
+            continue
+        if status.startswith("R"):
+            # Blob-to-blob comparison avoids destination-only pathspecs hiding
+            # the rename source, and maps hunk coordinates to current coverage.
+            targets = [f"{base}:{old}", f"HEAD:{path}", "--"]
+        else:
+            targets = [base, "HEAD", "--", path]
         diff = subprocess.check_output(
             [
                 "git",
                 "--literal-pathspecs",
                 "diff",
                 "--no-ext-diff",
-                "--no-renames",
+                "--no-textconv",
                 "--unified=0",
-                base,
-                "HEAD",
-                "--",
-                path,
+                *targets,
             ],
             text=True,
         )
-        changed.update(changed_lines(diff, path))
+        lines = changed_lines(diff, path)[path]
+        if lines:
+            changed[path] = lines
     return changed
 
 

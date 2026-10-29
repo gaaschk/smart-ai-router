@@ -72,6 +72,10 @@ history. Do not mix Python versions or partial/local suites without labeling the
 Changed-line coverage intersects added/modified diff lines with coverage.py's
 executed/missing executable statements. Comments/blank lines and tests outside
 source roots are excluded; files missing measurements are explicitly listed.
+Git-detected renames compare the old and new blobs and map only edited lines to
+the destination coverage. Pure renames are N/A; unchanged destination statements
+do not count against the diff floor. Rename discovery includes sources outside
+the tracked directories, and preserves literal unusual filenames.
 No executable changed lines is N/A, not100%. This is line coverage, not changed-
 branch coverage. CI compares PR base to the tested merge revision, or prior push
 revision to the tested push. Before adding the diff gate, the new dashboard measured56/70changed executable
