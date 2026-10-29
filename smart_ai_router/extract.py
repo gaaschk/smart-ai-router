@@ -18,6 +18,7 @@ OpenXML (zip-based) formats. Callers gate uploads on is_extractable() so an
 unreadable file is refused up front rather than silently injected as a
 "couldn't read" placeholder.
 """
+
 from __future__ import annotations
 
 import io

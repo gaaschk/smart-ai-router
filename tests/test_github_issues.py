@@ -9,6 +9,7 @@ never named at all.
 And the whole mirror is best-effort: the report is stored first, so a dead token
 costs an issue, never someone's feedback.
 """
+
 import json
 import warnings
 
@@ -34,7 +35,7 @@ def client(monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         yield TestClient(create_app(cr))
-    _settings.bind_store(None)   # don't leak the binding into the next test
+    _settings.bind_store(None)  # don't leak the binding into the next test
 
 
 def _github_specs():
@@ -99,6 +100,7 @@ def _file(client, **body):
 
 # ── off unless the operator says otherwise ────────────────────────────────────
 
+
 def test_nothing_is_posted_anywhere_until_it_is_configured(client, sent):
     # The default has to be silence: this ships to installs whose operator never
     # heard of the feature, and the first surprise must not be a public issue.
@@ -110,17 +112,20 @@ def test_nothing_is_posted_anywhere_until_it_is_configured(client, sent):
 def test_a_repo_without_a_token_is_not_half_enabled(client, sent):
     _configure(client, github_token="")
     _file(client)
-    assert sent.calls == []          # no token = no attempt, not a 401 per report
+    assert sent.calls == []  # no token = no attempt, not a 401 per report
 
 
 def test_a_pasted_url_is_refused_rather_than_404ing_later(client):
-    r = client.put("/api/settings", json={
-        "updates": {"github_repo": "https://github.com/gaaschk/smart-ai-router"}})
+    r = client.put(
+        "/api/settings",
+        json={"updates": {"github_repo": "https://github.com/gaaschk/smart-ai-router"}},
+    )
     assert r.status_code == 422
     assert "owner/name" in r.json()["detail"]
 
 
 # ── what the issue says ───────────────────────────────────────────────────────
+
 
 def test_the_issue_carries_the_words_the_routing_and_a_way_back(client, sent):
     _configure(client)
@@ -130,11 +135,14 @@ def test_the_issue_carries_the_words_the_routing_and_a_way_back(client, sent):
     assert sent.calls[0]["headers"]["Authorization"] == "Bearer ghp_test"
     # Title is the first line only — a whole paragraph in the title is unreadable
     # in a list of issues, which is where an issue is mostly seen.
-    assert sent.calls[0]["json"]["title"] == "[report] It said Sydney; the capital is Canberra."
+    assert (
+        sent.calls[0]["json"]["title"]
+        == "[report] It said Sydney; the capital is Canberra."
+    )
     body = sent.body
-    assert "Second line." in body                 # the rest survives in the body
-    assert "ollama/qwen3:8b" in body              # which model answered
-    assert f"#{rep['id']}" in body                # back to the local report
+    assert "Second line." in body  # the rest survives in the body
+    assert "ollama/qwen3:8b" in body  # which model answered
+    assert f"#{rep['id']}" in body  # back to the local report
     assert rep["issue_url"] == "https://github.com/o/n/issues/7"
     assert rep["github_error"] == ""
 
@@ -144,7 +152,7 @@ def test_a_rambling_first_line_is_cut_to_fit_an_issue_title(client, sent):
     _file(client, description="the model " + "kept going and going " * 20)
     title = sent.calls[0]["json"]["title"]
     assert len(title) <= len("[report] ") + 72 and title.endswith("…")
-    assert "kept going" in title            # cut, not replaced by a placeholder
+    assert "kept going" in title  # cut, not replaced by a placeholder
 
 
 def test_the_conversation_is_withheld_from_the_public_issue_by_default(client, sent):
@@ -154,7 +162,7 @@ def test_the_conversation_is_withheld_from_the_public_issue_by_default(client, s
     # the thread the user typed is not published on a whim.
     assert "Sydney." not in sent.body
     assert "What's the capital of Australia?" not in sent.body
-    assert "Reports page" in sent.body            # says where the transcript is
+    assert "Reports page" in sent.body  # says where the transcript is
 
 
 def test_the_conversation_is_published_only_when_the_operator_opts_in(client, sent):
@@ -164,24 +172,33 @@ def test_the_conversation_is_published_only_when_the_operator_opts_in(client, se
 
 
 def test_the_reporter_is_not_named_in_public(client, sent, monkeypatch):
-    _configure(client)     # while the install is still keyless
+    _configure(client)  # while the install is still keyless
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", "admin-secret")
-    alice = client.post("/api/keys", json={"user": "alice"},
-                        headers={"Authorization": "Bearer admin-secret"}).json()["key"]
-    client.post("/api/reports",
-                json={"description": "bad answer", "transcript": _TURNS},
-                headers={"Authorization": f"Bearer {alice}"})
+    alice = client.post(
+        "/api/keys",
+        json={"user": "alice"},
+        headers={"Authorization": "Bearer admin-secret"},
+    ).json()["key"]
+    client.post(
+        "/api/reports",
+        json={"description": "bad answer", "transcript": _TURNS},
+        headers={"Authorization": f"Bearer {alice}"},
+    )
     assert "alice" not in json.dumps(sent.calls[0]["json"])
     # …but the local report still knows who filed it.
-    listed = client.get("/api/reports",
-                        headers={"Authorization": "Bearer admin-secret"}).json()["data"]
+    listed = client.get(
+        "/api/reports", headers={"Authorization": "Bearer admin-secret"}
+    ).json()["data"]
     assert listed[0]["user"] == "alice"
 
 
 def test_an_oversized_transcript_is_trimmed_before_it_is_published(client, sent):
     _configure(client, github_include_transcript=True)
-    _file(client, transcript=[{"role": "user", "content": "x" * 20_000}
-                              for _ in range(40)] + _TURNS)
+    _file(
+        client,
+        transcript=[{"role": "user", "content": "x" * 20_000} for _ in range(40)]
+        + _TURNS,
+    )
     # The issue gets the same trimmed snapshot the report kept, not the raw body:
     # GitHub rejects a body over ~64k, so the whole issue would be lost.
     assert len(sent.body) < 70_000
@@ -196,7 +213,7 @@ def test_the_ui_learns_it_is_public_before_anyone_writes_anything(client):
     _configure(client)
     me = client.get("/api/whoami").json()
     assert me["reports_public"] is True
-    assert me["reports_public_transcript"] is False   # public issue, private chat
+    assert me["reports_public_transcript"] is False  # public issue, private chat
 
     _configure(client, github_include_transcript=True)
     assert client.get("/api/whoami").json()["reports_public_transcript"] is True
@@ -204,7 +221,10 @@ def test_the_ui_learns_it_is_public_before_anyone_writes_anything(client):
 
 # ── GitHub failing is not the report failing ──────────────────────────────────
 
-def test_a_rejected_issue_still_leaves_the_report_filed_and_says_why(client, monkeypatch):
+
+def test_a_rejected_issue_still_leaves_the_report_filed_and_says_why(
+    client, monkeypatch
+):
     _configure(client)
     monkeypatch.setattr(_github.httpx, "post", _Sent(status=401))
     rep = _file(client)

@@ -1,6 +1,7 @@
 """
 CapabilityRouter — main façade wiring store + router + sync + pricing together.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -347,16 +348,12 @@ class CapabilityRouter:
     def spend_for_user(self, *, user: str, since_ts: str) -> float:
         return self._store.spend_for_user(user=user, since_ts=since_ts)
 
-    def usage_profiles(
-        self, *, since_ts: str = "", limit: int = 200
-    ) -> list[dict]:
+    def usage_profiles(self, *, since_ts: str = "", limit: int = 200) -> list[dict]:
         """Distinct prompt profiles actually routed, most frequent first — the
         replay set for profile_audit."""
         return self._store.usage_profiles(since_ts=since_ts, limit=limit)
 
-    def usage_summary(
-        self, *, user: str | None = None, since_ts: str = ""
-    ) -> dict:
+    def usage_summary(self, *, user: str | None = None, since_ts: str = "") -> dict:
         """Aggregated usage for the dashboard. user=None → all users (admin);
         a value → that user's rows only. since_ts ("" = unbounded) bounds it."""
         return self._store.usage_summary(user=user, since_ts=since_ts)
@@ -486,7 +483,14 @@ class CapabilityRouter:
     def list_chat_messages(self, conversation_id: str) -> list[ChatMessage]:
         return self._store.list_chat_messages(conversation_id)
 
-    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None:
+    def save_response(
+        self,
+        owner: str,
+        response: dict,
+        input_items: list[dict],
+        *,
+        create: bool = False,
+    ) -> None:
         self._store.save_response(owner, response, input_items, create=create)
 
     def get_response(self, response_id: str, owner: str) -> dict | None:

@@ -41,6 +41,7 @@ an account is for, and the existing per-upload size ceiling bounds the obvious
 abuse. What it does not bound is total disk across many uploads — an operator
 running this on a small volume should watch it.
 """
+
 from __future__ import annotations
 
 import os
@@ -76,6 +77,7 @@ def is_signup_user(user: str) -> bool:
 
 
 # ── Guardrails on turning it on ────────────────────────────────────────────────
+
 
 def lockout_reason(cr) -> str:
     """Why signup must be refused right now, or "" if it may proceed.
@@ -115,6 +117,7 @@ def lockout_reason(cr) -> str:
 
 # ── Spend caps ─────────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class BudgetStatus:
     """Today's spend for one account and for the whole self-issued pool.
@@ -130,7 +133,7 @@ class BudgetStatus:
     pool_spent_usd: float
     pool_cap_usd: float
     degraded: bool
-    reason: str = ""            # "account" | "pool" | "both" | "error" | ""
+    reason: str = ""  # "account" | "pool" | "both" | "error" | ""
 
 
 def _tripped(spent: float, cap: float) -> bool:
@@ -156,9 +159,12 @@ def budget_status(cr, user: str) -> BudgetStatus:
         # An accounting failure must not silently uncap the bill: assume both caps
         # are blown and serve free models until the store answers again.
         return BudgetStatus(
-            account_spent_usd=0.0, account_cap_usd=account_cap,
-            pool_spent_usd=0.0, pool_cap_usd=pool_cap,
-            degraded=True, reason="error",
+            account_spent_usd=0.0,
+            account_cap_usd=account_cap,
+            pool_spent_usd=0.0,
+            pool_cap_usd=pool_cap,
+            degraded=True,
+            reason="error",
         )
     account_over = _tripped(account_spent, account_cap)
     pool_over = _tripped(pool_spent, pool_cap)
@@ -170,13 +176,17 @@ def budget_status(cr, user: str) -> BudgetStatus:
     elif pool_over:
         reason = "pool"
     return BudgetStatus(
-        account_spent_usd=account_spent, account_cap_usd=account_cap,
-        pool_spent_usd=pool_spent, pool_cap_usd=pool_cap,
-        degraded=account_over or pool_over, reason=reason,
+        account_spent_usd=account_spent,
+        account_cap_usd=account_cap,
+        pool_spent_usd=pool_spent,
+        pool_cap_usd=pool_cap,
+        degraded=account_over or pool_over,
+        reason=reason,
     )
 
 
 # ── Policy ─────────────────────────────────────────────────────────────────────
+
 
 def tier_ceiling(cr, user: str) -> int:
     """The cost-tier ceiling this self-issued account gets right now.
@@ -214,6 +224,7 @@ def max_output_tokens() -> int:
 
 
 # ── Minting an account ─────────────────────────────────────────────────────────
+
 
 def _handle() -> str:
     """A random account label. 8 hex chars — short enough to read in the admin's

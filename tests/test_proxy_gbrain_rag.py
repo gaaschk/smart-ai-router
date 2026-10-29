@@ -2,6 +2,7 @@
 scoped to the caller's own source_id, so one identity's chat never leaks
 context into or out of another's.
 """
+
 import asyncio
 from unittest.mock import MagicMock, patch
 
@@ -50,7 +51,9 @@ def test_enrich_prepends_context_from_results():
 def test_enrich_skips_search_for_short_prompts():
     fake_gbrain = MagicMock()
     with patch("smart_ai_router.api.proxy.get_gbrain", return_value=fake_gbrain):
-        messages = _enrich_with_gbrain_context([{"role": "user", "content": "hi"}], "hi")
+        messages = _enrich_with_gbrain_context(
+            [{"role": "user", "content": "hi"}], "hi"
+        )
     fake_gbrain.hybrid_query.assert_not_called()
     assert messages == [{"role": "user", "content": "hi"}]
 

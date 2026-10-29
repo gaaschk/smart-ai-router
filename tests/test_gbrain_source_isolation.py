@@ -13,6 +13,7 @@ Two things are pinned here:
    subcommand actually accepts it (verified against a live instance: the flag
    must come *after* the JSON payload, not before).
 """
+
 from unittest.mock import patch, MagicMock
 
 from smart_ai_router.gbrain_client import GBrainClient, source_id_for_user
@@ -20,10 +21,13 @@ from smart_ai_router.gbrain_client import GBrainClient, source_id_for_user
 
 # ── source_id_for_user ──────────────────────────────────────────────────────
 
+
 def test_admin_and_empty_user_map_to_the_default_source():
     assert source_id_for_user("admin") == ""
     assert source_id_for_user("") == ""
-    assert source_id_for_user(None) == ""  # defensive: called with getattr(..., "") or ""
+    assert (
+        source_id_for_user(None) == ""
+    )  # defensive: called with getattr(..., "") or ""
 
 
 def test_anon_and_self_serve_identities_get_a_slugified_source():
@@ -62,12 +66,14 @@ def test_punctuation_only_identity_still_gets_a_stable_nonempty_source():
 
 def test_result_only_contains_characters_gbrain_source_ids_allow():
     import re
+
     for user in ("Kevin Gaasch", "anon:abc-123", "u:xyz", "!!!", "a" * 80):
         result = source_id_for_user(user)
         assert result == "" or re.fullmatch(r"[a-z0-9-]{1,32}", result)
 
 
 # ── GBrainClient._call --source plumbing ────────────────────────────────────
+
 
 def _client_with_mocked_subprocess():
     """A GBrainClient with binary detection skipped and subprocess.run mocked."""
@@ -83,7 +89,14 @@ def test_call_appends_source_flag_after_the_json_payload_when_given():
     with patch("subprocess.run", return_value=fake_result) as mock_run:
         client._call("list_pages", {"limit": 5}, source_id="kevin-gaasch")
     cmd = mock_run.call_args[0][0]
-    assert cmd == ["gbrain", "call", "list_pages", '{"limit": 5}', "--source", "kevin-gaasch"]
+    assert cmd == [
+        "gbrain",
+        "call",
+        "list_pages",
+        '{"limit": 5}',
+        "--source",
+        "kevin-gaasch",
+    ]
 
 
 def test_call_rejects_a_malformed_source_id_before_it_reaches_argv():

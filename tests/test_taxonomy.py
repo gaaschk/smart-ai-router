@@ -1,4 +1,5 @@
 """Tests for the routing vocabulary — requirements, bumps, and normalization."""
+
 import pytest
 
 from smart_ai_router.taxonomy import (
@@ -21,11 +22,15 @@ def _p(*needs, demands=(), stakes="low"):
 
 # ── The vocabulary itself ─────────────────────────────────────────────────────
 
+
 def test_every_field_maps_to_a_legacy_domain():
     # The legacy summary is what the usage log and dashboard speak; a field with
     # an unmappable domain would silently break them.
     assert {legacy for _, legacy in FIELDS.values()} <= {
-        "coding", "docs", "reasoning", "general"
+        "coding",
+        "docs",
+        "reasoning",
+        "general",
     }
 
 
@@ -37,6 +42,7 @@ def test_depths_are_strictly_increasing():
 
 # ── Requirements ──────────────────────────────────────────────────────────────
 
+
 def test_requirement_is_the_depth_bar_with_no_bumps():
     assert _p(("software_engineering", "specialist")).requirements() == {
         "software_engineering": DEPTHS["specialist"]
@@ -46,7 +52,9 @@ def test_requirement_is_the_depth_bar_with_no_bumps():
 def test_every_named_field_gets_its_own_bar():
     # The whole point: a model must clear the law bar AND the science bar, so a
     # coding specialist can't win on price by being strong on one axis.
-    reqs = _p(("law_regulatory", "specialist"), ("natural_science", "practitioner")).requirements()
+    reqs = _p(
+        ("law_regulatory", "specialist"), ("natural_science", "practitioner")
+    ).requirements()
     assert set(reqs) == {"law_regulatory", "natural_science"}
     assert reqs["law_regulatory"] > reqs["natural_science"]
 
@@ -107,10 +115,14 @@ def test_empty_profile_requirements_are_empty():
 
 # ── Legacy summary ────────────────────────────────────────────────────────────
 
+
 def test_legacy_labels_follow_the_primary_field():
     assert _p(("software_engineering", "practitioner")).legacy_labels()[0] == "coding"
     assert _p(("technical_writing", "practitioner")).legacy_labels()[0] == "docs"
-    assert _p(("general_knowledge", "surface")).legacy_labels() == ("general", "trivial")
+    assert _p(("general_knowledge", "surface")).legacy_labels() == (
+        "general",
+        "trivial",
+    )
 
 
 def test_legacy_complexity_tracks_the_peak_requirement():
@@ -134,6 +146,7 @@ def test_describe_names_fields_depths_and_extras():
 
 # ── normalize_profile ─────────────────────────────────────────────────────────
 
+
 def test_normalize_accepts_the_schema_shape():
     p = normalize_profile(
         {
@@ -142,8 +155,9 @@ def test_normalize_accepts_the_schema_shape():
             "stakes": "high",
         }
     )
-    assert p == _p(("medicine_health", "specialist"),
-                   demands=["factual_precision"], stakes="high")
+    assert p == _p(
+        ("medicine_health", "specialist"), demands=["factual_precision"], stakes="high"
+    )
 
 
 def test_normalize_accepts_bare_field_strings():
@@ -155,8 +169,10 @@ def test_normalize_accepts_bare_field_strings():
 
 def test_normalize_accepts_demands_as_boolean_object():
     p = normalize_profile(
-        {"domains": ["data_analysis"], "demands": {"quantitative": True,
-                                                  "agentic": False}}
+        {
+            "domains": ["data_analysis"],
+            "demands": {"quantitative": True, "agentic": False},
+        }
     )
     assert p.demands == frozenset({"quantitative"})
 
@@ -164,8 +180,10 @@ def test_normalize_accepts_demands_as_boolean_object():
 def test_normalize_drops_unknown_labels():
     p = normalize_profile(
         {
-            "domains": [{"field": "astrology", "depth": "cosmic"},
-                        {"field": "humanities_social", "depth": "cosmic"}],
+            "domains": [
+                {"field": "astrology", "depth": "cosmic"},
+                {"field": "humanities_social", "depth": "cosmic"},
+            ],
             "demands": ["telepathy"],
             "stakes": "apocalyptic",
         }
@@ -189,7 +207,9 @@ def test_normalize_deduplicates_and_caps_field_count():
     )
     assert len(p.domains) == 3
     assert [d.field for d in p.domains] == [
-        "software_engineering", "math_formal", "law_regulatory"
+        "software_engineering",
+        "math_formal",
+        "law_regulatory",
     ]
 
 
@@ -224,11 +244,15 @@ def test_dropped_domains_still_fall_through():
     """The distinction the empty-list rule rests on. A reply naming only
     out-of-vocabulary fields hasn't judged the prompt to need no expertise — it
     has misunderstood the vocabulary, so the whole reply is suspect."""
-    assert normalize_profile({"domains": [{"field": "astrology", "depth": "frontier"}]}) is None
+    assert (
+        normalize_profile({"domains": [{"field": "astrology", "depth": "frontier"}]})
+        is None
+    )
     assert normalize_profile({"domains": ["nuclear_engineering"]}) is None
 
 
 # ── Legacy adaptation ─────────────────────────────────────────────────────────
+
 
 def test_profile_from_labels_is_single_field():
     p = profile_from_labels("coding", "hard")

@@ -3,6 +3,7 @@ Infer competence scores for a model from its value string (name patterns).
 Used during sync to populate the matrix for newly-discovered models.
 All scores are benchmark-informed priors — callers can override via upsert_model.
 """
+
 from __future__ import annotations
 
 
@@ -13,18 +14,39 @@ def infer_competence(model_value: str) -> dict[str, float]:
     n = model_value.lower().replace(".", "-")
 
     # ── Specialised coders (high coding, lower general) ──────────────────────
-    if any(x in n for x in ("qwen2.5-coder", "qwen3-coder", "deepseek-coder",
-                             "starcoder", "codestral", "codellama", "codegemma",
-                             "kimi-k2.7-code")):
+    if any(
+        x in n
+        for x in (
+            "qwen2.5-coder",
+            "qwen3-coder",
+            "deepseek-coder",
+            "starcoder",
+            "codestral",
+            "codellama",
+            "codegemma",
+            "kimi-k2.7-code",
+        )
+    ):
         return {"coding": 0.88, "docs": 0.65, "reasoning": 0.75, "general": 0.70}
 
     # ── Reasoning / thinking models ──────────────────────────────────────────
-    if any(x in n for x in ("o3", "o4", "deepseek-r2", "deepseek-r3",
-                             "qwen3-235b", "qwen3.7")):
+    if any(
+        x in n
+        for x in ("o3", "o4", "deepseek-r2", "deepseek-r3", "qwen3-235b", "qwen3.7")
+    ):
         return {"coding": 0.90, "docs": 0.84, "reasoning": 0.95, "general": 0.91}
 
-    if any(x in n for x in ("o1", "r1", "deepseek-r", "qwen3-max-thinking",
-                             "kimi-k2-thinking", "kimi-k3")):
+    if any(
+        x in n
+        for x in (
+            "o1",
+            "r1",
+            "deepseek-r",
+            "qwen3-max-thinking",
+            "kimi-k2-thinking",
+            "kimi-k3",
+        )
+    ):
         return {"coding": 0.87, "docs": 0.82, "reasoning": 0.93, "general": 0.88}
 
     # ── Claude ────────────────────────────────────────────────────────────────

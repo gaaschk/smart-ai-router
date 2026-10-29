@@ -1,5 +1,6 @@
 """Office (.docx/.pptx/.xlsx) text extraction — built hermetically with the
 same libraries the extractor uses, so no binary fixtures are needed."""
+
 import io
 
 import pytest
@@ -54,6 +55,7 @@ def _xlsx_bytes(sheet_rows):
 
 # ── is_extractable ─────────────────────────────────────────────────────────────
 
+
 def test_office_mimes_are_extractable():
     assert extract.is_extractable(DOCX)
     assert extract.is_extractable(PPTX)
@@ -67,6 +69,7 @@ def test_legacy_office_is_not_extractable():
 
 
 # ── extraction ─────────────────────────────────────────────────────────────────
+
 
 def test_docx_paragraphs_and_tables():
     data = _docx_bytes(

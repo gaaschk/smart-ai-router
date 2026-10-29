@@ -17,6 +17,7 @@ wrong in a way that matters:
    must say so. Rendering an unavailable figure as $0.00 would assert "you saved
    nothing", which is a different and false claim.
 """
+
 import warnings
 from datetime import datetime, timedelta, timezone
 
@@ -46,10 +47,17 @@ def _auth(token):
 
 def _rec(user, model, cost, status=200, kind="proxy", ts=_FUTURE):
     return UsageRecord(
-        kind=kind, user=user, key_prefix=user[:4], routed_model=model,
-        domain="coding", complexity="moderate",
-        prompt_tokens=1000, completion_tokens=500,
-        cost_usd=cost, status=status, ts=ts,
+        kind=kind,
+        user=user,
+        key_prefix=user[:4],
+        routed_model=model,
+        domain="coding",
+        complexity="moderate",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        cost_usd=cost,
+        status=status,
+        ts=ts,
     )
 
 
@@ -70,15 +78,41 @@ def store():
     """
     s = SqliteStore(":memory:")
     s.upsert_model(ModelSpec(value="local/llama3", provider="ollama", cost=0))
-    s.upsert_model(ModelSpec(
-        value="or/cheap", provider="openrouter", cost=1, tools=True,
-        vision=True, ctx_k=128, cost_input=1.0, cost_output=4.0))
-    s.upsert_model(ModelSpec(
-        value="or/mid", provider="openrouter", cost=4, tools=True,
-        ctx_k=200, cost_input=5.0, cost_output=20.0))
-    s.upsert_model(ModelSpec(
-        value="or/premium", provider="openrouter", cost=12, tools=True,
-        vision=True, ctx_k=200, cost_input=15.0, cost_output=75.0))
+    s.upsert_model(
+        ModelSpec(
+            value="or/cheap",
+            provider="openrouter",
+            cost=1,
+            tools=True,
+            vision=True,
+            ctx_k=128,
+            cost_input=1.0,
+            cost_output=4.0,
+        )
+    )
+    s.upsert_model(
+        ModelSpec(
+            value="or/mid",
+            provider="openrouter",
+            cost=4,
+            tools=True,
+            ctx_k=200,
+            cost_input=5.0,
+            cost_output=20.0,
+        )
+    )
+    s.upsert_model(
+        ModelSpec(
+            value="or/premium",
+            provider="openrouter",
+            cost=12,
+            tools=True,
+            vision=True,
+            ctx_k=200,
+            cost_input=15.0,
+            cost_output=75.0,
+        )
+    )
 
     s.record_usage(_rec("alice", "or/cheap", 0.0025))
     s.record_usage(_rec("alice", "local/llama3", 0.0))
@@ -101,10 +135,12 @@ def clients(monkeypatch, store):
 def _make_key(user: str, token: str):
     from smart_ai_router.apikeys import hash_key
     from smart_ai_router.models import ApiKey
+
     return ApiKey(key_hash=hash_key(token), user=user, key_prefix=token[:6])
 
 
 # ── Scoping ───────────────────────────────────────────────────────────────────
+
 
 def test_system_flow_is_every_user_for_any_caller(clients):
     """The deployment's traffic is the same number whoever is asking."""
@@ -119,9 +155,7 @@ def test_system_flow_is_every_user_for_any_caller(clients):
 
 def test_mine_is_scoped_to_the_caller(clients):
     """A per-user key must see its own traffic and nothing else."""
-    body = clients.get(
-        "/api/overview?days=36500", headers=_auth(_ALICE)
-    ).json()
+    body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
     mine = body["mine"]
 
     assert mine["requests"] == 2
@@ -147,6 +181,7 @@ def test_rank_is_within_the_window_and_scoped_to_users_with_traffic(clients):
 
 
 # ── Savings arithmetic ────────────────────────────────────────────────────────
+
 
 def test_savings_uses_the_priciest_model_as_the_baseline(clients):
     """$0.0450 at premium vs $0.0025 actual → $0.0425 saved.
@@ -189,9 +224,15 @@ def test_cheap_and_escalated_split_excludes_models_missing_from_the_catalog(
     """
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     s = SqliteStore(":memory:")
-    s.upsert_model(ModelSpec(
-        value="or/cheap", provider="openrouter", cost=1,
-        cost_input=1.0, cost_output=4.0))
+    s.upsert_model(
+        ModelSpec(
+            value="or/cheap",
+            provider="openrouter",
+            cost=1,
+            cost_input=1.0,
+            cost_output=4.0,
+        )
+    )
     s.record_usage(_rec("alice", "or/cheap", 0.0025))
     s.record_usage(_rec("alice", "or/deleted", 0.0090))
     s.record_usage(_rec("alice", "or/premium-also-gone", 0.05))
@@ -216,12 +257,24 @@ def test_savings_are_not_skewed_by_unpriced_requests(monkeypatch):
     """
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     s = SqliteStore(":memory:")
-    s.upsert_model(ModelSpec(
-        value="or/cheap", provider="openrouter", cost=1,
-        cost_input=1.0, cost_output=4.0))
-    s.upsert_model(ModelSpec(
-        value="or/premium", provider="openrouter", cost=12,
-        cost_input=15.0, cost_output=75.0))
+    s.upsert_model(
+        ModelSpec(
+            value="or/cheap",
+            provider="openrouter",
+            cost=1,
+            cost_input=1.0,
+            cost_output=4.0,
+        )
+    )
+    s.upsert_model(
+        ModelSpec(
+            value="or/premium",
+            provider="openrouter",
+            cost=12,
+            cost_input=15.0,
+            cost_output=75.0,
+        )
+    )
     # Present in the catalog but unpriced: the router has no rate for it.
     s.upsert_model(ModelSpec(value="or/unknown", provider="openrouter", cost=2))
     # One cheap request (0.0025 actual, 0.0525 at premium) + one unpriced one.
@@ -229,9 +282,9 @@ def test_savings_are_not_skewed_by_unpriced_requests(monkeypatch):
     s.record_usage(_rec("alice", "or/unknown", 50.0))
 
     client = _client(CapabilityRouter(store=s))
-    flow = client.get(
-        "/api/overview?days=36500", headers=_auth(_ADMIN)
-    ).json()["system_flow"]
+    flow = client.get("/api/overview?days=36500", headers=_auth(_ADMIN)).json()[
+        "system_flow"
+    ]
 
     assert flow["requests"] == 2
     # The baseline covers only the priced request: 15/1M*1000 + 75/1M*500.
@@ -252,12 +305,20 @@ def test_overhead_is_reported_separately_from_user_traffic(clients):
 
 # ── Refusing to invent a number ───────────────────────────────────────────────
 
+
 def test_savings_reported_unavailable_when_no_traffic():
     s = SqliteStore(":memory:")
-    s.upsert_model(ModelSpec(
-        value="or/cheap", provider="openrouter", cost=1,
-        cost_input=1.0, cost_output=4.0))
+    s.upsert_model(
+        ModelSpec(
+            value="or/cheap",
+            provider="openrouter",
+            cost=1,
+            cost_input=1.0,
+            cost_output=4.0,
+        )
+    )
     import warnings as _w
+
     with _w.catch_warnings():
         _w.simplefilter("ignore")
         client = TestClient(create_app(CapabilityRouter(store=s)))
@@ -269,7 +330,7 @@ def test_savings_reported_unavailable_when_no_traffic():
 
 
 def test_first_request_tenure_is_unbounded_not_window_capped(monkeypatch):
-    """"How long have I been using this" must not be capped at the window.
+    """ "How long have I been using this" must not be capped at the window.
 
     With a 1-day window, a request 200 days old is still outside the window, so
     the *usage* figures are empty — but tenure is computed from unbounded
@@ -278,9 +339,15 @@ def test_first_request_tenure_is_unbounded_not_window_capped(monkeypatch):
     """
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     s = SqliteStore(":memory:")
-    s.upsert_model(ModelSpec(
-        value="or/cheap", provider="openrouter", cost=1,
-        cost_input=1.0, cost_output=4.0))
+    s.upsert_model(
+        ModelSpec(
+            value="or/cheap",
+            provider="openrouter",
+            cost=1,
+            cost_input=1.0,
+            cost_output=4.0,
+        )
+    )
     s.create_api_key(_make_key("alice", _ALICE))
     old = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
     s.record_usage(_rec("alice", "or/cheap", 0.0025, ts=old))
@@ -289,7 +356,7 @@ def test_first_request_tenure_is_unbounded_not_window_capped(monkeypatch):
     body = client.get("/api/overview?days=1", headers=_auth(_ALICE)).json()
     mine = body["mine"]
 
-    assert mine["requests"] == 0                    # outside the 1-day window
+    assert mine["requests"] == 0  # outside the 1-day window
     assert mine["days_since_first"] == pytest.approx(200, abs=1)
 
 
@@ -316,6 +383,7 @@ def test_empty_deployment_still_returns_a_full_shape():
     """
     s = SqliteStore(":memory:")
     import warnings as _w
+
     with _w.catch_warnings():
         _w.simplefilter("ignore")
         client = TestClient(create_app(CapabilityRouter(store=s)))
@@ -332,14 +400,15 @@ def test_empty_deployment_still_returns_a_full_shape():
 
 # ── System shape ──────────────────────────────────────────────────────────────
 
+
 def test_system_block_describes_the_catalog(clients):
     body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
     sys = body["system"]
     assert sys["models"] == 4
     assert set(sys["providers"]) == {"ollama", "openrouter"}
-    assert sys["tool_capable"] == 3      # everything but the local model
+    assert sys["tool_capable"] == 3  # everything but the local model
     assert sys["vision_capable"] == 2
-    assert sys["free_or_local"] == 2     # tier <= 1: the local model and or/cheap
+    assert sys["free_or_local"] == 2  # tier <= 1: the local model and or/cheap
     assert sys["max_context"] == 200_000
     assert sys["cost_tiers"]["12"] == 1
 
@@ -368,6 +437,7 @@ def test_endpoint_requires_a_key_when_keys_exist(monkeypatch, clients):
 # the ones setting up a client), and a typo must be refused at the Settings page
 # rather than surfacing later as a connection refused from someone else's machine.
 
+
 def test_public_base_url_defaults_to_unset(clients):
     body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
     assert body["public_base_url"] == ""
@@ -380,10 +450,15 @@ def test_operator_set_base_url_reaches_a_non_admin(clients, monkeypatch):
     either, every non-admin reader would silently get the browser-bar fallback
     (or nothing) and be sent to a host that is wrong for their machine.
     """
-    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
-        "updates": {"public_base_url": "https://router.example.com/v1"}})
+    r = clients.put(
+        "/api/settings",
+        headers=_auth(_ADMIN),
+        json={"updates": {"public_base_url": "https://router.example.com/v1"}},
+    )
     assert r.status_code == 200, r.text
-    assert clients.get("/api/models", headers=_auth(_ALICE)).status_code == 403  # still admin-gated
+    assert (
+        clients.get("/api/models", headers=_auth(_ALICE)).status_code == 403
+    )  # still admin-gated
 
     body = clients.get("/api/overview?days=36500", headers=_auth(_ALICE)).json()
     assert body["public_base_url"] == "https://router.example.com/v1"
@@ -391,20 +466,26 @@ def test_operator_set_base_url_reaches_a_non_admin(clients, monkeypatch):
 
 def test_blank_base_url_is_allowed_and_means_unset(clients):
     """Empty is the default, so it has to be saveable — and mean 'fall back'."""
-    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
-        "updates": {"public_base_url": ""}})
+    r = clients.put(
+        "/api/settings",
+        headers=_auth(_ADMIN),
+        json={"updates": {"public_base_url": ""}},
+    )
     assert r.status_code == 200, r.text
     body = clients.get("/api/overview", headers=_auth(_ALICE)).json()
     assert body["public_base_url"] == ""
 
 
-@pytest.mark.parametrize("bad", [
-    "router.example.com/v1",     # no scheme — the most common paste
-    "localhost:8001/v1",         # scheme-relative, which most clients reject
-    "https://",                  # no host at all
-    "https://:8001/v1",          # port with no host in front of it
-    "https://router .example/v1",  # stray space
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "router.example.com/v1",  # no scheme — the most common paste
+        "localhost:8001/v1",  # scheme-relative, which most clients reject
+        "https://",  # no host at all
+        "https://:8001/v1",  # port with no host in front of it
+        "https://router .example/v1",  # stray space
+    ],
+)
 def test_a_malformed_base_url_is_refused_at_the_settings_page(clients, bad):
     """Refused on the way in, not discovered as a 404 from someone's editor.
 
@@ -412,8 +493,14 @@ def test_a_malformed_base_url_is_refused_at_the_settings_page(clients, bad):
     becomes a connection refused that looks like the router being down — reported
     from a machine that is not the operator's, days later.
     """
-    r = clients.put("/api/settings", headers=_auth(_ADMIN), json={
-        "updates": {"public_base_url": bad}})
+    r = clients.put(
+        "/api/settings",
+        headers=_auth(_ADMIN),
+        json={"updates": {"public_base_url": bad}},
+    )
     assert r.status_code == 422, f"{bad!r} was accepted"
     # And it was not persisted on the way to being rejected.
-    assert clients.get("/api/overview", headers=_auth(_ALICE)).json()["public_base_url"] == ""
+    assert (
+        clients.get("/api/overview", headers=_auth(_ALICE)).json()["public_base_url"]
+        == ""
+    )

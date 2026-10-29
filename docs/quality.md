@@ -18,3 +18,7 @@ Local baseline (ruff 0.17.3, Bandit 1.9.4): fatal lint passed. Bandit reports 53
 Branch protection, required status-check configuration, paid security services and automatic deployment remain owner-controlled and unchanged. Issue #87 stays open until report findings and the remaining policy gates are resolved. Version-matrix success is verified by CI, not inferred from a single local Python installation.
 
 Local dependency audit (pip-audit2.10.1,2026-10-29):97 packages,zero known vulnerabilities. Ruff formatting baseline:154 files would change,5 already formatted. These are explicit current observations, not exemptions or a clean Bandit verdict.
+
+## Formatting follow-up
+
+The formatter baseline has been applied mechanically across154files, with docstring whitespace as the only AST differences. Formatting is now blocking; security reports remain visible pending scoped triage. This change makes no intentional runtime behavior changes.

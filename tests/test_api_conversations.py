@@ -9,6 +9,7 @@ Also covers per-thread sharing: threads default to shared with admin, the owner
 alone may turn that off, and a private thread is invisible to admin everywhere —
 list, `?user=`, owner options, and by id.
 """
+
 import warnings
 
 import pytest
@@ -41,8 +42,12 @@ def open_client(monkeypatch):
 def scoped(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     client = _client(CapabilityRouter(store=SqliteStore(":memory:")))
-    alice = client.post("/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)).json()["key"]
-    bob = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()["key"]
+    alice = client.post(
+        "/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)
+    ).json()["key"]
+    bob = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()[
+        "key"
+    ]
     return client, alice, bob
 
 
@@ -69,17 +74,30 @@ def test_default_title_when_blank(open_client):
 
 def test_append_and_retrieve_messages_in_order(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
-    open_client.post(f"/api/conversations/{cid}/messages", json={"role": "user", "content": "hi"})
-    open_client.post(f"/api/conversations/{cid}/messages", json={"role": "assistant", "content": "hello"})
+    open_client.post(
+        f"/api/conversations/{cid}/messages", json={"role": "user", "content": "hi"}
+    )
+    open_client.post(
+        f"/api/conversations/{cid}/messages",
+        json={"role": "assistant", "content": "hello"},
+    )
 
     msgs = open_client.get(f"/api/conversations/{cid}").json()["messages"]
-    assert [(m["role"], m["content"]) for m in msgs] == [("user", "hi"), ("assistant", "hello")]
+    assert [(m["role"], m["content"]) for m in msgs] == [
+        ("user", "hi"),
+        ("assistant", "hello"),
+    ]
 
 
 def test_structured_content_round_trips(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
-    parts = [{"type": "text", "text": "look"}, {"type": "file", "file": {"file_id": "file-x"}}]
-    open_client.post(f"/api/conversations/{cid}/messages", json={"role": "user", "content": parts})
+    parts = [
+        {"type": "text", "text": "look"},
+        {"type": "file", "file": {"file_id": "file-x"}},
+    ]
+    open_client.post(
+        f"/api/conversations/{cid}/messages", json={"role": "user", "content": parts}
+    )
 
     msg = open_client.get(f"/api/conversations/{cid}").json()["messages"][0]
     assert msg["content"] == parts  # decoded back to the exact array
@@ -87,7 +105,9 @@ def test_structured_content_round_trips(open_client):
 
 def test_bad_role_is_422(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
-    r = open_client.post(f"/api/conversations/{cid}/messages", json={"role": "boss", "content": "x"})
+    r = open_client.post(
+        f"/api/conversations/{cid}/messages", json={"role": "boss", "content": "x"}
+    )
     assert r.status_code == 422
 
 
@@ -101,12 +121,17 @@ def test_rename(open_client):
 
 def test_rename_empty_is_422(open_client):
     cid = open_client.post("/api/conversations", json={"title": "old"}).json()["id"]
-    assert open_client.patch(f"/api/conversations/{cid}", json={"title": "  "}).status_code == 422
+    assert (
+        open_client.patch(f"/api/conversations/{cid}", json={"title": "  "}).status_code
+        == 422
+    )
 
 
 def test_delete_removes_conversation_and_messages(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
-    open_client.post(f"/api/conversations/{cid}/messages", json={"role": "user", "content": "x"})
+    open_client.post(
+        f"/api/conversations/{cid}/messages", json={"role": "user", "content": "x"}
+    )
 
     r = open_client.delete(f"/api/conversations/{cid}")
     assert r.json()["deleted"] is True
@@ -117,56 +142,98 @@ def test_delete_removes_conversation_and_messages(open_client):
 def test_missing_conversation_is_404(open_client):
     assert open_client.get("/api/conversations/conv-deadbeef").status_code == 404
     assert open_client.delete("/api/conversations/conv-deadbeef").status_code == 404
-    assert open_client.patch("/api/conversations/conv-deadbeef", json={"title": "x"}).status_code == 404
+    assert (
+        open_client.patch(
+            "/api/conversations/conv-deadbeef", json={"title": "x"}
+        ).status_code
+        == 404
+    )
 
 
 # ── Per-user scoping ───────────────────────────────────────────────────────────
 
+
 def test_user_sees_only_own_conversations(scoped):
     client, alice, bob = scoped
-    a_id = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
-    b_id = client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob)).json()["id"]
+    a_id = client.post(
+        "/api/conversations", json={"title": "A"}, headers=_auth(alice)
+    ).json()["id"]
+    b_id = client.post(
+        "/api/conversations", json={"title": "B"}, headers=_auth(bob)
+    ).json()["id"]
 
-    a_list = [c["id"] for c in client.get("/api/conversations", headers=_auth(alice)).json()["data"]]
+    a_list = [
+        c["id"]
+        for c in client.get("/api/conversations", headers=_auth(alice)).json()["data"]
+    ]
     assert a_list == [a_id]
 
     # Alice cannot see, rename, delete, or post to Bob's conversation (404).
-    assert client.get(f"/api/conversations/{b_id}", headers=_auth(alice)).status_code == 404
-    assert client.patch(f"/api/conversations/{b_id}", json={"title": "x"}, headers=_auth(alice)).status_code == 404
-    assert client.delete(f"/api/conversations/{b_id}", headers=_auth(alice)).status_code == 404
-    assert client.post(f"/api/conversations/{b_id}/messages",
-                       json={"role": "user", "content": "x"}, headers=_auth(alice)).status_code == 404
+    assert (
+        client.get(f"/api/conversations/{b_id}", headers=_auth(alice)).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"/api/conversations/{b_id}", json={"title": "x"}, headers=_auth(alice)
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"/api/conversations/{b_id}", headers=_auth(alice)).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/conversations/{b_id}/messages",
+            json={"role": "user", "content": "x"},
+            headers=_auth(alice),
+        ).status_code
+        == 404
+    )
 
 
 def test_admin_sees_all_conversations(scoped):
     client, alice, bob = scoped
     client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice))
     client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
-    titles = {c["title"] for c in client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]}
+    titles = {
+        c["title"]
+        for c in client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]
+    }
     assert titles == {"A", "B"}
 
 
 # ── Tags (grouping) ────────────────────────────────────────────────────────────
+
 
 def test_tags_survive_create_list_and_get(open_client):
     conv = open_client.post(
         "/api/conversations", json={"title": "t", "tags": ["work", "cost"]}
     ).json()
     assert sorted(conv["tags"]) == ["cost", "work"]
-    assert sorted(open_client.get("/api/conversations").json()["data"][0]["tags"]) == ["cost", "work"]
-    assert sorted(open_client.get(f"/api/conversations/{conv['id']}").json()["tags"]) == ["cost", "work"]
+    assert sorted(open_client.get("/api/conversations").json()["data"][0]["tags"]) == [
+        "cost",
+        "work",
+    ]
+    assert sorted(
+        open_client.get(f"/api/conversations/{conv['id']}").json()["tags"]
+    ) == ["cost", "work"]
 
 
 def test_tags_are_normalized(open_client):
     conv = open_client.post(
-        "/api/conversations", json={"title": "t", "tags": ["  Work ", "WORK", "", "  ", "Cost"]}
+        "/api/conversations",
+        json={"title": "t", "tags": ["  Work ", "WORK", "", "  ", "Cost"]},
     ).json()
     # Lowercased, trimmed, blanks dropped, deduped case-insensitively, order kept.
     assert conv["tags"] == ["work", "cost"]
 
 
 def test_patch_replaces_tags_without_touching_title(open_client):
-    cid = open_client.post("/api/conversations", json={"title": "keep", "tags": ["a"]}).json()["id"]
+    cid = open_client.post(
+        "/api/conversations", json={"title": "keep", "tags": ["a"]}
+    ).json()["id"]
     r = open_client.patch(f"/api/conversations/{cid}", json={"tags": ["b", "c"]})
     assert r.status_code == 200
     assert r.json()["title"] == "keep"
@@ -174,19 +241,28 @@ def test_patch_replaces_tags_without_touching_title(open_client):
 
 
 def test_patch_can_clear_tags(open_client):
-    cid = open_client.post("/api/conversations", json={"title": "t", "tags": ["a"]}).json()["id"]
-    assert open_client.patch(f"/api/conversations/{cid}", json={"tags": []}).json()["tags"] == []
+    cid = open_client.post(
+        "/api/conversations", json={"title": "t", "tags": ["a"]}
+    ).json()["id"]
+    assert (
+        open_client.patch(f"/api/conversations/{cid}", json={"tags": []}).json()["tags"]
+        == []
+    )
 
 
 def test_patch_renames_without_touching_tags(open_client):
-    cid = open_client.post("/api/conversations", json={"title": "old", "tags": ["a"]}).json()["id"]
+    cid = open_client.post(
+        "/api/conversations", json={"title": "old", "tags": ["a"]}
+    ).json()["id"]
     r = open_client.patch(f"/api/conversations/{cid}", json={"title": "new"})
     assert (r.json()["title"], r.json()["tags"]) == ("new", ["a"])
 
 
 def test_patch_title_and_tags_together(open_client):
     cid = open_client.post("/api/conversations", json={"title": "old"}).json()["id"]
-    r = open_client.patch(f"/api/conversations/{cid}", json={"title": "new", "tags": ["x"]})
+    r = open_client.patch(
+        f"/api/conversations/{cid}", json={"title": "new", "tags": ["x"]}
+    )
     assert (r.json()["title"], r.json()["tags"]) == ("new", ["x"])
 
 
@@ -198,7 +274,12 @@ def test_patch_with_no_fields_is_422(open_client):
 def test_rejected_tags_are_422(open_client):
     cid = open_client.post("/api/conversations", json={"title": "t"}).json()["id"]
     for bad in (["a" * 25], ["needs,split"], [f"t{n}" for n in range(13)]):
-        assert open_client.patch(f"/api/conversations/{cid}", json={"tags": bad}).status_code == 422
+        assert (
+            open_client.patch(
+                f"/api/conversations/{cid}", json={"tags": bad}
+            ).status_code
+            == 422
+        )
     # None of the rejected sets were applied.
     assert open_client.get(f"/api/conversations/{cid}").json()["tags"] == []
 
@@ -206,17 +287,23 @@ def test_rejected_tags_are_422(open_client):
 def test_list_filters_by_tag(open_client):
     open_client.post("/api/conversations", json={"title": "A", "tags": ["work"]})
     open_client.post("/api/conversations", json={"title": "B", "tags": ["home"]})
-    titles = [c["title"] for c in open_client.get("/api/conversations?tag=WORK").json()["data"]]
-    assert titles == ["A"]   # the filter is case-folded like the tags themselves
+    titles = [
+        c["title"]
+        for c in open_client.get("/api/conversations?tag=WORK").json()["data"]
+    ]
+    assert titles == ["A"]  # the filter is case-folded like the tags themselves
 
 
 def test_deleting_a_conversation_drops_it_from_tag_filters(open_client):
-    cid = open_client.post("/api/conversations", json={"title": "A", "tags": ["work"]}).json()["id"]
+    cid = open_client.post(
+        "/api/conversations", json={"title": "A", "tags": ["work"]}
+    ).json()["id"]
     open_client.delete(f"/api/conversations/{cid}")
     assert open_client.get("/api/conversations?tag=work").json()["data"] == []
 
 
 # ── Admin owner filter ─────────────────────────────────────────────────────────
+
 
 def test_admin_can_filter_by_user(scoped):
     client, alice, bob = scoped
@@ -234,24 +321,47 @@ def test_admin_can_filter_by_user(scoped):
 def test_admin_filter_on_unknown_user_is_empty(scoped):
     client, alice, _ = scoped
     client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice))
-    assert client.get("/api/conversations?user=nobody", headers=_auth(_ADMIN)).json()["data"] == []
+    assert (
+        client.get("/api/conversations?user=nobody", headers=_auth(_ADMIN)).json()[
+            "data"
+        ]
+        == []
+    )
 
 
 # ── Sharing with admin ─────────────────────────────────────────────────────────
 
+
 def test_new_conversations_default_to_shared(scoped):
     client, alice, _ = scoped
-    conv = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()
+    conv = client.post(
+        "/api/conversations", json={"title": "A"}, headers=_auth(alice)
+    ).json()
     assert conv["shared"] is True
-    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"][0]["shared"] is True
+    assert (
+        client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"][0][
+            "shared"
+        ]
+        is True
+    )
 
 
 def test_private_thread_is_invisible_to_admin(scoped):
     client, alice, bob = scoped
-    shared = client.post("/api/conversations", json={"title": "open"}, headers=_auth(alice)).json()
-    secret = client.post("/api/conversations", json={"title": "secret"}, headers=_auth(alice)).json()
-    assert client.patch(f"/api/conversations/{secret['id']}",
-                        json={"shared": False}, headers=_auth(alice)).json()["shared"] is False
+    shared = client.post(
+        "/api/conversations", json={"title": "open"}, headers=_auth(alice)
+    ).json()
+    secret = client.post(
+        "/api/conversations", json={"title": "secret"}, headers=_auth(alice)
+    ).json()
+    assert (
+        client.patch(
+            f"/api/conversations/{secret['id']}",
+            json={"shared": False},
+            headers=_auth(alice),
+        ).json()["shared"]
+        is False
+    )
 
     # Alice still sees both of her own.
     mine = client.get("/api/conversations", headers=_auth(alice)).json()["data"]
@@ -261,19 +371,40 @@ def test_private_thread_is_invisible_to_admin(scoped):
     # — a 404, so nothing says it exists.
     admin_list = client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]
     assert [c["title"] for c in admin_list] == ["open"]
-    assert client.get(f"/api/conversations/{secret['id']}", headers=_auth(_ADMIN)).status_code == 404
-    assert client.get(f"/api/conversations/{shared['id']}", headers=_auth(_ADMIN)).status_code == 200
+    assert (
+        client.get(
+            f"/api/conversations/{secret['id']}", headers=_auth(_ADMIN)
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"/api/conversations/{shared['id']}", headers=_auth(_ADMIN)
+        ).status_code
+        == 200
+    )
     # Nor by narrowing to her, nor through the group filter.
-    assert [c["title"] for c in client.get(
-        "/api/conversations?user=alice", headers=_auth(_ADMIN)).json()["data"]] == ["open"]
+    assert [
+        c["title"]
+        for c in client.get(
+            "/api/conversations?user=alice", headers=_auth(_ADMIN)
+        ).json()["data"]
+    ] == ["open"]
 
 
 def test_admin_may_not_read_or_manage_a_private_thread(scoped):
     client, alice, _ = scoped
-    cid = client.post("/api/conversations", json={"title": "secret"}, headers=_auth(alice)).json()["id"]
-    client.post(f"/api/conversations/{cid}/messages",
-                json={"role": "user", "content": "my salary is"}, headers=_auth(alice))
-    client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
+    cid = client.post(
+        "/api/conversations", json={"title": "secret"}, headers=_auth(alice)
+    ).json()["id"]
+    client.post(
+        f"/api/conversations/{cid}/messages",
+        json={"role": "user", "content": "my salary is"},
+        headers=_auth(alice),
+    )
+    client.patch(
+        f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice)
+    )
 
     for method, kwargs in (
         ("get", {}),
@@ -293,50 +424,85 @@ def test_admin_may_not_read_or_manage_a_private_thread(scoped):
 def test_owner_with_only_private_threads_is_not_offered_in_the_owner_picker(scoped):
     client, alice, bob = scoped
     client.post("/api/conversations", json={"title": "B"}, headers=_auth(bob))
-    a = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
-    client.patch(f"/api/conversations/{a}", json={"shared": False}, headers=_auth(alice))
+    a = client.post(
+        "/api/conversations", json={"title": "A"}, headers=_auth(alice)
+    ).json()["id"]
+    client.patch(
+        f"/api/conversations/{a}", json={"shared": False}, headers=_auth(alice)
+    )
 
     # Listing alice as an option would itself report that she has history.
-    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["users"] == ["bob"]
+    assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["users"] == [
+        "bob"
+    ]
 
 
 def test_only_the_owner_can_change_sharing(scoped):
     client, alice, _ = scoped
-    cid = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
+    cid = client.post(
+        "/api/conversations", json={"title": "A"}, headers=_auth(alice)
+    ).json()["id"]
 
     # Admin can see and rename a shared thread, but not decide who it is shared with.
-    r = client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(_ADMIN))
+    r = client.patch(
+        f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(_ADMIN)
+    )
     assert r.status_code == 403
-    assert client.get(f"/api/conversations/{cid}", headers=_auth(alice)).json()["shared"] is True
-    assert client.patch(f"/api/conversations/{cid}", json={"title": "ok"},
-                        headers=_auth(_ADMIN)).status_code == 200
+    assert (
+        client.get(f"/api/conversations/{cid}", headers=_auth(alice)).json()["shared"]
+        is True
+    )
+    assert (
+        client.patch(
+            f"/api/conversations/{cid}", json={"title": "ok"}, headers=_auth(_ADMIN)
+        ).status_code
+        == 200
+    )
 
 
 def test_sharing_can_be_turned_back_on(scoped):
     client, alice, _ = scoped
-    cid = client.post("/api/conversations", json={"title": "A"}, headers=_auth(alice)).json()["id"]
-    client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
+    cid = client.post(
+        "/api/conversations", json={"title": "A"}, headers=_auth(alice)
+    ).json()["id"]
+    client.patch(
+        f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice)
+    )
     assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"] == []
 
-    client.patch(f"/api/conversations/{cid}", json={"shared": True}, headers=_auth(alice))
-    assert [c["title"] for c in client.get(
-        "/api/conversations", headers=_auth(_ADMIN)).json()["data"]] == ["A"]
+    client.patch(
+        f"/api/conversations/{cid}", json={"shared": True}, headers=_auth(alice)
+    )
+    assert [
+        c["title"]
+        for c in client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"]
+    ] == ["A"]
 
 
 def test_a_thread_can_be_created_private(scoped):
     client, alice, _ = scoped
-    conv = client.post("/api/conversations", json={"title": "A", "shared": False},
-                       headers=_auth(alice)).json()
+    conv = client.post(
+        "/api/conversations", json={"title": "A", "shared": False}, headers=_auth(alice)
+    ).json()
     assert conv["shared"] is False
     assert client.get("/api/conversations", headers=_auth(_ADMIN)).json()["data"] == []
 
 
 def test_sharing_only_patch_leaves_title_and_tags_alone(scoped):
     client, alice, _ = scoped
-    cid = client.post("/api/conversations", json={"title": "keep", "tags": ["work"]},
-                      headers=_auth(alice)).json()["id"]
-    r = client.patch(f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice))
-    assert (r.json()["title"], r.json()["tags"], r.json()["shared"]) == ("keep", ["work"], False)
+    cid = client.post(
+        "/api/conversations",
+        json={"title": "keep", "tags": ["work"]},
+        headers=_auth(alice),
+    ).json()["id"]
+    r = client.patch(
+        f"/api/conversations/{cid}", json={"shared": False}, headers=_auth(alice)
+    )
+    assert (r.json()["title"], r.json()["tags"], r.json()["shared"]) == (
+        "keep",
+        ["work"],
+        False,
+    )
 
 
 def test_user_may_not_filter_by_another_user(scoped):

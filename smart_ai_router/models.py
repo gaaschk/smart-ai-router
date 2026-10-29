@@ -1,4 +1,5 @@
 """Data containers for the smart-ai-router."""
+
 from __future__ import annotations
 import secrets
 from dataclasses import dataclass, field
@@ -11,20 +12,20 @@ def generate_conversation_id() -> str:
 
 @dataclass
 class ProviderConfig:
-    name: str                        # "openrouter" | "ollama" | user-defined slug
-    kind: str                        # "openrouter" | "ollama"  (driver selector)
+    name: str  # "openrouter" | "ollama" | user-defined slug
+    kind: str  # "openrouter" | "ollama"  (driver selector)
     enabled: bool = True
-    api_key: str = ""                # bearer token; empty for local providers
-    base_url: str = ""               # e.g. "http://localhost:11434" for Ollama
+    api_key: str = ""  # bearer token; empty for local providers
+    base_url: str = ""  # e.g. "http://localhost:11434" for Ollama
     timeout: int = 15
 
 
 @dataclass
 class ModelSpec:
-    value: str                          # e.g. "openrouter/meta-llama/llama-3.3-70b-instruct"
-    provider: str = ""                  # "openrouter" | "ollama" | "bedrock" | ...
-    cost: int = 0                       # relative tier for router sorting (0=local, 1=free-tier, 2+=paid)
-    ctx_k: int = 0                      # context window in K tokens
+    value: str  # e.g. "openrouter/meta-llama/llama-3.3-70b-instruct"
+    provider: str = ""  # "openrouter" | "ollama" | "bedrock" | ...
+    cost: int = 0  # relative tier for router sorting (0=local, 1=free-tier, 2+=paid)
+    ctx_k: int = 0  # context window in K tokens
     max_output: int = 0
     # Most tokens this model can emit in one reply, 0 = unknown. Distinct from
     # ctx_k: the catalog's output limits range from 2048 to 1.8M while context
@@ -35,8 +36,8 @@ class ModelSpec:
     # OpenRouter reports it (top_provider.max_completion_tokens) for 411 of 417
     # models; local models leave it unknown, which is safe, since Ollama treats
     # max_tokens as num_predict and simply stops there.
-    tools: bool = False                 # supports tool/function calling
-    vision: bool = False                # supports image inputs
+    tools: bool = False  # supports tool/function calling
+    vision: bool = False  # supports image inputs
     structured_outputs: bool = False
     # Honors `response_format: {"type": "json_schema"}` — a *schema*, not merely
     # valid JSON. The distinction is the whole reason this is stored: a model that
@@ -51,9 +52,9 @@ class ModelSpec:
     # prompt classifier wants a model without it. Stored rather than re-derived so
     # a profiler change can be re-applied without re-fetching every catalog, the
     # same reason `description` is stored.
-    reliability: float = 1.0           # 0.0–1.0; models below threshold skipped by router
-    cost_input: float = 0.0            # $/M input tokens (0 = unknown or free)
-    cost_output: float = 0.0           # $/M output tokens (0 = unknown or free)
+    reliability: float = 1.0  # 0.0–1.0; models below threshold skipped by router
+    cost_input: float = 0.0  # $/M input tokens (0 = unknown or free)
+    cost_output: float = 0.0  # $/M output tokens (0 = unknown or free)
     agentic: float = 0.0
     # Measured ability to hold a multi-step tool loop together (profiler.
     # agentic_level). Deliberately NOT a taxonomy field: it is not knowledge about
@@ -155,15 +156,16 @@ class ApiKey:
     Scope and rate-limit fields are persisted now (Phase 1) but only enforced in
     later phases; 0 / "" mean "unset / no restriction".
     """
-    key_hash: str                    # SHA-256 hex of the plaintext key
-    user: str                        # identity label this key belongs to
-    key_prefix: str = ""             # first chars of the key, safe to display
-    enabled: bool = True             # revoke = flip to False (no redeploy)
-    scope_models: str = ""           # Phase 2: JSON allow/deny for models/providers
-    max_tier: int = 0                # Phase 2: max cost tier (0 = no ceiling)
-    rl_window_s: int = 0             # Phase 3: rate-limit window seconds (0 = off)
-    rl_max_req: int = 0              # Phase 3: max requests / window
-    rl_max_tokens: int = 0           # Phase 3: max tokens / window
+
+    key_hash: str  # SHA-256 hex of the plaintext key
+    user: str  # identity label this key belongs to
+    key_prefix: str = ""  # first chars of the key, safe to display
+    enabled: bool = True  # revoke = flip to False (no redeploy)
+    scope_models: str = ""  # Phase 2: JSON allow/deny for models/providers
+    max_tier: int = 0  # Phase 2: max cost tier (0 = no ceiling)
+    rl_window_s: int = 0  # Phase 3: rate-limit window seconds (0 = off)
+    rl_max_req: int = 0  # Phase 3: max requests / window
+    rl_max_tokens: int = 0  # Phase 3: max tokens / window
     id: int = 0
     created_at: str = ""
     last_used_at: str = ""
@@ -178,14 +180,15 @@ class FileRecord:
     server-side-extracted text for documents (PDF/text/code); empty for images,
     which are inlined as base64 at request time instead.
     """
-    id: str                          # "file-<token>" — OpenAI-style identifier
-    user: str = ""                   # owner identity (per-user scoping)
-    filename: str = ""               # original client filename
-    purpose: str = "assistants"      # OpenAI purpose label
+
+    id: str  # "file-<token>" — OpenAI-style identifier
+    user: str = ""  # owner identity (per-user scoping)
+    filename: str = ""  # original client filename
+    purpose: str = "assistants"  # OpenAI purpose label
     mime: str = "application/octet-stream"
-    bytes: int = 0                   # size on disk
-    path: str = ""                   # absolute path to the stored blob
-    extracted_text: str = ""         # server-extracted text (documents only)
+    bytes: int = 0  # size on disk
+    path: str = ""  # absolute path to the stored blob
+    extracted_text: str = ""  # server-extracted text (documents only)
     created_at: str = ""
 
 
@@ -207,13 +210,14 @@ class Conversation:
     off per thread, and a thread with shared=False is invisible to everyone but
     its owner: absent from admin's list, from the owner picker, and a 404 by id.
     """
-    id: str                          # "conv-<token>" — opaque identifier
-    user: str = ""                   # owner identity (per-user scoping)
-    title: str = "New chat"          # short display label
+
+    id: str  # "conv-<token>" — opaque identifier
+    user: str = ""  # owner identity (per-user scoping)
+    title: str = "New chat"  # short display label
     created_at: str = ""
     updated_at: str = ""
     tags: list[str] = field(default_factory=list)  # lowercase, deduped labels
-    shared: bool = True              # visible to admin? owner-controlled
+    shared: bool = True  # visible to admin? owner-controlled
 
 
 @dataclass
@@ -223,12 +227,13 @@ class ChatMessage:
     refs) the API layer JSON-encodes it and sets `content_json=True` so it can
     round-trip back to the same shape the client sent.
     """
-    conversation_id: str             # FK → Conversation.id
-    role: str = "user"               # "user" | "assistant" | "system"
-    content: str = ""                # message text (or JSON when content_json)
-    content_json: bool = False       # True → `content` is a JSON-encoded parts array
-    id: int = 0                      # autoincrement
-    ordinal: int = 0                 # per-conversation sequence (stable ordering)
+
+    conversation_id: str  # FK → Conversation.id
+    role: str = "user"  # "user" | "assistant" | "system"
+    content: str = ""  # message text (or JSON when content_json)
+    content_json: bool = False  # True → `content` is a JSON-encoded parts array
+    id: int = 0  # autoincrement
+    ordinal: int = 0  # per-conversation sequence (stable ordering)
     ts: str = ""
     # The provider stopped this reply at the output ceiling (finish_reason
     # "length") rather than finishing its thought. Stored, not just shown live,
@@ -251,14 +256,15 @@ class Report:
     prompt profile, classifier — because none of that is stored per message and the
     report is the only place it would otherwise be lost.
     """
-    description: str = ""            # what the user says went wrong
-    user: str = ""                   # reporter identity (may be an anon handle)
-    conversation_id: str = ""        # "" when the thread was never persisted
-    transcript_json: str = "[]"      # JSON array of {role, content} turns
-    meta_json: str = "{}"            # routing metadata from the reported turn
-    issue_url: str = ""              # the GitHub issue it was mirrored to, if any
-    github_error: str = ""           # why it wasn't, so the failure isn't silent
-    id: int = 0                      # autoincrement
+
+    description: str = ""  # what the user says went wrong
+    user: str = ""  # reporter identity (may be an anon handle)
+    conversation_id: str = ""  # "" when the thread was never persisted
+    transcript_json: str = "[]"  # JSON array of {role, content} turns
+    meta_json: str = "{}"  # routing metadata from the reported turn
+    issue_url: str = ""  # the GitHub issue it was mirrored to, if any
+    github_error: str = ""  # why it wasn't, so the failure isn't silent
+    id: int = 0  # autoincrement
     ts: str = ""
 
 
@@ -268,6 +274,7 @@ class UsageRecord:
 
     Usually a proxied request, but not always — see `kind`.
     """
+
     # What this call *was*, since not every call the router bills for is a user
     # request. The router spends money on its own behalf too: it profiles every
     # prompt, sometimes escalates that to a stronger model, and rates catalog

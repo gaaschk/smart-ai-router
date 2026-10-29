@@ -1,4 +1,5 @@
 """Tests for per-user model scope parsing + enforcement."""
+
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.router import route
 from smart_ai_router.scope import ModelScope, parse_scope
@@ -6,6 +7,7 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 
 # ── parse_scope ─────────────────────────────────────────────────────────────
+
 
 def test_empty_scope_is_unrestricted():
     s = parse_scope("", 0)
@@ -41,9 +43,15 @@ def test_stored_non_positive_max_tier_means_no_ceiling():
 
 # ── ModelScope.permits ────────────────────────────────────────────────────────
 
+
 def _spec(value, provider="", cost=0):
-    return ModelSpec(value=value, provider=provider, cost=cost,
-                     reliability=1.0, competence={"coding": 0.95})
+    return ModelSpec(
+        value=value,
+        provider=provider,
+        cost=cost,
+        reliability=1.0,
+        competence={"coding": 0.95},
+    )
 
 
 def test_allow_is_whitelist():
@@ -90,6 +98,7 @@ def test_matches_provider_field_too():
 
 # ── enforcement in route() ─────────────────────────────────────────────────────
 
+
 def _store_with(*specs):
     store = SqliteStore(":memory:")
     for s in specs:
@@ -101,23 +110,43 @@ def test_route_respects_scope_over_cheapest():
     # Cheapest is the ollama model, but scope denies it → picks the allowed one.
     store = _store_with(
         _spec("ollama/llama3.1:8b", provider="ollama", cost=0),
-        ModelSpec("openrouter/x", provider="openrouter", cost=2,
-                  reliability=1.0, competence={"coding": 0.95}),
+        ModelSpec(
+            "openrouter/x",
+            provider="openrouter",
+            cost=2,
+            reliability=1.0,
+            competence={"coding": 0.95},
+        ),
     )
     scope = ModelScope(allow=("openrouter/",))
-    assert route(store, "coding", "hard", needs_tools=False, scope=scope) == "openrouter/x"
+    assert (
+        route(store, "coding", "hard", needs_tools=False, scope=scope) == "openrouter/x"
+    )
 
 
 def test_scope_applies_to_fallback_pick():
     # Nothing clears the "hard" bar; fallback must still stay within scope.
     store = _store_with(
-        ModelSpec("ollama/weak", provider="ollama", cost=0,
-                  reliability=1.0, competence={"coding": 0.60}),
-        ModelSpec("openrouter/weak", provider="openrouter", cost=2,
-                  reliability=1.0, competence={"coding": 0.55}),
+        ModelSpec(
+            "ollama/weak",
+            provider="ollama",
+            cost=0,
+            reliability=1.0,
+            competence={"coding": 0.60},
+        ),
+        ModelSpec(
+            "openrouter/weak",
+            provider="openrouter",
+            cost=2,
+            reliability=1.0,
+            competence={"coding": 0.55},
+        ),
     )
     scope = ModelScope(allow=("openrouter/",))
-    assert route(store, "coding", "hard", needs_tools=False, scope=scope) == "openrouter/weak"
+    assert (
+        route(store, "coding", "hard", needs_tools=False, scope=scope)
+        == "openrouter/weak"
+    )
 
 
 def test_max_tier_excludes_expensive_in_route():

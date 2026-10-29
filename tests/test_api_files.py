@@ -4,6 +4,7 @@ Covers upload → list → get → download → delete, the OpenAI object shape,
 size ceiling (413), and per-user scoping (a per-user key sees only its own
 files; admin sees all).
 """
+
 import warnings
 
 import pytest
@@ -91,11 +92,14 @@ def test_oversize_upload_rejected(blobs, monkeypatch):
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
     big = b"x" * (1024 * 1024 + 1)
-    resp = client.post("/v1/files", files={"file": ("big.bin", big, "application/octet-stream")})
+    resp = client.post(
+        "/v1/files", files={"file": ("big.bin", big, "application/octet-stream")}
+    )
     assert resp.status_code == 413
 
 
 # ── Per-user scoping ───────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def scoped(blobs, monkeypatch):
@@ -103,8 +107,12 @@ def scoped(blobs, monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
     client = _client(cr)
-    alice = client.post("/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)).json()["key"]
-    bob = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()["key"]
+    alice = client.post(
+        "/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN)
+    ).json()["key"]
+    bob = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()[
+        "key"
+    ]
     return client, alice, bob
 
 
@@ -113,12 +121,16 @@ def test_user_sees_only_own_files(scoped):
     a_id = _upload(client, "a.txt", b"alice", headers=_auth(alice)).json()["id"]
     b_id = _upload(client, "b.txt", b"bob", headers=_auth(bob)).json()["id"]
 
-    a_list = [f["id"] for f in client.get("/v1/files", headers=_auth(alice)).json()["data"]]
+    a_list = [
+        f["id"] for f in client.get("/v1/files", headers=_auth(alice)).json()["data"]
+    ]
     assert a_list == [a_id]
 
     # Alice cannot see or fetch Bob's file (404, not 403 — don't leak existence).
     assert client.get(f"/v1/files/{b_id}", headers=_auth(alice)).status_code == 404
-    assert client.get(f"/v1/files/{b_id}/content", headers=_auth(alice)).status_code == 404
+    assert (
+        client.get(f"/v1/files/{b_id}/content", headers=_auth(alice)).status_code == 404
+    )
     assert client.delete(f"/v1/files/{b_id}", headers=_auth(alice)).status_code == 404
 
 
@@ -127,11 +139,14 @@ def test_admin_sees_all_files(scoped):
     a_id = _upload(client, "a.txt", b"alice", headers=_auth(alice)).json()["id"]
     b_id = _upload(client, "b.txt", b"bob", headers=_auth(bob)).json()["id"]
 
-    all_ids = {f["id"] for f in client.get("/v1/files", headers=_auth(_ADMIN)).json()["data"]}
+    all_ids = {
+        f["id"] for f in client.get("/v1/files", headers=_auth(_ADMIN)).json()["data"]
+    }
     assert all_ids == {a_id, b_id}
 
 
 # ── unsupported-type guard (415) ──────────────────────────────────────────────
+
 
 def _upload_typed(client, name, content, mime, *, headers=None):
     return client.post(
@@ -144,18 +159,25 @@ def _upload_typed(client, name, content, mime, *, headers=None):
 
 def test_unsupported_type_is_rejected_415(open_client):
     # Legacy .doc (binary Word) can't be extracted — refuse at upload.
-    resp = _upload_typed(open_client, "old.doc", b"\xd0\xcf\x11\xe0junk", "application/msword")
+    resp = _upload_typed(
+        open_client, "old.doc", b"\xd0\xcf\x11\xe0junk", "application/msword"
+    )
     assert resp.status_code == 415
     assert ".doc" in resp.json()["detail"]
 
 
 def test_docx_upload_is_accepted(open_client):
     import io as _io
+
     docx = pytest.importorskip("docx")
-    doc = docx.Document(); doc.add_paragraph("hello from docx")
-    buf = _io.BytesIO(); doc.save(buf)
+    doc = docx.Document()
+    doc.add_paragraph("hello from docx")
+    buf = _io.BytesIO()
+    doc.save(buf)
     resp = _upload_typed(
-        open_client, "r.docx", buf.getvalue(),
+        open_client,
+        "r.docx",
+        buf.getvalue(),
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     assert resp.status_code == 200
@@ -169,5 +191,7 @@ def test_image_upload_still_allowed_despite_not_extractable(open_client):
 
 def test_untyped_octet_stream_still_allowed(open_client):
     # Code files often arrive as octet-stream; extraction falls back to decode.
-    resp = _upload_typed(open_client, "script", b"print('hi')", "application/octet-stream")
+    resp = _upload_typed(
+        open_client, "script", b"print('hi')", "application/octet-stream"
+    )
     assert resp.status_code == 200

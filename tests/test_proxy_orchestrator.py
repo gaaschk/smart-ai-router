@@ -1,4 +1,5 @@
 """Provider-independent orchestrator routing and canary integration tests."""
+
 import warnings
 from dataclasses import replace
 
@@ -18,8 +19,13 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "answer."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -27,26 +33,47 @@ _REPLY = {
 # them is visible. Scores are shaped like the real matrix: haiku-4.5 sits well
 # below the 0.80 floor the old code used, which is exactly why it was unreachable.
 _HAIKU = ModelSpec(
-    "openrouter/anthropic/claude-haiku-4.5", provider="openrouter", cost=2,
-    ctx_k=200, tools=True, reliability=1.0,
+    "openrouter/anthropic/claude-haiku-4.5",
+    provider="openrouter",
+    cost=2,
+    ctx_k=200,
+    tools=True,
+    reliability=1.0,
     competence={"coding": 0.70, "docs": 0.70, "reasoning": 0.62, "general": 0.68},
-    profile={"software_engineering": 0.70, "law_regulatory": 0.55,
-             "general_knowledge": 0.68},
+    profile={
+        "software_engineering": 0.70,
+        "law_regulatory": 0.55,
+        "general_knowledge": 0.68,
+    },
 )
 _OPUS = ModelSpec(
-    "openrouter/anthropic/claude-opus-4.8", provider="openrouter", cost=9,
-    ctx_k=200, tools=True, reliability=1.0,
+    "openrouter/anthropic/claude-opus-4.8",
+    provider="openrouter",
+    cost=9,
+    ctx_k=200,
+    tools=True,
+    reliability=1.0,
     competence={"coding": 0.95, "docs": 0.93, "reasoning": 0.95, "general": 0.93},
-    profile={"software_engineering": 0.95, "law_regulatory": 0.90,
-             "general_knowledge": 0.93},
+    profile={
+        "software_engineering": 0.95,
+        "law_regulatory": 0.90,
+        "general_knowledge": 0.93,
+    },
 )
 # Cheap, capable fixture; individual tests vary its tool eligibility.
 _LOCAL = ModelSpec(
-    "ollama/qwen3-coder:30b", provider="ollama", cost=0, ctx_k=200,
-    tools=True, reliability=1.0,
+    "ollama/qwen3-coder:30b",
+    provider="ollama",
+    cost=0,
+    ctx_k=200,
+    tools=True,
+    reliability=1.0,
     competence={"coding": 0.90, "docs": 0.85, "reasoning": 0.85, "general": 0.88},
-    profile={"software_engineering": 0.90, "law_regulatory": 0.80,
-             "general_knowledge": 0.88},
+    profile={
+        "software_engineering": 0.90,
+        "law_regulatory": 0.80,
+        "general_knowledge": 0.88,
+    },
 )
 
 
@@ -58,6 +85,7 @@ _STREAM_CHUNKS = [
 
 class _FakeStream:
     """Minimal stand-in for httpx's streaming response context manager."""
+
     status_code = 200
     headers: dict = {}
 
@@ -100,9 +128,13 @@ def _client(*specs, monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
-    return _client(_HAIKU, _OPUS, replace(_LOCAL, tools=False),
-                   replace(_OPUS, value="openrouter/openai/gpt-5", cost=10),
-                   monkeypatch=monkeypatch)
+    return _client(
+        _HAIKU,
+        _OPUS,
+        replace(_LOCAL, tools=False),
+        replace(_OPUS, value="openrouter/openai/gpt-5", cost=10),
+        monkeypatch=monkeypatch,
+    )
 
 
 @pytest.fixture
@@ -113,12 +145,15 @@ def weak_only(monkeypatch):
 
 
 def _chat(client, prompt, *, model="smart-orchestrator", **extra):
-    return client.post("/v1/chat/completions", json={
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        **extra,
-    })
+    return client.post(
+        "/v1/chat/completions",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            **extra,
+        },
+    )
 
 
 _NOTE_PHRASE = "no available model clears that bar"
@@ -133,11 +168,14 @@ _HARD = (
 
 # ── The pool ──────────────────────────────────────────────────────────────────
 
+
 def test_orchestrator_requires_tools_even_without_tools_array(client):
     """The local model is cheaper and clears the bar, so the worker path takes
     it. Orchestrator mode must reject it when tool support is absent."""
-    assert _chat(client, _TRIVIAL, model="smart-worker").headers[
-        "X-Routed-Model"] == "ollama/qwen3-coder:30b"
+    assert (
+        _chat(client, _TRIVIAL, model="smart-worker").headers["X-Routed-Model"]
+        == "ollama/qwen3-coder:30b"
+    )
     assert "claude" in _chat(client, _TRIVIAL).headers["X-Routed-Model"]
 
 
@@ -149,6 +187,7 @@ def test_orchestrator_422s_when_no_tool_model_is_configured(monkeypatch):
 
 
 # ── The tier, within the pool ─────────────────────────────────────────────────
+
 
 def test_a_trivial_turn_gets_the_cheap_claude(client):
     """The regression this change is for: haiku-4.5's general score (0.68) is
@@ -181,6 +220,7 @@ def test_orchestrator_still_answers_when_no_claude_qualifies(weak_only):
 
 # ── The escalation note ───────────────────────────────────────────────────────
 
+
 def test_no_prose_is_injected_into_an_orchestrator_answer(weak_only):
     """An under-qualified pick earns a human reader a caveat, but orchestrator
     mode is a tool loop: prose in the assistant turn reads as the model's answer
@@ -195,9 +235,15 @@ def test_no_prose_is_injected_when_the_client_sends_tools(weak_only):
     """Same reasoning, reached the other way: any client shipping tool
     definitions is driving a loop, whatever model name it asked for."""
     r = _chat(
-        weak_only, _HARD, model="smart-worker",
-        tools=[{"type": "function",
-                "function": {"name": "noop", "parameters": {"type": "object"}}}],
+        weak_only,
+        _HARD,
+        model="smart-worker",
+        tools=[
+            {
+                "type": "function",
+                "function": {"name": "noop", "parameters": {"type": "object"}},
+            }
+        ],
     )
     assert r.headers["X-Escalated"] == "true"
     assert r.json()["choices"][0]["message"]["content"] == "answer."
@@ -229,6 +275,7 @@ def test_a_human_client_still_gets_the_caveat(weak_only):
 
 # ── The canary ────────────────────────────────────────────────────────────────
 # A named challenger must qualify; otherwise normal pool selection applies.
+
 
 def _canary(monkeypatch, model, percent=100):
     monkeypatch.setenv("SMART_ROUTER_ORCHESTRATOR_CANARY_MODEL", model)
@@ -268,11 +315,18 @@ def test_the_canary_loses_a_turn_it_does_not_qualify_for(monkeypatch):
     select_from as the pool, so the prompt's own bar still applies. A cheap weak
     model gets the mechanical turns it can handle and none of the hard ones."""
     weak = ModelSpec(
-        "ollama/tiny:1b", provider="ollama", cost=0, ctx_k=200, tools=True,
+        "ollama/tiny:1b",
+        provider="ollama",
+        cost=0,
+        ctx_k=200,
+        tools=True,
         reliability=1.0,
         competence={"coding": 0.55, "docs": 0.55, "reasoning": 0.5, "general": 0.6},
-        profile={"software_engineering": 0.55, "law_regulatory": 0.45,
-                 "general_knowledge": 0.60},
+        profile={
+            "software_engineering": 0.55,
+            "law_regulatory": 0.45,
+            "general_knowledge": 0.60,
+        },
     )
     client = _client(_HAIKU, _OPUS, weak, monkeypatch=monkeypatch)
     _canary(monkeypatch, "ollama/tiny:1b")
@@ -305,8 +359,16 @@ def test_a_canary_turn_is_still_logged_and_answered(client, monkeypatch):
 
 # ── Eligibility ───────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("value", ["openrouter/openai/gpt-5", "openrouter/google/gemini-2.5-pro",
-                                        "ollama/qwen3-coder:30b", _HAIKU.value])
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "openrouter/openai/gpt-5",
+        "openrouter/google/gemini-2.5-pro",
+        "ollama/qwen3-coder:30b",
+        _HAIKU.value,
+    ],
+)
 def test_capable_models(value, monkeypatch):
     spec = replace(_LOCAL, value=value)
     assert _orchestrator_capable(spec)
@@ -315,14 +377,23 @@ def test_capable_models(value, monkeypatch):
     assert response.headers["X-Routed-Model"] == value
 
 
-@pytest.mark.parametrize("changes", [dict(tools=False), dict(tool_probe="text"),
-                                     dict(tool_probe="unsupported")])
+@pytest.mark.parametrize(
+    "changes",
+    [dict(tools=False), dict(tool_probe="text"), dict(tool_probe="unsupported")],
+)
 def test_incapable_models(changes):
     assert not _orchestrator_capable(replace(_HAIKU, **changes))
 
 
-@pytest.mark.parametrize("changes", [dict(agentic=0.01), dict(tool_probe="text"),
-                                     dict(tools=False), dict(reliability=0.1)])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        dict(agentic=0.01),
+        dict(tool_probe="text"),
+        dict(tools=False),
+        dict(reliability=0.1),
+    ],
+)
 def test_orchestrator_filters_incapable_openai(changes, monkeypatch):
     spec = replace(_LOCAL, value="openrouter/openai/gpt-5", **changes)
     response = _chat(_client(_HAIKU, spec, monkeypatch=monkeypatch), _TRIVIAL)
@@ -362,45 +433,56 @@ _CATALOG = [
 ]
 
 
-@pytest.mark.parametrize("requested,pin", [
-    ("smart-openai", "openai"),
-    ("smart-grok", "grok"),
-    # Claudish prefixes a provider role it strips itself; only the tail routes.
-    ("ll@smart-anthropic", "anthropic"),
-    ("SMART-OpenAI", "openai"),
-    # Open-pool synonyms and anything not named smart-* pin nothing.
-    ("smart-auto", ""),
-    ("smart-all", ""),
-    ("smart-router", ""),
-    ("smart-worker", ""),
-    ("gpt-4", ""),
-    ("", ""),
-])
+@pytest.mark.parametrize(
+    "requested,pin",
+    [
+        ("smart-openai", "openai"),
+        ("smart-grok", "grok"),
+        # Claudish prefixes a provider role it strips itself; only the tail routes.
+        ("ll@smart-anthropic", "anthropic"),
+        ("SMART-OpenAI", "openai"),
+        # Open-pool synonyms and anything not named smart-* pin nothing.
+        ("smart-auto", ""),
+        ("smart-all", ""),
+        ("smart-router", ""),
+        ("smart-worker", ""),
+        ("gpt-4", ""),
+        ("", ""),
+    ],
+)
 def test_pool_pin_parses(requested, pin):
     assert _pool_pin(requested) == pin
 
 
-@pytest.mark.parametrize("pin,expected", [
-    # Vendor segment, with OpenRouter's ~vendor variant folded into the vendor.
-    ("openai", ["openrouter/openai/gpt-5.6-luna", "openrouter/~openai/gpt-5.6-sol"]),
-    ("anthropic", ["openrouter/anthropic/claude-sonnet-5"]),
-    # Provider, for one-segment ids that have no vendor of their own.
-    ("ollama", ["ollama/qwen3-coder:30b"]),
-    # Family names are what people actually type, and neither is a vendor:
-    # grok ships under x-ai, sonnet under anthropic.
-    ("grok", ["openrouter/x-ai/grok-4.6"]),
-    ("sonnet", ["openrouter/anthropic/claude-sonnet-5"]),
-    # A typo matches nothing, so the caller gets a 422 instead of the silent
-    # every-vendor pool that would be indistinguishable from a working pin.
-    ("opnai", []),
-])
+@pytest.mark.parametrize(
+    "pin,expected",
+    [
+        # Vendor segment, with OpenRouter's ~vendor variant folded into the vendor.
+        (
+            "openai",
+            ["openrouter/openai/gpt-5.6-luna", "openrouter/~openai/gpt-5.6-sol"],
+        ),
+        ("anthropic", ["openrouter/anthropic/claude-sonnet-5"]),
+        # Provider, for one-segment ids that have no vendor of their own.
+        ("ollama", ["ollama/qwen3-coder:30b"]),
+        # Family names are what people actually type, and neither is a vendor:
+        # grok ships under x-ai, sonnet under anthropic.
+        ("grok", ["openrouter/x-ai/grok-4.6"]),
+        ("sonnet", ["openrouter/anthropic/claude-sonnet-5"]),
+        # A typo matches nothing, so the caller gets a 422 instead of the silent
+        # every-vendor pool that would be indistinguishable from a working pin.
+        ("opnai", []),
+    ],
+)
 def test_pinned_pool(pin, expected):
     assert [s.value for s in _pinned_pool(pin, _CATALOG)] == expected
 
 
 def test_vendor_pin_beats_coincidental_substring():
     """An exact vendor must not lose to a substring hit elsewhere in the catalog."""
-    catalog = _CATALOG + [ModelSpec("openrouter/acme/openai-clone-v2", provider="openrouter")]
+    catalog = _CATALOG + [
+        ModelSpec("openrouter/acme/openai-clone-v2", provider="openrouter")
+    ]
     assert "openrouter/acme/openai-clone-v2" not in [
         s.value for s in _pinned_pool("openai", catalog)
     ]

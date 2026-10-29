@@ -1,4 +1,5 @@
 """SqliteStore — default self-contained SQLite implementation of MatrixStore."""
+
 from __future__ import annotations
 import json
 import logging
@@ -234,7 +235,9 @@ class SqliteStore(MatrixStore):
                     pass  # already exists
             # Additive migration: vision column added after initial release
             try:
-                self._conn.execute("ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0")
+                self._conn.execute(
+                    "ALTER TABLE models ADD COLUMN vision INTEGER DEFAULT 0"
+                )
             except sqlite3.OperationalError:
                 pass  # already exists
             # Additive migration: flag rows whose tokens were estimated locally
@@ -322,13 +325,13 @@ class SqliteStore(MatrixStore):
                 ("tool_probe_at", "TEXT DEFAULT ''"),
             ):
                 try:
-                    self._conn.execute(
-                        f"ALTER TABLE models ADD COLUMN {column} {decl}"
-                    )
+                    self._conn.execute(f"ALTER TABLE models ADD COLUMN {column} {decl}")
                 except sqlite3.OperationalError:
                     pass  # already exists
             try:
-                self._conn.execute("ALTER TABLE usage_log ADD COLUMN modality TEXT DEFAULT ''")
+                self._conn.execute(
+                    "ALTER TABLE usage_log ADD COLUMN modality TEXT DEFAULT ''"
+                )
             except sqlite3.OperationalError:
                 pass  # already exists; historical rows remain unclassified
             # Additive migration: the full prompt profile behind each routing
@@ -432,9 +435,14 @@ class SqliteStore(MatrixStore):
                 )
             except sqlite3.OperationalError:
                 pass  # already exists
-            for name, sql_type in (("requested_model", "TEXT DEFAULT ''"), ("escalated", "INTEGER DEFAULT 0")):
+            for name, sql_type in (
+                ("requested_model", "TEXT DEFAULT ''"),
+                ("escalated", "INTEGER DEFAULT 0"),
+            ):
                 try:
-                    self._conn.execute(f"ALTER TABLE usage_log ADD COLUMN {name} {sql_type}")
+                    self._conn.execute(
+                        f"ALTER TABLE usage_log ADD COLUMN {name} {sql_type}"
+                    )
                 except sqlite3.OperationalError:
                     pass  # already exists
             self._conn.execute("""
@@ -446,11 +454,22 @@ class SqliteStore(MatrixStore):
                     input_json TEXT NOT NULL
                 )
             """)
-            self._conn.execute("CREATE INDEX IF NOT EXISTS responses_expiry ON responses(expires_at)")
-            self._conn.execute("DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),))
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS responses_expiry ON responses(expires_at)"
+            )
+            self._conn.execute(
+                "DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),)
+            )
             self._conn.commit()
 
-    def save_response(self, owner: str, response: dict, input_items: list[dict], *, create: bool = False) -> None:
+    def save_response(
+        self,
+        owner: str,
+        response: dict,
+        input_items: list[dict],
+        *,
+        create: bool = False,
+    ) -> None:
         """30-day retention; updates never resurrect a deleted/expired response."""
         with self._lock:
             now = int(time.time())
@@ -458,7 +477,13 @@ class SqliteStore(MatrixStore):
             if create:
                 self._conn.execute(
                     "INSERT INTO responses VALUES (?, ?, ?, ?, ?)",
-                    (response["id"], owner, now + 30 * 86400, json.dumps(response), json.dumps(input_items)),
+                    (
+                        response["id"],
+                        owner,
+                        now + 30 * 86400,
+                        json.dumps(response),
+                        json.dumps(input_items),
+                    ),
                 )
             else:
                 self._conn.execute(
@@ -469,13 +494,19 @@ class SqliteStore(MatrixStore):
 
     def get_response(self, response_id: str, owner: str) -> dict | None:
         with self._lock:
-            self._conn.execute("DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),))
+            self._conn.execute(
+                "DELETE FROM responses WHERE expires_at <= ?", (int(time.time()),)
+            )
             row = self._conn.execute(
                 "SELECT response_json, input_json FROM responses WHERE id = ? AND owner = ?",
                 (response_id, owner),
             ).fetchone()
             self._conn.commit()
-        return {"response": json.loads(row[0]), "input": json.loads(row[1])} if row else None
+        return (
+            {"response": json.loads(row[0]), "input": json.loads(row[1])}
+            if row
+            else None
+        )
 
     def delete_response(self, response_id: str, owner: str) -> bool:
         with self._lock:
@@ -526,11 +557,15 @@ class SqliteStore(MatrixStore):
                     max_output=excluded.max_output
                 """,
                 (
-                    spec.value, spec.provider, spec.cost, spec.ctx_k,
+                    spec.value,
+                    spec.provider,
+                    spec.cost,
+                    spec.ctx_k,
                     1 if spec.tools else 0,
                     1 if spec.vision else 0,
                     float(max(0.0, min(1.0, spec.reliability))),
-                    spec.cost_input, spec.cost_output,
+                    spec.cost_input,
+                    spec.cost_output,
                     spec.competence.get("coding", 0.0),
                     spec.competence.get("docs", 0.0),
                     spec.competence.get("reasoning", 0.0),
@@ -539,10 +574,13 @@ class SqliteStore(MatrixStore):
                     # profile. `spec.profile` came back from a read with ratings
                     # already applied, so writing it would re-apply them on the
                     # next read and drift the scores further every round trip.
-                    json.dumps(_baseline(spec), sort_keys=True) if _baseline(spec) else "",
+                    json.dumps(_baseline(spec), sort_keys=True)
+                    if _baseline(spec)
+                    else "",
                     spec.description,
                     json.dumps(spec.profile_ratings, sort_keys=True)
-                    if spec.profile_ratings else "",
+                    if spec.profile_ratings
+                    else "",
                     spec.profile_note,
                     float(max(0.0, min(1.0, spec.agentic))),
                     1 if spec.structured_outputs else 0,
@@ -592,18 +630,19 @@ class SqliteStore(MatrixStore):
                        timeout=excluded.timeout
                 """,
                 (
-                    cfg.name, cfg.kind,
+                    cfg.name,
+                    cfg.kind,
                     1 if cfg.enabled else 0,
-                    cfg.api_key, cfg.base_url, cfg.timeout,
+                    cfg.api_key,
+                    cfg.base_url,
+                    cfg.timeout,
                 ),
             )
             self._conn.commit()
 
     def delete_provider(self, name: str) -> bool:
         with self._lock:
-            cur = self._conn.execute(
-                "DELETE FROM providers WHERE name=?", (name,)
-            )
+            cur = self._conn.execute("DELETE FROM providers WHERE name=?", (name,))
             self._conn.commit()
         return cur.rowcount > 0
 
@@ -634,9 +673,7 @@ class SqliteStore(MatrixStore):
 
     def all_api_keys(self) -> list[ApiKey]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM api_keys ORDER BY id"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM api_keys ORDER BY id").fetchall()
         return [self._row_to_api_key(r) for r in rows]
 
     def create_api_key(self, key: ApiKey) -> ApiKey:
@@ -648,11 +685,17 @@ class SqliteStore(MatrixStore):
                     rl_window_s, rl_max_req, rl_max_tokens, created_at, last_used_at
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    key.key_hash, key.user, key.key_prefix,
+                    key.key_hash,
+                    key.user,
+                    key.key_prefix,
                     1 if key.enabled else 0,
-                    key.scope_models, key.max_tier,
-                    key.rl_window_s, key.rl_max_req, key.rl_max_tokens,
-                    created, key.last_used_at,
+                    key.scope_models,
+                    key.max_tier,
+                    key.rl_window_s,
+                    key.rl_max_req,
+                    key.rl_max_tokens,
+                    created,
+                    key.last_used_at,
                 ),
             )
             self._conn.commit()
@@ -721,14 +764,26 @@ class SqliteStore(MatrixStore):
             self._conn.commit()
 
     def record_model_failure(
-        self, model: str, *, status: int, detail: str,
-        user: str = "", failed_over_to: str = "",
+        self,
+        model: str,
+        *,
+        status: int,
+        detail: str,
+        user: str = "",
+        failed_over_to: str = "",
     ) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO model_failures (ts, model, status, detail, user, "
                 "failed_over_to) VALUES (?,?,?,?,?,?)",
-                (_utcnow_iso(), model, int(status), detail[:2000], user, failed_over_to),
+                (
+                    _utcnow_iso(),
+                    model,
+                    int(status),
+                    detail[:2000],
+                    user,
+                    failed_over_to,
+                ),
             )
             self._conn.commit()
 
@@ -759,20 +814,28 @@ class SqliteStore(MatrixStore):
                     tools_offered, tool_stalled, modality, requested_model, escalated
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    ts, usage.kind or _PROXY_KIND,
-                    usage.user, usage.key_prefix, usage.routed_model,
-                    usage.domain, usage.complexity,
-                    usage.prompt_tokens, usage.completion_tokens,
-                    cost_usd, usage.status,
+                    ts,
+                    usage.kind or _PROXY_KIND,
+                    usage.user,
+                    usage.key_prefix,
+                    usage.routed_model,
+                    usage.domain,
+                    usage.complexity,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    cost_usd,
+                    usage.status,
                     1 if usage.tokens_estimated else 0,
-                    json.dumps(usage.profile, sort_keys=True)
-                    if usage.profile else "",
+                    json.dumps(usage.profile, sort_keys=True) if usage.profile else "",
                     usage.classifier,
                     max(0, int(usage.latency_ms or 0)),
                     1 if usage.tools_offered else 0,
                     1 if usage.tool_stalled else 0,
-                    usage.modality if usage.modality in ("text", "sound", "image") else "",
-                    usage.requested_model, 1 if usage.escalated else 0,
+                    usage.modality
+                    if usage.modality in ("text", "sound", "image")
+                    else "",
+                    usage.requested_model,
+                    1 if usage.escalated else 0,
                 ),
             )
             self._conn.commit()
@@ -820,8 +883,7 @@ class SqliteStore(MatrixStore):
                    END,
                    observed_tps_at = ?
                    WHERE value = ?""",
-                (tps, _TPS_ALPHA, _TPS_ALPHA, tps, _utcnow_iso(),
-                 usage.routed_model),
+                (tps, _TPS_ALPHA, _TPS_ALPHA, tps, _utcnow_iso(), usage.routed_model),
             )
             self._conn.commit()
 
@@ -873,8 +935,7 @@ class SqliteStore(MatrixStore):
                        END + ? * ?,
                    observed_tool_health_at = ?
                    WHERE value = ?""",
-                (_TPS_ALPHA, _TPS_ALPHA, health, _utcnow_iso(),
-                 usage.routed_model),
+                (_TPS_ALPHA, _TPS_ALPHA, health, _utcnow_iso(), usage.routed_model),
             )
             self._conn.commit()
 
@@ -932,9 +993,7 @@ class SqliteStore(MatrixStore):
             ).fetchone()
         return float(row["spend"] or 0.0)
 
-    def usage_profiles(
-        self, *, since_ts: str = "", limit: int = 200
-    ) -> list[dict]:
+    def usage_profiles(self, *, since_ts: str = "", limit: int = 200) -> list[dict]:
         """Distinct prompt profiles this deployment has actually routed.
 
         Grouped by (profile, chosen model) with a count, so the profile audit
@@ -964,16 +1023,16 @@ class SqliteStore(MatrixStore):
                 continue
             if not isinstance(decoded, dict):
                 continue
-            out.append({
-                "profile": decoded,
-                "routed_model": row["routed_model"] or "",
-                "requests": row["requests"] or 0,
-            })
+            out.append(
+                {
+                    "profile": decoded,
+                    "routed_model": row["routed_model"] or "",
+                    "requests": row["requests"] or 0,
+                }
+            )
         return out
 
-    def usage_summary(
-        self, *, user: str | None = None, since_ts: str = ""
-    ) -> dict:
+    def usage_summary(self, *, user: str | None = None, since_ts: str = "") -> dict:
         """Aggregate usage_log for the dashboard, computed in SQL (GROUP BY).
 
         user=None → all users (admin view, includes a by_user breakdown);
@@ -1293,8 +1352,17 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO files
                    (id, user, filename, purpose, mime, bytes, path, extracted_text, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (rec.id, rec.user, rec.filename, rec.purpose, rec.mime, rec.bytes,
-                 rec.path, rec.extracted_text, rec.created_at),
+                (
+                    rec.id,
+                    rec.user,
+                    rec.filename,
+                    rec.purpose,
+                    rec.mime,
+                    rec.bytes,
+                    rec.path,
+                    rec.extracted_text,
+                    rec.created_at,
+                ),
             )
             self._conn.commit()
         return rec
@@ -1337,8 +1405,14 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO conversations
                        (id, user, title, created_at, updated_at, shared)
                    VALUES (?,?,?,?,?,?)""",
-                (conv.id, conv.user, conv.title, conv.created_at, conv.updated_at,
-                 int(conv.shared)),
+                (
+                    conv.id,
+                    conv.user,
+                    conv.title,
+                    conv.created_at,
+                    conv.updated_at,
+                    int(conv.shared),
+                ),
             )
             if conv.tags:
                 self._write_tags_locked(conv.id, conv.tags)
@@ -1388,7 +1462,9 @@ class SqliteStore(MatrixStore):
             sql = "SELECT * FROM conversations"
             if where:
                 sql += " WHERE " + " AND ".join(where)
-            rows = self._conn.execute(sql + " ORDER BY updated_at DESC", params).fetchall()
+            rows = self._conn.execute(
+                sql + " ORDER BY updated_at DESC", params
+            ).fetchall()
             convs = [self._row_to_conversation(r) for r in rows]
             # One batched lookup for the whole page rather than a query per row.
             tags = self._tags_locked([c.id for c in convs])
@@ -1467,7 +1543,8 @@ class SqliteStore(MatrixStore):
                 "DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,)
             )
             self._conn.execute(
-                "DELETE FROM conversation_tags WHERE conversation_id=?", (conversation_id,)
+                "DELETE FROM conversation_tags WHERE conversation_id=?",
+                (conversation_id,),
             )
             cur = self._conn.execute(
                 "DELETE FROM conversations WHERE id=?", (conversation_id,)
@@ -1490,7 +1567,7 @@ class SqliteStore(MatrixStore):
         # Chunked to stay well under SQLite's bound-parameter limit (999 on the
         # oldest builds we might run against).
         for start in range(0, len(ids), 500):
-            batch = ids[start:start + 500]
+            batch = ids[start : start + 500]
             marks = ",".join("?" * len(batch))
             rows = self._conn.execute(
                 "SELECT conversation_id, tag FROM conversation_tags "
@@ -1516,8 +1593,15 @@ class SqliteStore(MatrixStore):
                    (conversation_id, ordinal, role, content, content_json, ts,
                     truncated)
                    VALUES (?,?,?,?,?,?,?)""",
-                (msg.conversation_id, ordinal, msg.role, msg.content,
-                 1 if msg.content_json else 0, ts, 1 if msg.truncated else 0),
+                (
+                    msg.conversation_id,
+                    ordinal,
+                    msg.role,
+                    msg.content,
+                    1 if msg.content_json else 0,
+                    ts,
+                    1 if msg.truncated else 0,
+                ),
             )
             # Appending a message bumps the conversation's recency.
             self._conn.execute(
@@ -1547,8 +1631,14 @@ class SqliteStore(MatrixStore):
                 """INSERT INTO reports
                    (ts, user, conversation_id, description, transcript_json, meta_json)
                    VALUES (?,?,?,?,?,?)""",
-                (rec.ts, rec.user, rec.conversation_id, rec.description,
-                 rec.transcript_json, rec.meta_json),
+                (
+                    rec.ts,
+                    rec.user,
+                    rec.conversation_id,
+                    rec.description,
+                    rec.transcript_json,
+                    rec.meta_json,
+                ),
             )
             self._conn.commit()
             rec.id = cur.lastrowid
@@ -1655,8 +1745,7 @@ class SqliteStore(MatrixStore):
             modality=row["modality"] or "" if "modality" in row.keys() else "",
             requested_model=row["requested_model"] or "",
             escalated=bool(row["escalated"]),
-            kind=(row["kind"] or _PROXY_KIND)
-            if "kind" in row.keys() else _PROXY_KIND,
+            kind=(row["kind"] or _PROXY_KIND) if "kind" in row.keys() else _PROXY_KIND,
             user=row["user"] or "",
             key_prefix=row["key_prefix"] or "",
             routed_model=row["routed_model"] or "",
@@ -1667,12 +1756,10 @@ class SqliteStore(MatrixStore):
             cost_usd=row["cost_usd"] or 0.0,
             status=row["status"] or 200,
             tokens_estimated=bool(
-                row["tokens_estimated"]
-                if "tokens_estimated" in row.keys() else 0
+                row["tokens_estimated"] if "tokens_estimated" in row.keys() else 0
             ),
             profile=cls._json_column(row, "profile_json"),
-            classifier=(row["classifier"] or "")
-            if "classifier" in row.keys() else "",
+            classifier=(row["classifier"] or "") if "classifier" in row.keys() else "",
             latency_ms=int(cls._num_column(row, "latency_ms")),
             tools_offered=cls._bool_column(row, "tools_offered"),
             tool_stalled=cls._bool_column(row, "tool_stalled"),
@@ -1807,10 +1894,10 @@ class SqliteStore(MatrixStore):
             structured_outputs=cls._bool_column(row, "structured_outputs"),
             reasoning=cls._bool_column(row, "reasoning"),
             competence={
-                "coding":    row["competence_coding"]    or 0.0,
-                "docs":      row["competence_docs"]      or 0.0,
+                "coding": row["competence_coding"] or 0.0,
+                "docs": row["competence_docs"] or 0.0,
                 "reasoning": row["competence_reasoning"] or 0.0,
-                "general":   row["competence_general"]   or 0.0,
+                "general": row["competence_general"] or 0.0,
             },
             profile=effective,
             description=cls._column(row, "description"),

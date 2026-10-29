@@ -27,6 +27,7 @@ to drift from the one that ships — the assertions run against the source of tr
 Skipped when node isn't installed rather than failing: it's the only test here
 that needs a second runtime.
 """
+
 import json
 import os
 import re
@@ -68,7 +69,7 @@ def _js_function(name: str) -> str:
             if depth == 0:
                 break
         j += 1
-    return src[start:j + 1]
+    return src[start : j + 1]
 
 
 def _run(harness: str, env: dict | None = None) -> list:
@@ -79,7 +80,10 @@ def _run(harness: str, env: dict | None = None) -> list:
     to reconstruct enough of the environment for node to start.
     """
     out = subprocess.run(
-        ["node", "-e", harness], capture_output=True, text=True, timeout=30,
+        ["node", "-e", harness],
+        capture_output=True,
+        text=True,
+        timeout=30,
         env={**os.environ, **env} if env else None,
     )
     assert out.returncode == 0, out.stderr
@@ -95,14 +99,17 @@ def _speech_of(*texts: str) -> list:
 
 # ── What gets read aloud ────────────────────────────────────────────────────────
 
+
 def test_code_blocks_are_summarized_not_dictated():
-    """"open brace, def, colon" is not listening — and the code is on screen.
+    """ "open brace, def, colon" is not listening — and the code is on screen.
 
     A voice mode that reads a fenced block character by character is worse than no
     voice mode, because the listener has to sit through it to reach the sentence
     after it.
     """
-    said, = _speech_of("Here it is:\n```python\ndef f(x):\n    return x + 1\n```\nThat's all.")
+    (said,) = _speech_of(
+        "Here it is:\n```python\ndef f(x):\n    return x + 1\n```\nThat's all."
+    )
     assert "def f" not in said
     assert "code omitted" in said
     # The prose on both sides survives — the point is to skip the code, not the answer.
@@ -116,20 +123,22 @@ def test_an_unclosed_code_block_is_still_skipped():
     with no partner yet. Matched to end-of-string, or the first half of every code
     block gets read out loud as it arrives.
     """
-    said, = _speech_of("Try this:\n```js\nconst x = 1;")
+    (said,) = _speech_of("Try this:\n```js\nconst x = 1;")
     assert "const x" not in said
     assert "code omitted" in said
 
 
 def test_link_urls_are_dropped_and_their_text_kept():
-    """"h-t-t-p-s colon slash slash" is the least useful thing a voice can say."""
-    said, = _speech_of("See [the WNBA site](https://www.wnba.com/teams) for the list.")
+    """ "h-t-t-p-s colon slash slash" is the least useful thing a voice can say."""
+    (said,) = _speech_of(
+        "See [the WNBA site](https://www.wnba.com/teams) for the list."
+    )
     assert "wnba.com" not in said
     assert "the WNBA site" in said
 
 
 def test_markdown_punctuation_is_not_pronounced():
-    said, = _speech_of("## Summary\n**Bold** and _italic_ and `inline`.\n> quoted")
+    (said,) = _speech_of("## Summary\n**Bold** and _italic_ and `inline`.\n> quoted")
     for ch in "#*_`>":
         assert ch not in said
     assert "Summary" in said and "Bold" in said and "inline" in said
@@ -137,7 +146,9 @@ def test_markdown_punctuation_is_not_pronounced():
 
 def test_tables_are_not_read_cell_by_cell():
     """A table read aloud is a stream of pipes. It's on screen; skip it."""
-    said, = _speech_of("Teams:\n| Team | Year |\n| --- | --- |\n| Valkyries | 2025 |\nDone.")
+    (said,) = _speech_of(
+        "Teams:\n| Team | Year |\n| --- | --- |\n| Valkyries | 2025 |\nDone."
+    )
     assert "Valkyries" not in said
     assert "Teams" in said and "Done" in said
 
@@ -149,6 +160,7 @@ def test_empty_and_plain_text_survive_unchanged():
 
 
 # ── Where the stream is cut for speaking ────────────────────────────────────────
+
 
 def _chunks(deltas: list[str]) -> list:
     """Replay a stream through speakStreamed and collect what got spoken.
@@ -179,7 +191,9 @@ def test_speech_starts_before_the_reply_is_finished():
     a long answer — in front of the first sound. The first sentence has to go out
     while the second is still being written.
     """
-    spoken = _chunks(["The WNBA has 13 teams. ", "A 14th debuts in 2025. ", "That's it."])
+    spoken = _chunks(
+        ["The WNBA has 13 teams. ", "A 14th debuts in 2025. ", "That's it."]
+    )
     assert len(spoken) > 1
     assert spoken[0].startswith("The WNBA has 13 teams.")
 
@@ -217,6 +231,7 @@ def test_the_last_fragment_is_spoken_even_without_final_punctuation():
 
 
 # ── When the microphone is open ─────────────────────────────────────────────────
+
 
 def _mic(script: str) -> list:
     """Drive startListening() against a fake SpeechRecognition.
@@ -289,7 +304,7 @@ def test_a_microphone_that_will_not_start_says_so_instead_of_pretending():
     keeps claiming it is listening and no callback will ever fire to correct it,
     because no recogniser was ever opened.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startThrows = new Error('not allowed');
       startThrows.name = 'InvalidStateError';
@@ -308,7 +323,7 @@ def test_the_microphone_stays_shut_for_the_whole_assistant_turn():
     speech to detect — so "is it speaking yet?" is the wrong question to gate
     re-arming on. The gate has to be the turn, not the audio.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -328,7 +343,7 @@ def test_the_microphone_comes_back_once_the_turn_is_released():
     A guard that never lifts is the same bug in the other direction — one
     question, then a dead button that still says it's on.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -347,7 +362,7 @@ def test_a_silent_turn_reopens_the_microphone_without_being_asked():
     If that didn't re-arm, pausing to think would end the conversation, and the
     button would sit on "Listening…" with the microphone shut.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -367,7 +382,7 @@ def test_a_refused_microphone_turns_voice_off_and_explains():
     Re-arming into it would loop forever on an error the page cannot fix, so this
     is the one case that has to stop and say what to go and do.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -390,7 +405,7 @@ def test_it_says_it_can_hear_you_before_it_sends_anything():
     evidence a listener has that the microphone is working — otherwise a recogniser
     that is hearing fine but hasn't finalised yet looks exactly like a dead one.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -408,7 +423,7 @@ def test_hearing_nothing_is_reported_instead_of_silently_retrying():
     hears nothing at all produces this error forever, and the page looked identical
     to one patiently waiting for you to start.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -428,7 +443,7 @@ def test_a_failure_outlives_the_alert_that_announced_it():
     The instruction it carries ("check System Settings") takes longer to follow
     than the dialog survives, so it has to stay on the page too.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startThrows = new Error('nope');
       startThrows.name = 'InvalidStateError';
@@ -475,7 +490,7 @@ def test_a_refused_microphone_names_the_two_places_to_fix_it():
     once and is easy to miss — which leaves recognition failing with no visible
     cause. A message that only says "denied" sends the reader to the wrong dialog.
     """
-    out, = _meter("""
+    (out,) = _meter("""
       const FAIL = 'NotAllowedError';
       startMeter().then(m => console.log(JSON.stringify([m])));
     """)
@@ -485,11 +500,11 @@ def test_a_refused_microphone_names_the_two_places_to_fix_it():
 
 
 def test_no_microphone_at_all_is_a_different_message():
-    """"Allow it in the address bar" is useless advice when there's no device.
+    """ "Allow it in the address bar" is useless advice when there's no device.
 
     Distinguishing them is the difference between a fix and a wild goose chase.
     """
-    out, = _meter("""
+    (out,) = _meter("""
       const FAIL = 'NotFoundError';
       startMeter().then(m => console.log(JSON.stringify([m])));
     """)
@@ -505,7 +520,7 @@ def test_a_recogniser_that_never_opens_is_caught_by_the_clock():
     no flag to check and no event to wait for, so a timer is the only detector, and
     without it the page waits forever on something that will never happen.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       // No events at all: the whole point. Just let the clock run past the watchdog.
@@ -532,7 +547,7 @@ def test_an_engine_that_answers_at_all_is_left_alone():
     the engine is there, and a five-second timer that stops a working recogniser
     mid-question would be worse than the bug it's for.
     """
-    out, = _mic("""
+    (out,) = _mic("""
       _voiceOn = true;
       startListening();
       mics[0].onstart();
@@ -555,8 +570,9 @@ def test_recognition_starts_before_anything_is_awaited():
     test, and the failure it causes is indistinguishable from a dead browser.
     """
     src = _js_function("toggleVoice")
-    assert src.index("startListening()") < src.index("await startMeter()"), \
+    assert src.index("startListening()") < src.index("await startMeter()"), (
         "recognition is started after an await, which drops user activation"
+    )
     # The meter is a diagnostic, not a gate: a refused mic is reported by recognition
     # too, and blocking on the meter would mean no voice wherever it isn't available.
     assert "stopVoice(problem)" not in src
@@ -586,7 +602,9 @@ def test_the_recogniser_ends_the_turn_on_a_pause_not_on_a_button():
 
 def _wav_of(samples: list[float], rate: int = 24000) -> dict:
     """Encode samples with the page's own encodeWav, and decode the result in JS."""
-    harness = _js_function("encodeWav") + f"""
+    harness = (
+        _js_function("encodeWav")
+        + f"""
       const b64 = encodeWav([Float32Array.from({json.dumps(samples)})], {rate});
       const buf = Buffer.from(b64, 'base64');
       const tag = (o, n) => buf.slice(o, o + n).toString('latin1');
@@ -607,6 +625,7 @@ def _wav_of(samples: list[float], rate: int = 24000) -> dict:
         pcm,
       }}));
     """
+    )
     return _run(harness)
 
 
@@ -619,8 +638,13 @@ def test_the_wav_header_says_what_the_body_actually_is():
     nothing anywhere that says the audio was malformed.
     """
     w = _wav_of([0.0, 0.5, -0.5, 1.0], rate=16000)
-    assert (w["riff"], w["wave"], w["fmt"], w["data"]) == ("RIFF", "WAVE", "fmt ", "data")
-    assert w["format"] == 1        # uncompressed PCM, not a codec id
+    assert (w["riff"], w["wave"], w["fmt"], w["data"]) == (
+        "RIFF",
+        "WAVE",
+        "fmt ",
+        "data",
+    )
+    assert w["format"] == 1  # uncompressed PCM, not a codec id
     assert w["channels"] == 1
     assert w["bits"] == 16
     assert w["rate"] == 16000
@@ -676,7 +700,10 @@ def _capture(frames: list[float], frame_len: int = 4096, rate: int = 16000) -> d
     endpointing logic actually reads — so a turn can be written as "quiet, loud,
     loud, quiet, quiet…" and the decision checked against it.
     """
-    harness = _js_function("encodeWav") + _js_function("captureTurn") + f"""
+    harness = (
+        _js_function("encodeWav")
+        + _js_function("captureTurn")
+        + f"""
       const _TALK_SPEECH_PEAK = 0.02, _TALK_HANG_SECS = 1.1, _TALK_MAX_SECS = 25;
       const FRAMES = {json.dumps(frames)}, LEN = {frame_len}, RATE = {rate};
       let _talkNode = null;
@@ -721,6 +748,7 @@ def _capture(frames: list[float], frame_len: int = 4096, rate: int = 16000) -> d
         }}));
       }});
     """
+    )
     return _run(harness)
 
 

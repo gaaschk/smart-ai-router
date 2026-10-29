@@ -8,6 +8,7 @@ Unlike the Node backend, we don't need a call queue here because the Python
 proxy is synchronous (FastAPI) and doesn't run concurrent requests — async
 operations still serialize at the subprocess level via the event loop.
 """
+
 import json
 import logging
 import os
@@ -68,14 +69,17 @@ def source_id_for_user(user: str) -> str:
         # fall back to a stable hash so the identity still gets *a* source
         # rather than silently sharing the global one.
         import hashlib
+
         slug = hashlib.sha1(user.encode()).hexdigest()[:16]
     if len(slug) > 32:
         # Truncate, but keep a hash suffix so two long labels that agree on
         # their first 23 characters don't collide onto the same source.
         import hashlib
+
         h = hashlib.sha1(user.encode()).hexdigest()[:8]
         slug = f"{slug[:23]}-{h}"
     return slug
+
 
 # Built-in Minions job types safe to submit on demand from a web UI.
 # `shell` is deliberately excluded to match the Node dashboard's policy --
@@ -154,7 +158,13 @@ class GBrainClient:
         try:
             # Handle bin_path as either a string (in PATH) or a tuple (bun, script)
             if isinstance(self.bin_path, tuple):
-                cmd = [self.bin_path[0], self.bin_path[1], "call", tool, json.dumps(args)]
+                cmd = [
+                    self.bin_path[0],
+                    self.bin_path[1],
+                    "call",
+                    tool,
+                    json.dumps(args),
+                ]
             else:
                 cmd = [self.bin_path, "call", tool, json.dumps(args)]
             if source_id:
@@ -191,7 +201,9 @@ class GBrainClient:
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"gbrain {tool} timed out after {self.timeout_s}s")
         except FileNotFoundError as e:
-            bin_display = self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            bin_display = (
+                self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            )
             raise RuntimeError(f"gbrain binary not found: {bin_display} ({e})")
 
     def _cli(self, args: list[str]) -> Any:
@@ -213,7 +225,7 @@ class GBrainClient:
                 cmd = [self.bin_path[0], self.bin_path[1]] + args
             else:
                 cmd = [self.bin_path] + args
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -238,9 +250,13 @@ class GBrainClient:
                 return output
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"gbrain {' '.join(args)} timed out after {self.timeout_s}s")
+            raise RuntimeError(
+                f"gbrain {' '.join(args)} timed out after {self.timeout_s}s"
+            )
         except FileNotFoundError as e:
-            bin_display = self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            bin_display = (
+                self.bin_path[1] if isinstance(self.bin_path, tuple) else self.bin_path
+            )
             raise RuntimeError(f"gbrain binary not found: {bin_display} ({e})")
 
     # ===== Public API =====
@@ -411,9 +427,7 @@ class GBrainClient:
     def get_backlinks(self, slug: str, source_id: str = "") -> list[Any]:
         """Pages that link to this page."""
         try:
-            result = self._call(
-                "get_backlinks", {"slug": slug}, source_id=source_id
-            )
+            result = self._call("get_backlinks", {"slug": slug}, source_id=source_id)
             return result if isinstance(result, list) else []
         except RuntimeError as e:
             logger.warning(f"GBrain get_backlinks failed: {e}")

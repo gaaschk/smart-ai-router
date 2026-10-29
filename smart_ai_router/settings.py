@@ -13,6 +13,7 @@ saved in the UI takes precedence the moment it lands (values are read uncached).
 Tests that don't bind a store still get env → default resolution, so nothing
 that relied on env vars breaks.
 """
+
 from __future__ import annotations
 
 import os
@@ -84,6 +85,7 @@ def _reject_negative(value: str) -> None:
 
 def _validate_subscription_cost(value: str) -> None:
     import math
+
     if not math.isfinite(float(value)) or float(value) < 0:
         raise ValueError("Annual subscription cost must be finite and zero or greater")
 
@@ -651,9 +653,13 @@ SPECS: tuple[SettingSpec, ...] = (
         "bracketed delivery tags like [whispering].",
     ),
     SettingSpec(
-        key="elevenlabs_annual_cost_usd", env="ELEVENLABS_ANNUAL_COST_USD",
-        type="float", default=235.40, label="ElevenLabs annual subscription (USD)",
-        group="Voice", help="Your annual bill, including tax if desired. Shown divided by 12; separate from router request costs.",
+        key="elevenlabs_annual_cost_usd",
+        env="ELEVENLABS_ANNUAL_COST_USD",
+        type="float",
+        default=235.40,
+        label="ElevenLabs annual subscription (USD)",
+        group="Voice",
+        help="Your annual bill, including tax if desired. Shown divided by 12; separate from router request costs.",
         validate=_validate_subscription_cost,
     ),
     SettingSpec(
@@ -1076,8 +1082,14 @@ def normalize(key: str, value: Any) -> str:
     if spec is None:
         raise ValueError(f"unknown setting {key!r}")
     if spec.secret:
-        if not isinstance(value, str) or len(value) > 512 or any(c in value for c in "\r\n"):
-            raise ValueError(f"{key} expects a single-line credential of at most 512 characters")
+        if (
+            not isinstance(value, str)
+            or len(value) > 512
+            or any(c in value for c in "\r\n")
+        ):
+            raise ValueError(
+                f"{key} expects a single-line credential of at most 512 characters"
+            )
         return value.strip()
     if spec.type == "bool":
         if isinstance(value, bool):

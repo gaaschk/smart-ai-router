@@ -23,6 +23,7 @@ never a model outside it.
 `scope_models` JSON shape (all fields optional):
     {"allow": ["openrouter/", "ollama/"], "deny": ["claude", "bedrock/"]}
 """
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,9 @@ from smart_ai_router.models import ModelSpec
 
 @dataclass(frozen=True)
 class ModelScope:
-    allow: tuple[str, ...] = ()      # lowercase substrings; empty = allow all
-    deny: tuple[str, ...] = ()       # lowercase substrings; overrides allow
-    max_tier: int | None = None      # cost-tier ceiling; None = no ceiling, 0 = local only
+    allow: tuple[str, ...] = ()  # lowercase substrings; empty = allow all
+    deny: tuple[str, ...] = ()  # lowercase substrings; overrides allow
+    max_tier: int | None = None  # cost-tier ceiling; None = no ceiling, 0 = local only
 
     @property
     def is_restricted(self) -> bool:

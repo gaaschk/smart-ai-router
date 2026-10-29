@@ -5,6 +5,7 @@ SMART_ROUTER_API_KEYS, then mints per-user keys (stored in the DB) through the
 admin-only /api/keys endpoints. Per-user keys authenticate requests but cannot
 manage other keys.
 """
+
 import warnings
 
 import pytest
@@ -70,7 +71,9 @@ def test_create_key_returns_plaintext_once_then_never(admin_client):
 
 def test_db_key_authenticates_but_cannot_manage_keys(admin_client):
     client, _ = admin_client
-    key = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()["key"]
+    key = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN)).json()[
+        "key"
+    ]
 
     # A wrong token is rejected.
     assert client.get("/api/whoami", headers=_auth("wrong")).status_code == 401
@@ -79,35 +82,51 @@ def test_db_key_authenticates_but_cannot_manage_keys(admin_client):
     assert client.get("/api/usage", headers=_auth(key)).status_code == 200
     # ...but must not reach admin-only surfaces (keys, models catalog, providers).
     assert client.get("/api/keys", headers=_auth(key)).status_code == 403
-    assert client.post("/api/keys", json={"user": "x"}, headers=_auth(key)).status_code == 403
+    assert (
+        client.post("/api/keys", json={"user": "x"}, headers=_auth(key)).status_code
+        == 403
+    )
     assert client.get("/api/models", headers=_auth(key)).status_code == 403
     assert client.get("/api/providers", headers=_auth(key)).status_code == 403
 
 
 def test_disabled_key_is_rejected(admin_client):
     client, _ = admin_client
-    created = client.post("/api/keys", json={"user": "carol"}, headers=_auth(_ADMIN)).json()
+    created = client.post(
+        "/api/keys", json={"user": "carol"}, headers=_auth(_ADMIN)
+    ).json()
     key, prefix = created["key"], created["key_prefix"]
     assert client.get("/api/whoami", headers=_auth(key)).status_code == 200
 
     # Revoke and confirm it stops working — no redeploy.
-    r = client.put(f"/api/keys/{prefix}/enabled", json={"enabled": False}, headers=_auth(_ADMIN))
+    r = client.put(
+        f"/api/keys/{prefix}/enabled", json={"enabled": False}, headers=_auth(_ADMIN)
+    )
     assert r.status_code == 200 and r.json()["enabled"] is False
     assert client.get("/api/whoami", headers=_auth(key)).status_code == 401
 
 
 def test_delete_key_revokes_access(admin_client):
     client, _ = admin_client
-    created = client.post("/api/keys", json={"user": "dave"}, headers=_auth(_ADMIN)).json()
+    created = client.post(
+        "/api/keys", json={"user": "dave"}, headers=_auth(_ADMIN)
+    ).json()
     key, prefix = created["key"], created["key_prefix"]
-    assert client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 204
+    assert (
+        client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 204
+    )
     assert client.get("/api/whoami", headers=_auth(key)).status_code == 401
-    assert client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 404
+    assert (
+        client.delete(f"/api/keys/{prefix}", headers=_auth(_ADMIN)).status_code == 404
+    )
 
 
 def test_empty_user_rejected(admin_client):
     client, _ = admin_client
-    assert client.post("/api/keys", json={"user": "  "}, headers=_auth(_ADMIN)).status_code == 422
+    assert (
+        client.post("/api/keys", json={"user": "  "}, headers=_auth(_ADMIN)).status_code
+        == 422
+    )
 
 
 def test_recreate_rotates_secret_and_invalidates_old(admin_client):
@@ -123,7 +142,7 @@ def test_recreate_rotates_secret_and_invalidates_old(admin_client):
     new = r.json()
     new_key = new["key"]
     assert new_key != old_key
-    assert new["user"] == "erin" and new["max_tier"] == 2   # identity/limits kept
+    assert new["user"] == "erin" and new["max_tier"] == 2  # identity/limits kept
 
     # New key works; old key is dead.
     assert client.get("/api/whoami", headers=_auth(new_key)).status_code == 200
@@ -132,17 +151,25 @@ def test_recreate_rotates_secret_and_invalidates_old(admin_client):
 
 def test_recreate_requires_admin(admin_client):
     client, _ = admin_client
-    created = client.post("/api/keys", json={"user": "frank"}, headers=_auth(_ADMIN)).json()
+    created = client.post(
+        "/api/keys", json={"user": "frank"}, headers=_auth(_ADMIN)
+    ).json()
     key, prefix = created["key"], created["key_prefix"]
     # A per-user key cannot rotate keys (its own or anyone's).
-    assert client.post(f"/api/keys/{prefix}/recreate", headers=_auth(key)).status_code == 403
+    assert (
+        client.post(f"/api/keys/{prefix}/recreate", headers=_auth(key)).status_code
+        == 403
+    )
 
 
 def test_recreate_unknown_prefix_is_404(admin_client):
     client, _ = admin_client
-    assert client.post(
-        "/api/keys/sk-smart-nope/recreate", headers=_auth(_ADMIN)
-    ).status_code == 404
+    assert (
+        client.post(
+            "/api/keys/sk-smart-nope/recreate", headers=_auth(_ADMIN)
+        ).status_code
+        == 404
+    )
 
 
 def test_unauthenticated_browser_nav_redirects_to_ui(admin_client):
@@ -164,7 +191,9 @@ def test_unauthenticated_api_client_still_gets_json_401(admin_client):
 
 def test_using_a_key_updates_last_used(admin_client):
     client, cr = admin_client
-    created = client.post("/api/keys", json={"user": "erin"}, headers=_auth(_ADMIN)).json()
+    created = client.post(
+        "/api/keys", json={"user": "erin"}, headers=_auth(_ADMIN)
+    ).json()
     key, prefix = created["key"], created["key_prefix"]
     assert created["last_used_at"] == ""
     client.get("/api/whoami", headers=_auth(key))

@@ -4,6 +4,7 @@ Covers: image ids → base64 data: URIs, document ids → injected text, owner
 scoping (a caller can't expand another user's file), and pass-through of
 already-inline content.
 """
+
 import base64
 
 import pytest
@@ -20,14 +21,21 @@ def cr(tmp_path, monkeypatch):
 
 
 def _img_msg(file_id):
-    return [{"role": "user", "content": [
-        {"type": "text", "text": "what is this?"},
-        {"type": "image_url", "image_url": {"url": file_id}},
-    ]}]
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what is this?"},
+                {"type": "image_url", "image_url": {"url": file_id}},
+            ],
+        }
+    ]
 
 
 def test_image_ref_expands_to_base64_data_uri(cr):
-    rec = cr.upload_file(b"\x89PNGdata", filename="p.png", mime="image/png", user="alice")
+    rec = cr.upload_file(
+        b"\x89PNGdata", filename="p.png", mime="image/png", user="alice"
+    )
     out = fileref.resolve_file_refs(_img_msg(rec.id), cr, user="alice")
     part = out[0]["content"][1]
     assert part["type"] == "image_url"
@@ -36,10 +44,17 @@ def test_image_ref_expands_to_base64_data_uri(cr):
 
 
 def test_document_ref_expands_to_text(cr):
-    rec = cr.upload_file(b"hello document", filename="d.txt", mime="text/plain", user="alice")
-    msgs = [{"role": "user", "content": [
-        {"type": "file", "file": {"file_id": rec.id}},
-    ]}]
+    rec = cr.upload_file(
+        b"hello document", filename="d.txt", mime="text/plain", user="alice"
+    )
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "file", "file": {"file_id": rec.id}},
+            ],
+        }
+    ]
     out = fileref.resolve_file_refs(msgs, cr, user="alice")
     part = out[0]["content"][0]
     assert part["type"] == "text"
@@ -48,10 +63,18 @@ def test_document_ref_expands_to_text(cr):
 
 
 def test_inline_content_passes_through(cr):
-    msgs = [{"role": "user", "content": [
-        {"type": "text", "text": "hi"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
-    ]}]
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hi"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
+            ],
+        }
+    ]
     out = fileref.resolve_file_refs(msgs, cr, user="alice")
     assert out == msgs  # untouched
 

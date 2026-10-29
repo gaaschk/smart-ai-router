@@ -16,6 +16,7 @@ models that do qualify, cheapest still wins: that is the router's whole point.
 Legacy callers that pass (domain, complexity) are adapted to a single-field
 profile, which reproduces the old single-bar behavior exactly.
 """
+
 from __future__ import annotations
 
 import math
@@ -42,14 +43,14 @@ from smart_ai_router.taxonomy import (
 # values so that path routes exactly as it did before. Profile-based routing
 # derives its bars from taxonomy.DEPTHS instead.
 DEFAULT_THRESHOLDS: dict[str, float] = {
-    "trivial":        0.50,
-    "moderate":       0.70,
-    "hard":           0.88,
-    "expert":         0.94,
+    "trivial": 0.50,
+    "moderate": 0.70,
+    "hard": 0.88,
+    "expert": 0.94,
     "min_reliability": 0.70,
     # Only consulted for requests that involve tool use, and only for models whose
     # loop stamina has actually been measured. See taxonomy.AGENTIC_FLOOR.
-    "min_agentic":    AGENTIC_FLOOR,
+    "min_agentic": AGENTIC_FLOOR,
 }
 
 
@@ -106,9 +107,7 @@ def field_score(spec: ModelSpec, field: str) -> float:
     return float(spec.competence.get(legacy_domain, 0.0))
 
 
-def _needs_agentic(
-    profile: PromptProfile, needs_tools: bool, agent_mode: bool
-) -> bool:
+def _needs_agentic(profile: PromptProfile, needs_tools: bool, agent_mode: bool) -> bool:
     """Whether this request will actually put a model in a tool loop.
 
     Three independent signals, any of which is enough:
@@ -205,7 +204,9 @@ def _rank_by_bias(
 
     def score(spec: ModelSpec) -> tuple[float, str]:
         cheapness = math.log1p(_price(spec)) / log_ceiling
-        shortfall = 1.0 - (_margin(spec, requirements) / top_margin if top_margin else 1.0)
+        shortfall = 1.0 - (
+            _margin(spec, requirements) / top_margin if top_margin else 1.0
+        )
         # `spec.value` keeps the order stable when two models score identically,
         # which is common among the free local models.
         return ((1.0 - bias) * cheapness + bias * shortfall, spec.value)
@@ -234,12 +235,13 @@ class RouteDecision:
     closest available model — the caller surfaces that rather than implying the
     pick was fully competent.
     """
+
     model: str
     requirements: dict[str, float]
-    scores: dict[str, float]        # the chosen model's score on each required field
+    scores: dict[str, float]  # the chosen model's score on each required field
     qualified: bool
-    eligible_count: int             # models that passed the hard filters
-    qualified_count: int            # of those, how many cleared every field bar
+    eligible_count: int  # models that passed the hard filters
+    qualified_count: int  # of those, how many cleared every field bar
     slow_excluded: int = 0
     # Models removed by the throughput floor. Same reason as `agentic_excluded`:
     # measured slowness appears in no score, so without this the pick looks
@@ -591,7 +593,9 @@ def _select(
             + ". Run sync() to populate the matrix."
         )
 
-    def _decision(spec: ModelSpec, qualified: bool, qualified_count: int) -> RouteDecision:
+    def _decision(
+        spec: ModelSpec, qualified: bool, qualified_count: int
+    ) -> RouteDecision:
         return RouteDecision(
             model=spec.value,
             requirements=dict(requirements),
@@ -619,8 +623,7 @@ def _select(
         roomy = qualified
         if min_output > 0:
             spacious = [
-                s for s in qualified
-                if s.max_output <= 0 or s.max_output >= min_output
+                s for s in qualified if s.max_output <= 0 or s.max_output >= min_output
             ]
             if spacious:
                 output_deprioritized = len(qualified) - len(spacious)
@@ -630,7 +633,9 @@ def _select(
         # and would reorder within a tier even at bias 0.
         bias = _cost_quality_bias()
         if bias <= 0:
-            roomy.sort(key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value))
+            roomy.sort(
+                key=lambda s: (s.cost, _price(s), -_margin(s, requirements), s.value)
+            )
         else:
             roomy = _rank_by_bias(roomy, requirements, bias)
         return _decision(roomy[0], True, len(qualified))

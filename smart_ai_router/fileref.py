@@ -21,6 +21,7 @@ References are owner-scoped: a caller can only expand its own files (admin may
 expand any). An unknown or forbidden id raises FileRefError so the proxy can
 fail the request clearly instead of silently dropping the attachment.
 """
+
 from __future__ import annotations
 
 import base64
@@ -82,7 +83,9 @@ def _expand(cr, rec) -> list[dict]:
         if pages:
             total = _ocr.page_count(cr.read_file_bytes(rec.id))
             shown = len(pages)
-            preamble = f"[File: {label} — scanned PDF, rendered {shown} page(s) as images"
+            preamble = (
+                f"[File: {label} — scanned PDF, rendered {shown} page(s) as images"
+            )
             preamble += f" of {total}]" if total and total > shown else "]"
             parts: list[dict] = [{"type": "text", "text": preamble}]
             parts.extend(_image_part("image/png", p) for p in pages)

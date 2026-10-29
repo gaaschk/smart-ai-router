@@ -1,4 +1,5 @@
 """Integration test for the /api/capabilities endpoint."""
+
 import warnings
 
 import pytest
@@ -19,14 +20,26 @@ def _client(cr) -> TestClient:
 
 
 def _seed(store):
-    store.upsert_model(ModelSpec(
-        value="ollama/llava", provider="ollama", vision=True, ctx_k=8,
-        reliability=1.0, competence={"coding": 0.8},
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/text", provider="openrouter", tools=True, ctx_k=200,
-        reliability=1.0, competence={"coding": 0.9},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="ollama/llava",
+            provider="ollama",
+            vision=True,
+            ctx_k=8,
+            reliability=1.0,
+            competence={"coding": 0.8},
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/text",
+            provider="openrouter",
+            tools=True,
+            ctx_k=200,
+            reliability=1.0,
+            competence={"coding": 0.9},
+        )
+    )
 
 
 def test_capabilities_reflects_matrix(monkeypatch):
@@ -61,6 +74,6 @@ def test_capabilities_narrowed_by_key_scope(monkeypatch):
     d = client.get(
         "/api/capabilities", headers={"Authorization": f"Bearer {key}"}
     ).json()
-    assert d["vision"] is False   # vision model is out of scope
+    assert d["vision"] is False  # vision model is out of scope
     assert d["tools"] is True
     assert d["providers"] == ["openrouter"]

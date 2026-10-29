@@ -19,6 +19,7 @@ user sees "running: read_file(...)"), then streams the model's final answer.
 Intermediate model turns that only call tools are not shown verbatim — only
 their tool activity is surfaced.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,9 @@ def _sse(obj: dict) -> bytes:
 
 def _content_delta(text: str) -> bytes:
     """An OpenAI-style streaming chunk carrying assistant content."""
-    return _sse({"choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}]})
+    return _sse(
+        {"choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}]}
+    )
 
 
 def _tool_args(call: dict) -> dict:
@@ -137,8 +140,17 @@ async def run_agent_loop(
                 message = (data.get("choices") or [{}])[0].get("message") or {}
         except Exception as exc:  # noqa: BLE001 — surface provider errors to the client
             detail = str(exc) or type(exc).__name__
-            logging.getLogger(__name__).warning("agent loop provider error (%s): %s", type(exc).__name__, detail)
-            yield _sse({"error": {"message": f"agent loop provider error: {detail}", "type": "upstream_error"}})
+            logging.getLogger(__name__).warning(
+                "agent loop provider error (%s): %s", type(exc).__name__, detail
+            )
+            yield _sse(
+                {
+                    "error": {
+                        "message": f"agent loop provider error: {detail}",
+                        "type": "upstream_error",
+                    }
+                }
+            )
             yield b"data: [DONE]\n\n"
             return
 
@@ -158,7 +170,9 @@ async def run_agent_loop(
                     # budget being consumed by a reasoning model's thinking
                     # tokens (finish_reason "length").
                     yield _content_delta(_EMPTY_ANSWER_NOTE)
-            yield _sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+            yield _sse(
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            )
             yield b"data: [DONE]\n\n"
             return
 
@@ -179,14 +193,18 @@ async def run_agent_loop(
             result = await asyncio.to_thread(
                 _tools.execute_tool, user, name, args, register_file=register_file
             )
-            messages.append({
-                "role": "tool",
-                "tool_call_id": call.get("id", ""),
-                "content": result,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", ""),
+                    "content": result,
+                }
+            )
 
     # Ran out of rounds without a final answer.
-    yield _content_delta("\n\n_[agent stopped: reached the maximum number of tool-call rounds]_")
+    yield _content_delta(
+        "\n\n_[agent stopped: reached the maximum number of tool-call rounds]_"
+    )
     yield _sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "length"}]})
     yield b"data: [DONE]\n\n"
 

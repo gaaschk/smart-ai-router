@@ -16,21 +16,41 @@ def install(monkeypatch, *, bad=None, status=200):
         assert url == URL and "messages" not in payload
         assert "jev-router" not in payload["model"]
         if len(calls) == 1:
-            answers = {k: {"type": "choice", "choice": v} for k, v in {
-                "primary": "software_engineering", "secondary": "law_regulatory",
-                "tertiary": "none"}.items()}
+            answers = {
+                k: {"type": "choice", "choice": v}
+                for k, v in {
+                    "primary": "software_engineering",
+                    "secondary": "law_regulatory",
+                    "tertiary": "none",
+                }.items()
+            }
         else:
-            answers = {"depth_software_engineering": {"type": "choice", "choice": "specialist"},
-                       "depth_law_regulatory": {"type": "choice", "choice": "specialist"},
-                       "stakes": {"type": "choice", "choice": "high"}}
+            answers = {
+                "depth_software_engineering": {
+                    "type": "choice",
+                    "choice": "specialist",
+                },
+                "depth_law_regulatory": {"type": "choice", "choice": "specialist"},
+                "stakes": {"type": "choice", "choice": "high"},
+            }
             for key in payload["questions"]:
                 if key.startswith("demand_"):
-                    answers[key] = {"type": "noul", "noul": 0.9 if key == "demand_agentic" else 0.1}
+                    answers[key] = {
+                        "type": "noul",
+                        "noul": 0.9 if key == "demand_agentic" else 0.1,
+                    }
             if bad:
                 answers["demand_agentic"]["noul"] = bad
-        return httpx.Response(status, content=json.dumps({"answers": answers,
-            "usage": {"input_tokens": 300, "output_tokens": 50, "cost": 0.0001}}),
-            request=httpx.Request("POST", url))
+        return httpx.Response(
+            status,
+            content=json.dumps(
+                {
+                    "answers": answers,
+                    "usage": {"input_tokens": 300, "output_tokens": 50, "cost": 0.0001},
+                }
+            ),
+            request=httpx.Request("POST", url),
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     return calls
@@ -38,10 +58,14 @@ def install(monkeypatch, *, bad=None, status=200):
 
 def test_preserves_multiple_domains_depth_demands_and_usage(monkeypatch):
     calls = install(monkeypatch)
-    result = asyncio.run(classify_jev("Implement a regulatory compliance checker", api_key="test"))
+    result = asyncio.run(
+        classify_jev("Implement a regulatory compliance checker", api_key="test")
+    )
     assert not result.error
     assert [(d.field, d.depth) for d in result.profile.domains] == [
-        ("software_engineering", "specialist"), ("law_regulatory", "specialist")]
+        ("software_engineering", "specialist"),
+        ("law_regulatory", "specialist"),
+    ]
     assert result.profile.demands == {"agentic"}
     assert result.profile.stakes == "high"
     assert len(result.usage) == 2

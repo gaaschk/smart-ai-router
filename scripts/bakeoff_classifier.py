@@ -49,6 +49,7 @@ finish_reason=length every time, which is the budget failure named above.
 
 Usage:  python scripts/bakeoff_classifier.py [model ...]
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -78,61 +79,164 @@ CASES = [
     ("hi", "general_knowledge", "surface", False, False),
     ("what's the capital of France?", "general_knowledge", "surface", False, False),
     ("what does GDPR stand for?", "general_knowledge", "surface", False, False),
-    ("how do I reverse a list in python?", "software_engineering", "surface", False, False),
-    ("write a regex that validates an RFC 5322 email address",
-     "software_engineering", "practitioner", False, False),
-    ("my pytest suite hangs on an async fixture, how do I debug it?",
-     "software_engineering", "practitioner", False, False),
-    ("summarize the differences between HTTP/2 and HTTP/3 for our docs",
-     "technical_writing", "practitioner", False, False),
-    ("write a README section explaining how to install this CLI",
-     "technical_writing", "surface", False, False),
-    ("design a multi-region active-active postgres topology with failover",
-     "systems_architecture", "specialist", False, False),
-    ("derive the escape velocity of a body from conservation of energy",
-     "natural_science", "practitioner", False, False),
-    ("prove that the square root of 2 is irrational", "math_formal", "practitioner", False, False),
-    ("refactor this 2000-line god class into cohesive modules",
-     "software_engineering", "practitioner", False, False),
+    (
+        "how do I reverse a list in python?",
+        "software_engineering",
+        "surface",
+        False,
+        False,
+    ),
+    (
+        "write a regex that validates an RFC 5322 email address",
+        "software_engineering",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "my pytest suite hangs on an async fixture, how do I debug it?",
+        "software_engineering",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "summarize the differences between HTTP/2 and HTTP/3 for our docs",
+        "technical_writing",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "write a README section explaining how to install this CLI",
+        "technical_writing",
+        "surface",
+        False,
+        False,
+    ),
+    (
+        "design a multi-region active-active postgres topology with failover",
+        "systems_architecture",
+        "specialist",
+        False,
+        False,
+    ),
+    (
+        "derive the escape velocity of a body from conservation of energy",
+        "natural_science",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "prove that the square root of 2 is irrational",
+        "math_formal",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "refactor this 2000-line god class into cohesive modules",
+        "software_engineering",
+        "practitioner",
+        False,
+        False,
+    ),
     # The escalation cases: high stakes, or two specialist fields at once. These
     # are the prompts the router used to answer with whatever cheap model sat at
     # exactly the old 0.88 bar.
-    ("Analyze the legal, ethical, and technical implications of deploying an "
-     "autonomous reactor control system, citing the specific regulatory "
-     "provisions it would violate in each of 48 jurisdictions.",
-     "law_regulatory", "frontier", True, False),
-    ("My 4-year-old weighs 16kg and has a fever of 39.4C. What acetaminophen "
-     "dose should I give, and when should I go to the ER?",
-     "medicine_health", "specialist", True, False),
-    ("Is our Delaware C-corp's revenue-share arrangement with an EU processor "
-     "a GDPR joint-controller relationship, and what does that do to our "
-     "Article 28 obligations?",
-     "law_regulatory", "specialist", True, False),
-    ("Derive the neutron flux distribution in a cylindrical reactor core and "
-     "explain how the result constrains the licensing basis for the design.",
-     "natural_science", "frontier", True, False),
+    (
+        "Analyze the legal, ethical, and technical implications of deploying an "
+        "autonomous reactor control system, citing the specific regulatory "
+        "provisions it would violate in each of 48 jurisdictions.",
+        "law_regulatory",
+        "frontier",
+        True,
+        False,
+    ),
+    (
+        "My 4-year-old weighs 16kg and has a fever of 39.4C. What acetaminophen "
+        "dose should I give, and when should I go to the ER?",
+        "medicine_health",
+        "specialist",
+        True,
+        False,
+    ),
+    (
+        "Is our Delaware C-corp's revenue-share arrangement with an EU processor "
+        "a GDPR joint-controller relationship, and what does that do to our "
+        "Article 28 obligations?",
+        "law_regulatory",
+        "specialist",
+        True,
+        False,
+    ),
+    (
+        "Derive the neutron flux distribution in a cylindrical reactor core and "
+        "explain how the result constrains the licensing basis for the design.",
+        "natural_science",
+        "frontier",
+        True,
+        False,
+    ),
     # The current_info cases. First the volatile ones that contain no time word
     # at all — the class that shipped a "2026 pricing is unavailable to me" reply
     # to a user because nothing in the wording said "current".
-    ("Is the RTX 4090 still the right GPU for running local models, and what "
-     "does one go for?", "general_knowledge", "practitioner", False, True),
-    ("Which vector database should we use for a 50M-embedding index?",
-     "systems_architecture", "practitioner", False, True),
-    ("What is the pricing on an H100 these days?",
-     "general_knowledge", "surface", False, True),
+    (
+        "Is the RTX 4090 still the right GPU for running local models, and what "
+        "does one go for?",
+        "general_knowledge",
+        "practitioner",
+        False,
+        True,
+    ),
+    (
+        "Which vector database should we use for a 50M-embedding index?",
+        "systems_architecture",
+        "practitioner",
+        False,
+        True,
+    ),
+    (
+        "What is the pricing on an H100 these days?",
+        "general_knowledge",
+        "surface",
+        False,
+        True,
+    ),
     ("Who runs the Fed?", "general_knowledge", "surface", False, True),
-    ("Does Postgres support MERGE yet?",
-     "software_engineering", "surface", False, True),
+    (
+        "Does Postgres support MERGE yet?",
+        "software_engineering",
+        "surface",
+        False,
+        True,
+    ),
     # …and settled questions that a keyword list flags anyway, because the words
     # "current", "price" or a year appear in them. A false positive costs one
     # search (~$0.007), so these matter less — but a model that flags everything
     # is not making a judgment.
-    ("Explain how present value discounts a future price to current dollars.",
-     "finance_business", "practitioner", False, False),
-    ("Why did the 2008 financial crisis spread to Europe?",
-     "general_knowledge", "practitioner", False, False),
-    ("In a semver range like ^1.2.3, what does 'latest' resolve to?",
-     "software_engineering", "surface", False, False),
+    (
+        "Explain how present value discounts a future price to current dollars.",
+        "finance_business",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "Why did the 2008 financial crisis spread to Europe?",
+        "general_knowledge",
+        "practitioner",
+        False,
+        False,
+    ),
+    (
+        "In a semver range like ^1.2.3, what does 'latest' resolve to?",
+        "software_engineering",
+        "surface",
+        False,
+        False,
+    ),
 ]
 
 REPEATS = 2  # temperature=0, but Ollama sampling is not bit-deterministic
@@ -234,27 +338,39 @@ async def main() -> None:
         print(f"  parsed    {r['parsed']}/{r['total']}")
         print(f"  field     {r['field_ok']}/{r['total']}  (primary {r['primary_ok']})")
         print(f"  depth±1   {r['depth_ok']}/{r['total']}")
-        print(f"  escalate  {r['escalate_ok']}/{r['total']}  "
-              f"(MISSED {r['missed']}, false {r['false']})")
-        print(f"  search    {r['current_ok']}/{r['total']}  "
-              f"(MISSED {r['missed_current']}, false {r['false_current']})")
-        print(f"  latency   p50={r['p50']:.2f}s p95={r['p95']:.2f}s max={r['max']:.2f}s")
+        print(
+            f"  escalate  {r['escalate_ok']}/{r['total']}  "
+            f"(MISSED {r['missed']}, false {r['false']})"
+        )
+        print(
+            f"  search    {r['current_ok']}/{r['total']}  "
+            f"(MISSED {r['missed_current']}, false {r['false_current']})"
+        )
+        print(
+            f"  latency   p50={r['p50']:.2f}s p95={r['p95']:.2f}s max={r['max']:.2f}s"
+        )
         for f in r["failures"][:10]:
             print(f"    {f}")
 
     print("\n" + "=" * 100)
-    print(f"{'model':<26}{'parsed':>8}{'field':>7}{'depth':>7}{'escal':>7}"
-          f"{'MISS':>6}{'false':>7}{'srch':>6}{'sMISS':>7}{'sfalse':>7}"
-          f"{'p50':>8}{'p95':>8}")
+    print(
+        f"{'model':<26}{'parsed':>8}{'field':>7}{'depth':>7}{'escal':>7}"
+        f"{'MISS':>6}{'false':>7}{'srch':>6}{'sMISS':>7}{'sfalse':>7}"
+        f"{'p50':>8}{'p95':>8}"
+    )
     # Sorted by the two misses first, escalation before search: answering a
     # high-stakes prompt on a cheap model is worse than answering a volatile one
     # from memory, and both are worse than being slow.
-    for r in sorted(rows, key=lambda x: (x["missed"], x["missed_current"],
-                                         -x["escalate_ok"], x["p50"])):
-        print(f"{r['model']:<26}{r['parsed']:>8}{r['field_ok']:>7}{r['depth_ok']:>7}"
-              f"{r['escalate_ok']:>7}{r['missed']:>6}{r['false']:>7}"
-              f"{r['current_ok']:>6}{r['missed_current']:>7}{r['false_current']:>7}"
-              f"{r['p50']:>7.2f}s{r['p95']:>7.2f}s")
+    for r in sorted(
+        rows,
+        key=lambda x: (x["missed"], x["missed_current"], -x["escalate_ok"], x["p50"]),
+    ):
+        print(
+            f"{r['model']:<26}{r['parsed']:>8}{r['field_ok']:>7}{r['depth_ok']:>7}"
+            f"{r['escalate_ok']:>7}{r['missed']:>6}{r['false']:>7}"
+            f"{r['current_ok']:>6}{r['missed_current']:>7}{r['false_current']:>7}"
+            f"{r['p50']:>7.2f}s{r['p95']:>7.2f}s"
+        )
 
 
 if __name__ == "__main__":
