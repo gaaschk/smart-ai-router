@@ -21,7 +21,7 @@ Local dependency audit (pip-audit2.10.1,2026-10-29):97 packages,zero known vulne
 
 ## Formatting follow-up
 
-The formatter baseline has been applied mechanically across154files, with docstring whitespace as the only AST differences. Formatting is now blocking; security reports remain visible pending scoped triage. This change makes no intentional runtime behavior changes.
+The formatter baseline is applied mechanically and format checking is blocking. Current main changes through9006bfd are retained, including reviewed circuit fixes, browser warnings, security policy and release evidence. No intentional runtime behavior changes. Security triage remains in its separate follow-up.
 
 ## Security triage follow-up
 
