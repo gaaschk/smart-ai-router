@@ -1,4 +1,5 @@
 """Integration tests for per-user scope enforcement in the proxy."""
+
 import warnings
 
 import pytest
@@ -27,16 +28,26 @@ def setup(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     store = SqliteStore(":memory:")
     # A cheap Claude on bedrock (orchestrator target) + a local model.
-    store.upsert_model(ModelSpec(
-        "bedrock/anthropic/claude-haiku", provider="bedrock", cost=3,
-        reliability=1.0, tools=True,
-        competence={"general": 0.85, "coding": 0.85},
-    ))
-    store.upsert_model(ModelSpec(
-        "ollama/llama3.1:8b", provider="ollama", cost=0,
-        reliability=1.0, tools=True,
-        competence={"general": 0.80, "coding": 0.80},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            "bedrock/anthropic/claude-haiku",
+            provider="bedrock",
+            cost=3,
+            reliability=1.0,
+            tools=True,
+            competence={"general": 0.85, "coding": 0.85},
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            "ollama/llama3.1:8b",
+            provider="ollama",
+            cost=0,
+            reliability=1.0,
+            tools=True,
+            competence={"general": 0.80, "coding": 0.80},
+        )
+    )
     cr = CapabilityRouter(store=store)
     return _client(cr), cr
 
@@ -52,8 +63,10 @@ def test_orchestrator_denied_when_tool_models_out_of_scope(setup):
     key = _mint(client, scope_models='{"allow": ["missing-provider/"]}')
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "smart-orchestrator",
-              "messages": [{"role": "user", "content": "hi"}]},
+        json={
+            "model": "smart-orchestrator",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
         headers=_auth(key),
     )
     assert resp.status_code == 403
@@ -68,6 +81,7 @@ def test_worker_route_stays_within_scope(setup):
     # builds scope from the key and hands it to the router. Emulate that here to
     # confirm the wiring — the dedicated proxy path is covered by the 403 test.
     from smart_ai_router.scope import parse_scope
+
     record = next(k for k in cr.all_api_keys() if k.user == "scoped")
     scope = parse_scope(record.scope_models, record.max_tier)
     chosen = cr.route("coding", "moderate", needs_tools=True, scope=scope)
@@ -82,8 +96,10 @@ def test_admin_key_is_unscoped(setup):
     # scope did not block it.
     resp = client.post(
         "/v1/chat/completions",
-        json={"model": "smart-orchestrator",
-              "messages": [{"role": "user", "content": "hi"}]},
+        json={
+            "model": "smart-orchestrator",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
         headers=_auth(_ADMIN),
     )
     assert resp.status_code != 403

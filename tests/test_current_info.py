@@ -14,6 +14,7 @@ The second is provider-side (OpenRouter's web plugin), so the tests assert on th
 forwarded request body — what the provider was actually asked to do — rather than
 on a mocked search result, which would only prove the mock works.
 """
+
 import datetime
 import warnings
 
@@ -31,8 +32,13 @@ from smart_ai_router.taxonomy import DEMANDS, DomainNeed, PromptProfile
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "answer."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -45,15 +51,25 @@ _UI = {"X-Smart-Router-Client": "ui"}
 
 
 def _profile(score=0.95):
-    return {"software_engineering": score, "law_regulatory": score,
-            "medicine_health": score, "general_knowledge": score,
-            "creative_writing": score, "technical_writing": score}
+    return {
+        "software_engineering": score,
+        "law_regulatory": score,
+        "medicine_health": score,
+        "general_knowledge": score,
+        "creative_writing": score,
+        "technical_writing": score,
+    }
 
 
 def _spec(value, **kw):
     return ModelSpec(
-        value=value, provider=value.split("/")[0], cost=kw.pop("cost", 1),
-        ctx_k=200, reliability=1.0, tools=True, profile=_profile(),
+        value=value,
+        provider=value.split("/")[0],
+        cost=kw.pop("cost", 1),
+        ctx_k=200,
+        reliability=1.0,
+        tools=True,
+        profile=_profile(),
         competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
         **kw,
     )
@@ -88,13 +104,17 @@ def client(monkeypatch):
 
 
 def _chat(client, prompt, *, headers=None, **body):
-    payload = {"model": "auto", "messages": [{"role": "user", "content": prompt}],
-               "stream": False}
+    payload = {
+        "model": "auto",
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }
     payload.update(body)
     return client.post("/v1/chat/completions", json=payload, headers=headers or {})
 
 
 # ── Telling the model what day it is ────────────────────────────────────────────
+
 
 def test_the_page_tells_the_model_todays_date(client):
     """The cheap half of the fix: no search, no cost, no routing change.
@@ -116,10 +136,20 @@ def test_an_agent_request_is_told_the_date_too(client):
     needs the same anchor a chat reply does. It's a fact, not a style suggestion,
     so there's no version of a tool loop where it counts as noise.
     """
-    _chat(client, _MOVES, headers=_UI, tools=[{
-        "type": "function",
-        "function": {"name": "noop", "parameters": {"type": "object", "properties": {}}},
-    }])
+    _chat(
+        client,
+        _MOVES,
+        headers=_UI,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "noop",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+    )
     system = " ".join(
         m["content"] for m in client.sent[-1]["messages"] if m["role"] == "system"
     )
@@ -137,6 +167,7 @@ def test_the_date_note_asks_for_a_hedge_not_just_a_date(client):
 
 
 # ── Searching when the answer moves ─────────────────────────────────────────────
+
 
 def _fresh():
     return PromptProfile(
@@ -220,36 +251,45 @@ def test_an_api_client_gets_searched_too(client):
 
 # ── The demand itself ───────────────────────────────────────────────────────────
 
+
 def test_needing_fresh_facts_does_not_raise_the_capability_bar():
     """A better model has the same cutoff. Bumping the bar would buy a more
     expensive stale answer, which is the one outcome worse than a cheap one."""
     assert DEMANDS["current_info"][0] == 0.0
-    plain = PromptProfile(domains=(DomainNeed(field="general_knowledge", depth="surface"),))
+    plain = PromptProfile(
+        domains=(DomainNeed(field="general_knowledge", depth="surface"),)
+    )
     assert _fresh().requirements() == plain.requirements()
 
 
-@pytest.mark.parametrize("prompt", [
-    "What is the latest version of Python?",
-    "Who won the election?",
-    "What is the current price of a gallon of gas?",
-    "How many teams are in the NBA now?",
-    "What are the NFL standings?",
-    "Summarize this week's news about AI regulation",
-    "Is Bard still called Bard?",
-    "What changed in the 2026 tax brackets?",
-])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "What is the latest version of Python?",
+        "Who won the election?",
+        "What is the current price of a gallon of gas?",
+        "How many teams are in the NBA now?",
+        "What are the NFL standings?",
+        "Summarize this week's news about AI regulation",
+        "Is Bard still called Bard?",
+        "What changed in the 2026 tax brackets?",
+    ],
+)
 def test_prompts_whose_answers_move_are_detected_without_an_llm(prompt):
     """These run through the keyword fallback — the path with no such cue at all,
     which is why the bug reproduced even with the LLM classifier down."""
     assert classify_profile(prompt).needs_current_info() is True
 
 
-@pytest.mark.parametrize("prompt", [
-    "Write me a poem about the sea",
-    "Refactor this function to use a dict comprehension",
-    "Explain how a binary search works",
-    "What did Plutarch write about Alcibiades?",
-])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Write me a poem about the sea",
+        "Refactor this function to use a dict comprehension",
+        "Explain how a binary search works",
+        "What did Plutarch write about Alcibiades?",
+    ],
+)
 def test_settled_prompts_are_not_searched(prompt):
     """Search is cheap but not free, and a search result in the context of a poem
     request is a distraction. The cue set is broad on purpose — a needless search

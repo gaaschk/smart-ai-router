@@ -19,6 +19,7 @@ Admin's reach over other people's threads is not absolute: a thread defaults to
 the admin identity everywhere — absent from the list, from the owner options, and
 a 404 by id — so admin cannot tell it exists. Only the owner can flip the flag.
 """
+
 from __future__ import annotations
 
 import json
@@ -75,12 +76,15 @@ def _normalize_tags(tags: list[str]) -> list[str]:
             raise HTTPException(status_code=422, detail="a tag may not contain a comma")
         if len(tag) > _MAX_TAG_LEN:
             raise HTTPException(
-                status_code=422, detail=f"tag too long (max {_MAX_TAG_LEN} chars): {tag!r}"
+                status_code=422,
+                detail=f"tag too long (max {_MAX_TAG_LEN} chars): {tag!r}",
             )
         if tag not in out:
             out.append(tag)
     if len(out) > _MAX_TAGS:
-        raise HTTPException(status_code=422, detail=f"at most {_MAX_TAGS} tags per conversation")
+        raise HTTPException(
+            status_code=422, detail=f"at most {_MAX_TAGS} tags per conversation"
+        )
     return out
 
 
@@ -103,8 +107,9 @@ def _msg_to_response(msg: ChatMessage) -> ChatMessageResponse:
             content = json.loads(msg.content)
         except (json.JSONDecodeError, TypeError):
             content = msg.content  # fall back to raw text if somehow corrupt
-    return ChatMessageResponse(role=msg.role, content=content, ts=msg.ts,
-                               truncated=msg.truncated)
+    return ChatMessageResponse(
+        role=msg.role, content=content, ts=msg.ts, truncated=msg.truncated
+    )
 
 
 def _owned_or_404(request: Request, conversation_id: str) -> Conversation:
@@ -123,7 +128,7 @@ def _owned_or_404(request: Request, conversation_id: str) -> Conversation:
     if conv is None:
         raise missing
     if conv.user == _caller(request):
-        return conv                       # your own thread, private or not
+        return conv  # your own thread, private or not
     if not _is_admin(request) or not conv.shared:
         raise missing
     return conv
@@ -159,9 +164,7 @@ def list_conversations(
     # Owner options for the admin's filter come from who actually has history the
     # admin can see — an owner with only private threads is not an option.
     users = cr.list_conversation_users(caller=caller) if is_admin else []
-    return ConversationListResponse(
-        data=[_to_response(c) for c in convs], users=users
-    )
+    return ConversationListResponse(data=[_to_response(c) for c in convs], users=users)
 
 
 @conversations_router.post("/conversations", response_model=ConversationResponse)
@@ -208,7 +211,8 @@ def update_conversation(
     # paying for the service or overriding a user's decision to keep one private.
     if body.shared is not None and conv.user != _caller(request):
         raise HTTPException(
-            status_code=403, detail="only the owner can change who a chat is shared with"
+            status_code=403,
+            detail="only the owner can change who a chat is shared with",
         )
 
     title = None
@@ -237,13 +241,13 @@ def delete_conversation(conversation_id: str, request: Request):
 @conversations_router.post(
     "/conversations/{conversation_id}/messages", response_model=ChatMessageResponse
 )
-def add_message(
-    conversation_id: str, request: Request, body: ChatMessageCreateRequest
-):
+def add_message(conversation_id: str, request: Request, body: ChatMessageCreateRequest):
     _owned_or_404(request, conversation_id)
     cr = _router_instance(request)
     if body.role not in ("user", "assistant", "system"):
-        raise HTTPException(status_code=422, detail="role must be user|assistant|system")
+        raise HTTPException(
+            status_code=422, detail="role must be user|assistant|system"
+        )
 
     # A string stores as text; anything else (content-parts array) is JSON-encoded.
     if isinstance(body.content, str):
@@ -251,11 +255,13 @@ def add_message(
     else:
         content, content_json = json.dumps(body.content), True
 
-    msg = cr.add_chat_message(ChatMessage(
-        conversation_id=conversation_id,
-        role=body.role,
-        content=content,
-        content_json=content_json,
-        truncated=bool(body.truncated),
-    ))
+    msg = cr.add_chat_message(
+        ChatMessage(
+            conversation_id=conversation_id,
+            role=body.role,
+            content=content,
+            content_json=content_json,
+            truncated=bool(body.truncated),
+        )
+    )
     return _msg_to_response(msg)

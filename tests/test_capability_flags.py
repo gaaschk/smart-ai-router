@@ -9,6 +9,7 @@ records that a model spends output budget thinking before it answers.
 Covered here: derivation per provider on sync, persistence through the store
 (including a row written before the columns existed), and the router filter.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -32,13 +33,19 @@ def _store() -> SqliteStore:
 def _fake_urlopen(payload):
     def _open(req, timeout=0):
         class _Resp(BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
         return _Resp(json.dumps(payload).encode())
+
     return _open
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
+
 
 def test_flags_round_trip():
     store = _store()
@@ -87,6 +94,7 @@ def test_all_models_reads_the_flags_too():
 
 # ── Derivation on sync ────────────────────────────────────────────────────────
 
+
 def _or_catalog(*entries) -> dict:
     return {"data": list(entries)}
 
@@ -106,11 +114,17 @@ def test_openrouter_reads_structured_outputs_not_response_format(monkeypatch):
     `response_format` accepts `json_object` and ignores the schema, which is the
     silent failure — an answer to the prompt where a filled-in shape was needed."""
     store = _store()
-    monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _fake_urlopen(_or_catalog(
-        _or_entry("v/schema", ["structured_outputs", "response_format"]),
-        _or_entry("v/json-only", ["response_format"]),
-        _or_entry("v/neither", ["tools"]),
-    )))
+    monkeypatch.setattr(
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            _or_catalog(
+                _or_entry("v/schema", ["structured_outputs", "response_format"]),
+                _or_entry("v/json-only", ["response_format"]),
+                _or_entry("v/neither", ["tools"]),
+            )
+        ),
+    )
     sync_from_providers(store, openrouter_key="k")
     flags = {s.value: s.structured_outputs for s in store.all_models()}
     assert flags == {
@@ -125,10 +139,16 @@ def test_openrouter_reasoning_comes_from_the_same_signal_as_the_profile(monkeypa
     fields off `supports_reasoning` and the spec stores the same bit. Deriving it
     twice would let the stored flag disagree with the profile it shaped."""
     store = _store()
-    monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _fake_urlopen(_or_catalog(
-        _or_entry("v/thinker", ["reasoning"]),
-        _or_entry("v/plain", ["tools"]),
-    )))
+    monkeypatch.setattr(
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            _or_catalog(
+                _or_entry("v/thinker", ["reasoning"]),
+                _or_entry("v/plain", ["tools"]),
+            )
+        ),
+    )
     sync_from_providers(store, openrouter_key="k")
     flags = {s.value: s.reasoning for s in store.all_models()}
     assert flags == {"openrouter/v/thinker": True, "openrouter/v/plain": False}
@@ -139,9 +159,11 @@ def test_ollama_models_all_honor_a_schema(monkeypatch):
     it holds for every model it serves regardless of what the model was tuned
     for — the flag is a property of the server here, not of the weights."""
     store = _store()
-    monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _fake_urlopen(
-        {"models": [{"name": "qwen2.5:3b"}]}
-    ))
+    monkeypatch.setattr(
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen({"models": [{"name": "qwen2.5:3b"}]}),
+    )
     sync_from_providers(store, ollama_base_url="http://x")
     assert store.get("ollama/qwen2.5:3b").structured_outputs is True
 
@@ -159,10 +181,15 @@ def test_bedrock_models_are_flagged_reasoning_but_not_schema():
 
 # ── The router filter ─────────────────────────────────────────────────────────
 
+
 def _spec(value: str, cost: int, *, structured: bool) -> ModelSpec:
     return ModelSpec(
-        value=value, provider="openrouter", cost=cost, reliability=1.0,
-        structured_outputs=structured, profile={f: 0.95 for f in FIELD_KEYS},
+        value=value,
+        provider="openrouter",
+        cost=cost,
+        reliability=1.0,
+        structured_outputs=structured,
+        profile={f: 0.95 for f in FIELD_KEYS},
     )
 
 

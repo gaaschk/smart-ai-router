@@ -1,4 +1,5 @@
 """Route handlers — mounted onto the FastAPI app by create_app()."""
+
 from __future__ import annotations
 
 import os
@@ -111,7 +112,7 @@ def route(body: RouteRequest, request: Request):
             raise HTTPException(
                 status_code=422,
                 detail="No recognized field in `domains`. Valid fields: "
-                       + ", ".join(FIELD_KEYS),
+                + ", ".join(FIELD_KEYS),
             )
     else:
         profile = profile_from_labels(body.domain, body.complexity)
@@ -191,9 +192,8 @@ def _whoami(**fields) -> WhoAmIResponse:
     public = _github.enabled()
     return WhoAmIResponse(
         reports_public=public,
-        reports_public_transcript=public and _settings.get_bool(
-            "github_include_transcript"
-        ),
+        reports_public_transcript=public
+        and _settings.get_bool("github_include_transcript"),
         **fields,
     )
 
@@ -226,16 +226,17 @@ def whoami(request: Request):
         )
 
     if user == "admin":
-        return _whoami(
-            authenticated=True, kind="admin", user="admin", is_admin=True
-        )
+        return _whoami(authenticated=True, kind="admin", user="admin", is_admin=True)
     if _signup.is_signup_user(user):
         # A real authenticated identity, but a capped and unvetted one, and the UI
         # needs to know both: `degraded` so it can explain a sudden drop in answer
         # quality, `agent_available` so it doesn't offer a button that 403s.
         cr = _router_instance(request)
         return _whoami(
-            authenticated=True, kind="user", user=user, key_prefix=key_prefix,
+            authenticated=True,
+            kind="user",
+            user=user,
+            key_prefix=key_prefix,
             self_serve=True,
             degraded=_signup.budget_status(cr, user).degraded,
             agent_available=False,
@@ -251,9 +252,7 @@ def whoami(request: Request):
         not os.environ.get("SMART_ROUTER_API_KEYS", "").strip()
         and not _router_instance(request).all_api_keys()
     )
-    return _whoami(
-        authenticated=False, kind="open", is_admin=no_keys_configured
-    )
+    return _whoami(authenticated=False, kind="open", is_admin=no_keys_configured)
 
 
 @api_router.post("/sync", response_model=SyncResponse)
@@ -273,11 +272,15 @@ async def sync(body: SyncRequest, request: Request):
         timeout=body.timeout,
     )
     profiled, pending = await _profile_new_models(
-        cr, result, body.profile, admin=_is_admin(request),
+        cr,
+        result,
+        body.profile,
+        admin=_is_admin(request),
         user=getattr(request.state, "user", "") or "",
     )
     try:
         from smart_ai_router.tool_probe import probe_models
+
         await probe_models(cr)
     except Exception:  # noqa: BLE001 — an optional pass must not fail a sync
         pass
@@ -300,7 +303,10 @@ async def tool_probe(request: Request, limit: int = 200, retest: bool = False):
     Admin-only: it spends a few cents of the operator's provider credit."""
     _require_admin(request)
     from smart_ai_router.tool_probe import probe_models
-    return await probe_models(_router_instance(request), limit=max(1, min(limit, 500)), retest=retest)
+
+    return await probe_models(
+        _router_instance(request), limit=max(1, min(limit, 500)), retest=retest
+    )
 
 
 def _rater_target(cr, pinned: str = "") -> tuple[str, str, str, str] | None:
@@ -370,7 +376,8 @@ async def _profile_new_models(
     from smart_ai_router import llm_profiler
 
     enabled = (
-        override if override is not None
+        override
+        if override is not None
         else _settings.get_bool("model_profiler_on_sync")
     )
     if not enabled or not result.needs_profiling:
@@ -413,7 +420,9 @@ async def _profile_new_models(
         return None, len(result.needs_profiling)
 
     considered = int(out.get("enrich", {}).get("considered") or 0)
-    return ProfileRefineResponse(**out), max(0, len(result.needs_profiling) - considered)
+    return ProfileRefineResponse(**out), max(
+        0, len(result.needs_profiling) - considered
+    )
 
 
 @api_router.post("/models/profile", response_model=ProfileRefineResponse)
@@ -493,11 +502,16 @@ def model_failures(request: Request, hours: int = 24, limit: int = 200):
     and own message, and where the request went instead. Admin-only: the detail is
     the provider's raw error text."""
     _require_admin(request)
-    since = (datetime.now(timezone.utc) - timedelta(hours=max(1, min(hours, 24 * 30)))).isoformat()
-    return _router_instance(request).recent_model_failures(since, max(1, min(limit, 1000)))
+    since = (
+        datetime.now(timezone.utc) - timedelta(hours=max(1, min(hours, 24 * 30)))
+    ).isoformat()
+    return _router_instance(request).recent_model_failures(
+        since, max(1, min(limit, 1000))
+    )
 
 
 # ── Dashboard overview ────────────────────────────────────────────────────────
+
 
 def _system_shape(cr) -> OverviewSystem:
     """What this deployment can do: catalog size, capability coverage, key count.
@@ -531,7 +545,9 @@ def _system_shape(cr) -> OverviewSystem:
     )
 
 
-def _flow(cr, *, since: str, user: str | None, usage: dict, errors: int) -> OverviewFlow:
+def _flow(
+    cr, *, since: str, user: str | None, usage: dict, errors: int
+) -> OverviewFlow:
     """One traffic block: volume, spend, failures, and the cheap-vs-escalated split.
 
     `usage` and `errors` are passed in rather than re-derived: the caller has
@@ -618,11 +634,17 @@ def overview(request: Request, days: int = 30):
     system_usage = cr.usage_summary(user=None, since_ts=since)
     mine_usage = cr.usage_summary(user=caller, since_ts=since)
     system_flow = _flow(
-        cr, since=since, user=None, usage=system_usage,
+        cr,
+        since=since,
+        user=None,
+        usage=system_usage,
         errors=sum(r["errors"] for r in rows),
     )
     mine_flow = _flow(
-        cr, since=since, user=caller, usage=mine_usage,
+        cr,
+        since=since,
+        user=caller,
+        usage=mine_usage,
         errors=mine_row["errors"] if mine_row else 0,
     )
 
@@ -634,9 +656,11 @@ def overview(request: Request, days: int = 30):
     ranked = sorted(
         (r for r in rows if r["requests"] > 0), key=lambda r: -r["cost_usd"]
     )
-    rank = next(
-        (i + 1 for i, r in enumerate(ranked) if r["key"] == caller), None
-    ) if (mine_row or mine_all_time) else None
+    rank = (
+        next((i + 1 for i, r in enumerate(ranked) if r["key"] == caller), None)
+        if (mine_row or mine_all_time)
+        else None
+    )
 
     # "Days since first request", read from unbounded history so it cannot be
     # capped at span_days — see the lifetime rollup above.
@@ -690,6 +714,7 @@ def overview(request: Request, days: int = 30):
 
 # ── Providers ─────────────────────────────────────────────────────────────────
 
+
 @api_router.get("/providers", response_model=list[ProviderResponse])
 def list_providers(request: Request):
     # Provider configs include API keys — admin only.
@@ -740,6 +765,7 @@ def delete_provider(name: str, request: Request):
 
 # ── Settings (UI-managed runtime config) ────────────────────────────────────────
 
+
 def _settings_with_advisories(request: Request) -> list[SettingResponse]:
     """Effective settings, each annotated with any advisory about its value.
 
@@ -780,23 +806,43 @@ def voice_subscription(request: Request):
     result = {"annual_cost_usd": annual, "monthly_cost_usd": round(annual / 12, 2)}
     key = _settings.get_str("elevenlabs_api_key").strip()
     if not key:
-        return {**result, "available": False, "message": "Add your ElevenLabs key in Settings → Voice."}
+        return {
+            **result,
+            "available": False,
+            "message": "Add your ElevenLabs key in Settings → Voice.",
+        }
     try:
         with httpx.Client(timeout=10.0) as client:
-            response = client.get("https://api.elevenlabs.io/v1/user/subscription",
-                                  headers={"xi-api-key": key})
+            response = client.get(
+                "https://api.elevenlabs.io/v1/user/subscription",
+                headers={"xi-api-key": key},
+            )
         if response.status_code != 200:
-            return {**result, "available": False,
-                    "message": f"ElevenLabs subscription unavailable (HTTP {response.status_code}). Check key permissions."}
+            return {
+                **result,
+                "available": False,
+                "message": f"ElevenLabs subscription unavailable (HTTP {response.status_code}). Check key permissions.",
+            }
         data = response.json()
         used, limit = data.get("character_count"), data.get("character_limit")
-        return {**result, "available": True, "tier": data.get("tier"),
-                "credits_used": used, "credit_limit": limit,
-                "credits_remaining": max(0, limit - used) if isinstance(used, int) and isinstance(limit, int) else None,
-                "reset_unix": data.get("next_character_count_reset_unix"),
-                "current_overage": data.get("current_overage")}
+        return {
+            **result,
+            "available": True,
+            "tier": data.get("tier"),
+            "credits_used": used,
+            "credit_limit": limit,
+            "credits_remaining": max(0, limit - used)
+            if isinstance(used, int) and isinstance(limit, int)
+            else None,
+            "reset_unix": data.get("next_character_count_reset_unix"),
+            "current_overage": data.get("current_overage"),
+        }
     except (httpx.HTTPError, ValueError, TypeError):
-        return {**result, "available": False, "message": "Could not read ElevenLabs subscription. Try refreshing."}
+        return {
+            **result,
+            "available": False,
+            "message": "Could not read ElevenLabs subscription. Try refreshing.",
+        }
 
 
 @api_router.get("/settings", response_model=SettingsResponse)
@@ -827,6 +873,7 @@ def update_settings(body: SettingsUpdateRequest, request: Request):
 
 # ── API keys (per-user auth) ────────────────────────────────────────────────────
 
+
 @api_router.get("/keys", response_model=list[ApiKeyResponse])
 def list_api_keys(request: Request):
     _require_admin(request)
@@ -854,7 +901,9 @@ def create_api_key(body: ApiKeyCreateRequest, request: Request):
     )
     created = cr.create_api_key(record)
     # Only place the plaintext key is ever exposed — the caller must save it now.
-    return ApiKeyCreatedResponse(key=plaintext, **_to_api_key_response(created).model_dump())
+    return ApiKeyCreatedResponse(
+        key=plaintext, **_to_api_key_response(created).model_dump()
+    )
 
 
 @api_router.put("/keys/{key_prefix}/enabled", response_model=ApiKeyResponse)
@@ -875,9 +924,7 @@ def delete_api_key(key_prefix: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
 
 
-@api_router.post(
-    "/keys/{key_prefix}/recreate", response_model=ApiKeyCreatedResponse
-)
+@api_router.post("/keys/{key_prefix}/recreate", response_model=ApiKeyCreatedResponse)
 def recreate_api_key(key_prefix: str, request: Request):
     """Rotate a key's secret in place, keeping its user/scope/limits/enabled.
 
@@ -894,16 +941,20 @@ def recreate_api_key(key_prefix: str, request: Request):
     )
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Key {key_prefix!r} not found")
-    return ApiKeyCreatedResponse(key=plaintext, **_to_api_key_response(updated).model_dump())
+    return ApiKeyCreatedResponse(
+        key=plaintext, **_to_api_key_response(updated).model_dump()
+    )
 
 
 # ── Updates ───────────────────────────────────────────────────────────────────
+
 
 @api_router.get("/updates", response_model=UpdateStatusResponse)
 def get_update_status(request: Request, fetch: bool = True):
     # Self-update status / apply can pull git and restart the process — admin only.
     _require_admin(request)
     from smart_ai_router import updates
+
     return updates.source_update_status(fetch=fetch)
 
 
@@ -911,6 +962,7 @@ def get_update_status(request: Request, fetch: bool = True):
 def apply_update(request: Request):
     _require_admin(request)
     from smart_ai_router import updates
+
     return updates.apply_source_update()
 
 

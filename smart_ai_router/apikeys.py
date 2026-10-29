@@ -8,6 +8,7 @@ Wire format is unchanged from the flat-allowlist scheme: clients still send
 `Authorization: Bearer <key>`. What changed is that a key now resolves to a
 per-user record (identity + scope + limits) instead of an anonymous set member.
 """
+
 from __future__ import annotations
 
 import hashlib

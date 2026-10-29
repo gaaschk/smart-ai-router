@@ -4,6 +4,7 @@ The dashboard's "updated" count should reflect only models that actually
 changed, and models that disappear from a provider's catalog should be removed
 from the store (but never on a failed fetch).
 """
+
 import json
 from io import BytesIO
 
@@ -16,6 +17,7 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 
 # ── Change counting (bedrock is deterministic, needs no network) ───────────────
+
 
 def test_first_bedrock_sync_all_added():
     store = SqliteStore(":memory:")
@@ -50,19 +52,26 @@ def test_only_genuinely_changed_models_count_as_updated():
 
 # ── Pruning models that no longer exist ────────────────────────────────────────
 
+
 def _fake_urlopen(payload):
     def _open(req, timeout=0):
         class _Resp(BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
         return _Resp(json.dumps(payload).encode())
+
     return _open
 
 
 def test_missing_ollama_models_are_removed(monkeypatch):
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"models": [{"name": "a"}, {"name": "b"}]}),
     )
     r1 = sync_from_providers(store, ollama_base_url="http://x")
@@ -70,7 +79,8 @@ def test_missing_ollama_models_are_removed(monkeypatch):
 
     # Next catalog dropped "b" → it should be deleted from the store.
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"models": [{"name": "a"}]}),
     )
     r2 = sync_from_providers(store, ollama_base_url="http://x")
@@ -81,13 +91,15 @@ def test_missing_ollama_models_are_removed(monkeypatch):
 def test_failed_fetch_never_prunes(monkeypatch):
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"models": [{"name": "a"}, {"name": "b"}]}),
     )
     sync_from_providers(store, ollama_base_url="http://x")
 
     def _boom(req, timeout=0):
         raise OSError("network down")
+
     monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _boom)
 
     r = sync_from_providers(store, ollama_base_url="http://x")
@@ -100,7 +112,8 @@ def test_pruning_is_scoped_to_the_synced_provider(monkeypatch):
     store = SqliteStore(":memory:")
     sync_from_providers(store, bedrock_key="x")  # 3 bedrock models
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"models": [{"name": "a"}]}),
     )
     r = sync_from_providers(store, ollama_base_url="http://x")
@@ -114,12 +127,17 @@ def test_pruning_is_scoped_to_the_synced_provider(monkeypatch):
 # tools=False and leave vision unset. Every local model therefore looked
 # incapable and agent-mode/vision requests could never route locally.
 
+
 def _fake_ollama(tags, show_by_model, *, show_fails=False):
     """Route /api/tags vs /api/show, keyed on the requested model name."""
+
     def _open(req, timeout=0):
         class _Resp(BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
 
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if url.endswith("/api/show"):
@@ -128,19 +146,23 @@ def _fake_ollama(tags, show_by_model, *, show_fails=False):
             name = json.loads(req.data.decode())["model"]
             return _Resp(json.dumps(show_by_model.get(name, {})).encode())
         return _Resp(json.dumps(tags).encode())
+
     return _open
 
 
 def test_ollama_capabilities_come_from_api_show(monkeypatch):
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_ollama(
-            {"models": [
-                {"name": "seer:12b", "size": 7_600_000_000},
-                {"name": "plain:8b", "size": 4_900_000_000},
-                {"name": "dumb:1b", "size": 1_000_000_000},
-            ]},
+            {
+                "models": [
+                    {"name": "seer:12b", "size": 7_600_000_000},
+                    {"name": "plain:8b", "size": 4_900_000_000},
+                    {"name": "dumb:1b", "size": 1_000_000_000},
+                ]
+            },
             {
                 "seer:12b": {
                     "capabilities": ["completion", "vision", "tools", "thinking"],
@@ -177,6 +199,7 @@ def test_ollama_capabilities_come_from_api_show(monkeypatch):
 # of every cheapest-first sort — so the router kept picking a model that cannot
 # answer. They must never enter the catalog.
 
+
 def _openrouter_model(mid, prompt="0.000003", completion="0.000015"):
     return {
         "id": mid,
@@ -190,14 +213,22 @@ def _openrouter_model(mid, prompt="0.000003", completion="0.000015"):
 def test_batch_only_variants_are_never_synced(monkeypatch):
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
-        _fake_urlopen({"data": [
-            _openrouter_model("anthropic/claude-sonnet-5"),
-            # Half price, so it would win any cheapest-first tie-break.
-            _openrouter_model("anthropic/claude-sonnet-5:batch",
-                              prompt="0.0000015", completion="0.0000075"),
-            _openrouter_model("openai/gpt-5:batch"),
-        ]}),
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            {
+                "data": [
+                    _openrouter_model("anthropic/claude-sonnet-5"),
+                    # Half price, so it would win any cheapest-first tie-break.
+                    _openrouter_model(
+                        "anthropic/claude-sonnet-5:batch",
+                        prompt="0.0000015",
+                        completion="0.0000075",
+                    ),
+                    _openrouter_model("openai/gpt-5:batch"),
+                ]
+            }
+        ),
     )
     r = sync_from_providers(store, openrouter_key="x")
     assert r.added == 1
@@ -209,12 +240,18 @@ def test_batch_only_variants_are_never_synced(monkeypatch):
 def test_batch_variants_already_in_the_store_are_pruned(monkeypatch):
     """The filter has to clear catalogs synced before it existed."""
     store = SqliteStore(":memory:")
-    store.upsert_model(ModelSpec(
-        value="openrouter/anthropic/claude-sonnet-5:batch",
-        provider="openrouter", ctx_k=200, cost=3, tools=True,
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/anthropic/claude-sonnet-5:batch",
+            provider="openrouter",
+            ctx_k=200,
+            cost=3,
+            tools=True,
+        )
+    )
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_urlopen({"data": [_openrouter_model("anthropic/claude-sonnet-5")]}),
     )
     r = sync_from_providers(store, openrouter_key="x")
@@ -226,11 +263,18 @@ def test_non_batch_variants_still_sync(monkeypatch):
     """':free' and ':thinking' answer synchronously — only ':batch' is async."""
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
-        _fake_urlopen({"data": [
-            _openrouter_model("qwen/qwen3-235b:free", prompt="0", completion="0"),
-            _openrouter_model("qwen/qwen-plus:thinking"),
-        ]}),
+        sync_mod.urllib.request,
+        "urlopen",
+        _fake_urlopen(
+            {
+                "data": [
+                    _openrouter_model(
+                        "qwen/qwen3-235b:free", prompt="0", completion="0"
+                    ),
+                    _openrouter_model("qwen/qwen-plus:thinking"),
+                ]
+            }
+        ),
     )
     r = sync_from_providers(store, openrouter_key="x")
     assert r.added == 2
@@ -240,7 +284,8 @@ def test_ollama_falls_back_to_size_guess_when_show_fails(monkeypatch):
     """A flaky /api/show degrades one model's metadata, not the whole sync."""
     store = SqliteStore(":memory:")
     monkeypatch.setattr(
-        sync_mod.urllib.request, "urlopen",
+        sync_mod.urllib.request,
+        "urlopen",
         _fake_ollama(
             {"models": [{"name": "big:70b", "size": 42_000_000_000}]},
             {},
@@ -250,5 +295,5 @@ def test_ollama_falls_back_to_size_guess_when_show_fails(monkeypatch):
     r = sync_from_providers(store, ollama_base_url="http://x")
     assert not r.errors and r.added == 1
     spec = store.all_models()[0]
-    assert spec.ctx_k == 128          # size-based fallback (>30GB)
+    assert spec.ctx_k == 128  # size-based fallback (>30GB)
     assert (spec.tools, spec.vision) == (False, False)  # conservative

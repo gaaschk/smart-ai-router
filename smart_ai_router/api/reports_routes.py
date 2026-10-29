@@ -20,6 +20,7 @@ repo's issue tracker — the place the fix actually gets made. The row is writte
 first and the mirror can never fail the report; see github_issues.py for what
 does and doesn't reach a public issue.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,8 +39,8 @@ from smart_ai_router.models import Report
 
 reports_router = APIRouter()
 
-_MAX_DESCRIPTION = 4_000       # a paragraph or three; not a log dump
-_MAX_MSG_CHARS = 32_000        # one turn's worth of JSON
+_MAX_DESCRIPTION = 4_000  # a paragraph or three; not a log dump
+_MAX_MSG_CHARS = 32_000  # one turn's worth of JSON
 _MAX_TRANSCRIPT_CHARS = 256_000
 _MAX_META_CHARS = 4_000
 
@@ -111,7 +112,8 @@ def create_report(request: Request, body: ReportCreateRequest):
         raise HTTPException(status_code=422, detail="say what went wrong")
     if len(description) > _MAX_DESCRIPTION:
         raise HTTPException(
-            status_code=422, detail=f"description too long (max {_MAX_DESCRIPTION} chars)"
+            status_code=422,
+            detail=f"description too long (max {_MAX_DESCRIPTION} chars)",
         )
 
     meta_json = json.dumps(body.meta or {})

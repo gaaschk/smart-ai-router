@@ -3,6 +3,7 @@
 A "scanned" PDF here is one with no text layer (extracted_text == ""). We build
 such PDFs with pymupdf so the tests are hermetic and don't need fixtures.
 """
+
 import base64
 
 import pytest
@@ -35,6 +36,7 @@ def _text_pdf() -> bytes:
 
 
 # ── ocr module ─────────────────────────────────────────────────────────────────
+
 
 def test_available_true_when_pymupdf_installed():
     assert ocr.available() is True
@@ -74,6 +76,7 @@ def test_max_pages_env_override(monkeypatch):
 
 # ── fileref integration ─────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def cr(tmp_path, monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_FILES_DIR", str(tmp_path / "blobs"))
@@ -81,13 +84,16 @@ def cr(tmp_path, monkeypatch):
 
 
 def _ref_msg(file_id):
-    return [{"role": "user", "content": [{"type": "file", "file": {"file_id": file_id}}]}]
+    return [
+        {"role": "user", "content": [{"type": "file", "file": {"file_id": file_id}}]}
+    ]
 
 
 def test_scanned_pdf_expands_to_page_images(cr):
     # A born-digital text PDF extracts text at upload; an image-only one doesn't.
-    rec = cr.upload_file(_image_only_pdf(2), filename="scan.pdf",
-                         mime="application/pdf", user="alice")
+    rec = cr.upload_file(
+        _image_only_pdf(2), filename="scan.pdf", mime="application/pdf", user="alice"
+    )
     assert rec.extracted_text.strip() == ""  # no text layer → OCR path
 
     out = fileref.resolve_file_refs(_ref_msg(rec.id), cr, user="alice")
@@ -103,8 +109,9 @@ def test_scanned_pdf_expands_to_page_images(cr):
 
 def test_scanned_pdf_respects_page_cap(cr, monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_OCR_MAX_PAGES", "1")
-    rec = cr.upload_file(_image_only_pdf(4), filename="scan.pdf",
-                         mime="application/pdf", user="alice")
+    rec = cr.upload_file(
+        _image_only_pdf(4), filename="scan.pdf", mime="application/pdf", user="alice"
+    )
     out = fileref.resolve_file_refs(_ref_msg(rec.id), cr, user="alice")
     parts = out[0]["content"]
     images = [p for p in parts if p["type"] == "image_url"]
@@ -114,8 +121,9 @@ def test_scanned_pdf_respects_page_cap(cr, monkeypatch):
 
 
 def test_born_digital_pdf_stays_text(cr):
-    rec = cr.upload_file(_text_pdf(), filename="doc.pdf",
-                         mime="application/pdf", user="alice")
+    rec = cr.upload_file(
+        _text_pdf(), filename="doc.pdf", mime="application/pdf", user="alice"
+    )
     assert "born-digital" in rec.extracted_text
     out = fileref.resolve_file_refs(_ref_msg(rec.id), cr, user="alice")
     parts = out[0]["content"]

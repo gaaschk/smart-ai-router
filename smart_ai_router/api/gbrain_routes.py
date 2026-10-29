@@ -18,6 +18,7 @@ source-scoped by GBrain itself -- there is one brain score, one job queue --
 so they are admin-only. Per-user callers use /search, /pages, and /remember,
 which are scoped via `_caller_source()`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,7 +56,11 @@ async def gbrain_health(request: Request) -> dict[str, Any]:
         gbrain = get_gbrain()
         health = gbrain.get_health()
         if not health:
-            return {"status": "degraded", "available": False, "error": "GBrain returned no health data"}
+            return {
+                "status": "degraded",
+                "available": False,
+                "error": "GBrain returned no health data",
+            }
         return {
             "status": "ok",
             "available": True,
@@ -100,7 +105,9 @@ async def gbrain_stats(request: Request) -> dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Failed to fetch GBrain stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch GBrain stats: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch GBrain stats: {e}"
+        )
 
 
 @gbrain_router.get("/search")
@@ -109,7 +116,7 @@ async def gbrain_search(
 ) -> list[dict[str, Any]]:
     """
     Search GBrain knowledge base.
-    
+
     Query parameters:
     - q: search query string
     - mode: 'keyword' or 'hybrid' (hybrid includes vector search)
@@ -117,11 +124,11 @@ async def gbrain_search(
     """
     if not q or not q.strip():
         return []
-    
+
     try:
         gbrain = get_gbrain()
         source_id = _caller_source(request)
-        
+
         if mode == "keyword":
             results = gbrain.search(q.strip(), limit, source_id=source_id)
         else:
@@ -129,17 +136,19 @@ async def gbrain_search(
             results = gbrain.hybrid_query(
                 q.strip(), limit, expand=True, source_id=source_id
             )
-        
+
         # Normalize results to match dashboard API format
         normalized = []
-        for r in (results or []):
-            normalized.append({
-                "title": r.get("title", "Untitled"),
-                "slug": r.get("slug", ""),
-                "chunk_text": r.get("chunk_text", ""),
-                "score": r.get("score", 0.0),
-            })
-        
+        for r in results or []:
+            normalized.append(
+                {
+                    "title": r.get("title", "Untitled"),
+                    "slug": r.get("slug", ""),
+                    "chunk_text": r.get("chunk_text", ""),
+                    "score": r.get("score", 0.0),
+                }
+            )
+
         return normalized
     except Exception as e:
         logger.error(f"GBrain search failed: {e}")
@@ -200,14 +209,17 @@ async def gbrain_remember(
     """Save a fact/learning to the caller's own GBrain source."""
     if not title or not content:
         raise HTTPException(status_code=400, detail="title and content are required")
-    
+
     try:
         gbrain = get_gbrain()
         source_id = _caller_source(request)
         if source_id:
             gbrain.ensure_source(source_id)
         result = gbrain.remember(
-            title, content, entity, source_id=source_id,
+            title,
+            content,
+            entity,
+            source_id=source_id,
             provenance=f"web UI ({getattr(request.state, 'user', '') or 'admin'})",
         )
         return {"ok": True, "result": result}
@@ -227,14 +239,20 @@ async def gbrain_integrations(request: Request) -> dict[str, Any]:
     try:
         gbrain = get_gbrain()
         integrations = gbrain.list_integrations()
-        return integrations if integrations else {"infra": [], "senses": [], "reflexes": []}
+        return (
+            integrations
+            if integrations
+            else {"infra": [], "senses": [], "reflexes": []}
+        )
     except Exception as e:
         logger.error(f"Failed to list GBrain integrations: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list integrations: {e}")
 
 
 @gbrain_router.get("/integrations/{integration_id}/status")
-async def gbrain_integration_status(integration_id: str, request: Request) -> dict[str, Any]:
+async def gbrain_integration_status(
+    integration_id: str, request: Request
+) -> dict[str, Any]:
     """Status, configured secrets, and heartbeat for one integration."""
     _require_admin(request)
     try:
@@ -242,8 +260,12 @@ async def gbrain_integration_status(integration_id: str, request: Request) -> di
         status = gbrain.get_integration_status(integration_id)
         return status if status else {}
     except Exception as e:
-        logger.error(f"Failed to fetch GBrain integration status for {integration_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch integration status: {e}")
+        logger.error(
+            f"Failed to fetch GBrain integration status for {integration_id}: {e}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch integration status: {e}"
+        )
 
 
 @gbrain_router.get("/jobs/catalog")
@@ -310,13 +332,15 @@ async def gbrain_submit_job(
     if name not in RUNNABLE_JOBS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported job \"{name}\". Allowed: {', '.join(RUNNABLE_JOBS)}",
+            detail=f'Unsupported job "{name}". Allowed: {", ".join(RUNNABLE_JOBS)}',
         )
     try:
         gbrain = get_gbrain()
         job = gbrain.submit_job(name, params or {})
         if not job:
-            raise HTTPException(status_code=502, detail="GBrain did not return a job record")
+            raise HTTPException(
+                status_code=502, detail="GBrain did not return a job record"
+            )
         return job
     except HTTPException:
         raise

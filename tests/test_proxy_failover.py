@@ -6,6 +6,7 @@ nothing. Now the failure is stored with the provider's own words, the request is
 re-routed to the next-best model, and a model that keeps failing sits out for a
 while.
 """
+
 import contextlib
 import warnings
 
@@ -21,18 +22,27 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 _CODING = {"software_engineering": 0.95, "general_knowledge": 0.75}
 _OK = {
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "ok"},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
-_SSE = (b'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\n'
-        b"data: [DONE]\n\n")
+_SSE = b'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
 
 
 def _spec(value, cost) -> ModelSpec:
     return ModelSpec(
-        value=value, provider="openrouter", ctx_k=200, reliability=1.0, tools=True,
-        cost=cost, profile=dict(_CODING),
+        value=value,
+        provider="openrouter",
+        ctx_k=200,
+        reliability=1.0,
+        tools=True,
+        cost=cost,
+        profile=dict(_CODING),
         competence={"coding": 0.95, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
     )
 
@@ -96,10 +106,14 @@ def _client(monkeypatch) -> TestClient:
 
 
 def _chat(c, stream):
-    return c.post("/v1/chat/completions", json={
-        "model": "auto", "stream": stream,
-        "messages": [{"role": "user", "content": "Refactor this Python parser."}],
-    })
+    return c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "stream": stream,
+            "messages": [{"role": "user", "content": "Refactor this Python parser."}],
+        },
+    )
 
 
 def _failures(c):
@@ -113,7 +127,11 @@ def test_refused_model_fails_over_and_is_recorded(monkeypatch):
     assert c.sent == ["cheap-coder", "dear-coder"]
     (f,) = _failures(c)
     assert (f["model"], f["status"], f["detail"], f["failed_over_to"]) == (
-        "openrouter/cheap-coder", 403, "model not permitted", "openrouter/dear-coder")
+        "openrouter/cheap-coder",
+        403,
+        "model not permitted",
+        "openrouter/dear-coder",
+    )
 
 
 def test_streamed_request_fails_over_before_any_reply_byte(monkeypatch):
@@ -127,7 +145,7 @@ def test_streamed_request_fails_over_before_any_reply_byte(monkeypatch):
 def test_a_model_that_keeps_failing_sits_out(monkeypatch):
     c = _client(monkeypatch)
     _chat(c, stream=False)
-    _chat(c, stream=False)          # second failure reaches the cooldown threshold
+    _chat(c, stream=False)  # second failure reaches the cooldown threshold
     c.sent.clear()
     _chat(c, stream=False)
     assert c.sent == ["dear-coder"]
@@ -160,10 +178,15 @@ def test_agent_rate_limit_fails_over_and_records_failure(monkeypatch):
         return _Stream(200, _SSE)
 
     monkeypatch.setattr(httpx.AsyncClient, "stream", rate_limited_stream)
-    r = c.post("/v1/chat/completions", json={
-        "model": "auto", "stream": True, "agent": True,
-        "messages": [{"role": "user", "content": "Refactor this Python parser."}],
-    })
+    r = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "stream": True,
+            "agent": True,
+            "messages": [{"role": "user", "content": "Refactor this Python parser."}],
+        },
+    )
     assert b'"content": "ok"' in r.content and b'"error"' not in r.content
     assert c.sent == ["cheap-coder", "dear-coder"]
     (failure,) = _failures(c)
@@ -187,9 +210,14 @@ def test_agent_connection_error_only_fails_over_before_delta(monkeypatch, partia
         return BrokenStream(200, b"") if model == "cheap-coder" else _Stream(200, _SSE)
 
     monkeypatch.setattr(httpx.AsyncClient, "stream", stream)
-    r = c.post("/v1/chat/completions", json={
-        "model": "auto", "agent": True, "messages": [],
-    })
+    r = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "agent": True,
+            "messages": [],
+        },
+    )
     assert c.sent == (["cheap-coder"] if partial else ["cheap-coder", "dear-coder"])
     assert (b'"error"' in r.content) is partial
 
@@ -197,10 +225,22 @@ def test_agent_connection_error_only_fails_over_before_delta(monkeypatch, partia
 def test_agent_later_round_failover_preserves_completed_tools(monkeypatch):
     c = _client(monkeypatch)
     executions = []
-    tool_call = {"choices": [{"delta": {"tool_calls": [{
-        "index": 0, "id": "call_1", "type": "function",
-        "function": {"name": "list_dir", "arguments": "{}"},
-    }]}}]}
+    tool_call = {
+        "choices": [
+            {
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "list_dir", "arguments": "{}"},
+                        }
+                    ]
+                }
+            }
+        ]
+    }
 
     def execute(user, name, args, **kw):
         executions.append(name)
@@ -209,17 +249,27 @@ def test_agent_later_round_failover_preserves_completed_tools(monkeypatch):
     def stream(self, method, url, **kw):
         c.sent.append(kw["json"]["model"])
         if len(c.sent) == 1:
-            return _Stream(200, ("data: " + json.dumps(tool_call) + "\n\ndata: [DONE]\n\n").encode())
+            return _Stream(
+                200,
+                ("data: " + json.dumps(tool_call) + "\n\ndata: [DONE]\n\n").encode(),
+            )
         assert kw["json"]["messages"][-1] == {
-            "role": "tool", "tool_call_id": "call_1", "content": "file.txt",
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "file.txt",
         }
         return _Stream(429, b"rate limited") if len(c.sent) == 2 else _Stream(200, _SSE)
 
     monkeypatch.setattr("smart_ai_router.tools.execute_tool", execute)
     monkeypatch.setattr(httpx.AsyncClient, "stream", stream)
-    r = c.post("/v1/chat/completions", json={
-        "model": "auto", "agent": True, "messages": [],
-    })
+    r = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "agent": True,
+            "messages": [],
+        },
+    )
     assert b'"error"' not in r.content
     assert c.sent == ["cheap-coder", "cheap-coder", "dear-coder"]
     assert executions == ["list_dir"]
@@ -228,9 +278,14 @@ def test_agent_later_round_failover_preserves_completed_tools(monkeypatch):
 def test_agent_failover_off_records_original_error(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_FAILOVER_ATTEMPTS", "0")
     c = _client(monkeypatch)
-    r = c.post("/v1/chat/completions", json={
-        "model": "auto", "agent": True, "messages": [],
-    })
+    r = c.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "agent": True,
+            "messages": [],
+        },
+    )
     assert b"provider 403" in r.content
     assert c.sent == ["cheap-coder"]
     assert _failures(c)[0]["failed_over_to"] == ""

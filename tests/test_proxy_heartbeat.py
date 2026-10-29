@@ -4,6 +4,7 @@ A slow model round yields nothing for seconds; without a heartbeat the client's
 chat bubble looks frozen. _with_heartbeat injects an SSE comment during silence
 and must pass real chunks through unchanged, in order, and terminate cleanly.
 """
+
 import asyncio
 
 from smart_ai_router.api.proxy import _with_heartbeat
@@ -81,10 +82,10 @@ def test_client_disconnect_mid_read_closes_source_cleanly():
         async def src():
             try:
                 yield b"first"
-                await asyncio.sleep(30)   # provider read still in flight
-                yield b"never"            # pragma: no cover
+                await asyncio.sleep(30)  # provider read still in flight
+                yield b"never"  # pragma: no cover
             finally:
-                released.append(True)     # stands in for releasing the stream
+                released.append(True)  # stands in for releasing the stream
 
         source = src()
         gen = _with_heartbeat(source, interval=0.01)
@@ -92,8 +93,8 @@ def test_client_disconnect_mid_read_closes_source_cleanly():
         # Accumulate keepalives so a source read is definitely outstanding.
         for _ in range(3):
             assert await gen.__anext__() == b": keepalive\n\n"
-        await gen.aclose()    # client disconnect
-        await source.aclose() # later finalization — raised on the old impl
+        await gen.aclose()  # client disconnect
+        await source.aclose()  # later finalization — raised on the old impl
         await asyncio.sleep(0.05)  # give any orphaned task time to report
 
     asyncio.run(scenario())
@@ -104,6 +105,7 @@ def test_client_disconnect_mid_read_closes_source_cleanly():
 
 def test_source_error_propagates_to_consumer():
     """A provider blowing up mid-stream must surface, not hang or vanish."""
+
     async def src():
         yield b"partial"
         raise RuntimeError("provider exploded")

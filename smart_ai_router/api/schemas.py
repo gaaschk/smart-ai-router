@@ -1,4 +1,5 @@
 """Pydantic request/response models for the REST API."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -48,7 +49,9 @@ class RouteResponse(BaseModel):
     """
 
     model: str
-    profile: str = Field("", description="human-readable demand, e.g. 'Law @ specialist'")
+    profile: str = Field(
+        "", description="human-readable demand, e.g. 'Law @ specialist'"
+    )
     requirements: dict[str, float] = Field(default_factory=dict)
     scores: dict[str, float] = Field(
         default_factory=dict, description="the chosen model's score per required field"
@@ -196,8 +199,10 @@ class CostResponse(BaseModel):
 
 # ── Usage summary (dashboard) ─────────────────────────────────────────────────
 
+
 class UsageBucket(BaseModel):
     """Aggregated counters, shared by the totals block and every group-by row."""
+
     requests: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -207,6 +212,7 @@ class UsageBucket(BaseModel):
 
 class UsageGroupRow(UsageBucket):
     """One group-by row: `key` is the model / date / user / dom/complexity."""
+
     key: str = ""
 
 
@@ -215,6 +221,7 @@ class UsageOverhead(BaseModel):
     profiling. Separate from the user-traffic aggregates because it is not user
     traffic — nobody requested these calls — but it is on the same bill, and it
     used to be missing from this response entirely."""
+
     totals: UsageBucket = Field(default_factory=UsageBucket)
     by_kind: list[UsageGroupRow] = Field(default_factory=list)
     by_model: list[UsageGroupRow] = Field(default_factory=list)
@@ -224,6 +231,7 @@ class UsageSummaryResponse(BaseModel):
     """Dashboard rollup. `by_user` is present only for the admin (all-users)
     view; a per-user request omits it. Every field except `overhead` covers
     proxied user requests only."""
+
     totals: UsageBucket
     by_model: list[UsageGroupRow] = Field(default_factory=list)
     by_day: list[UsageGroupRow] = Field(default_factory=list)
@@ -232,7 +240,7 @@ class UsageSummaryResponse(BaseModel):
         default_factory=list,
         description=(
             "which classifier profiled each request — llm | llm-free | "
-            "llm-refined | keyword | default, or \"\" for rows logged before the "
+            'llm-refined | keyword | default, or "" for rows logged before the '
             "column existed. A keyword-heavy mix means the configured model is "
             "not answering"
         ),
@@ -241,7 +249,7 @@ class UsageSummaryResponse(BaseModel):
     by_key: list[UsageGroupRow] = Field(
         default_factory=list,
         description=(
-            "per-API-key spend, keyed as \"{user} · {key_prefix}\". Unlike "
+            'per-API-key spend, keyed as "{user} · {key_prefix}". Unlike '
             "by_user this is always present and already scoped: an admin sees "
             "every key, a per-user caller sees only their own key(s) -- useful "
             "when one identity holds several keys (e.g. one per device/"
@@ -253,6 +261,7 @@ class UsageSummaryResponse(BaseModel):
 
 # ── Dashboard overview ────────────────────────────────────────────────────────
 
+
 class OverviewSystem(BaseModel):
     """What this *deployment* is: the catalog it can route to, and who shares it.
 
@@ -261,6 +270,7 @@ class OverviewSystem(BaseModel):
     which is the point: they need to know the router they are talking to is real
     and how it is wired, not just how much their own prompts cost.
     """
+
     models: int = 0
     providers: list[str] = Field(default_factory=list)
     providers_enabled: int = 0
@@ -291,6 +301,7 @@ class OverviewFlow(BaseModel):
     the system total only when they have no rows of their own -- it is always
     present, and simply zero, for an ordinary per-user key.
     """
+
     requests: int = 0
     cost_usd: float = 0.0
     prompt_tokens: int = 0
@@ -317,6 +328,7 @@ class OverviewMine(OverviewFlow):
     `days_since_first` and `rank` are null when there is nothing to rank (no rows
     at all, or a single active user, where "1st of 1" would be noise).
     """
+
     days_since_first: int | None = None
     rank: int | None = Field(
         default=None,
@@ -342,6 +354,7 @@ class OverviewResponse(BaseModel):
     to compute the cross-cutting figures (cheapest-vs-actual savings, rank) that
     need both halves at once.
     """
+
     window_days: int = 30
     modalities: list[UsageGroupRow] = Field(default_factory=list)
     system: OverviewSystem = Field(default_factory=OverviewSystem)
@@ -351,7 +364,7 @@ class OverviewResponse(BaseModel):
     overhead_share: float = Field(
         default=0.0,
         description="overhead / (overhead + user traffic) — what share of the "
-                    "deployment's bill is the router working, not serving",
+        "deployment's bill is the router working, not serving",
     )
     classifier_mix: list[UsageGroupRow] = Field(default_factory=list)
     # Set only when the saving could not be computed from catalog prices, with
@@ -367,6 +380,7 @@ class OverviewResponse(BaseModel):
 
 
 # ── Provider config ───────────────────────────────────────────────────────────
+
 
 class ProviderRequest(BaseModel):
     name: str
@@ -387,6 +401,7 @@ class ProviderResponse(BaseModel):
 
 
 # ── Settings (UI-managed runtime config) ────────────────────────────────────────
+
 
 class SettingResponse(BaseModel):
     secret: bool = False
@@ -423,6 +438,7 @@ class SettingsUpdateRequest(BaseModel):
 
 # ── API keys (per-user auth) ────────────────────────────────────────────────────
 
+
 class ApiKeyCreateRequest(BaseModel):
     user: str = Field(..., description="Identity label this key belongs to")
     # Scope/limit fields persist now but are enforced in later phases.
@@ -435,6 +451,7 @@ class ApiKeyCreateRequest(BaseModel):
 
 class ApiKeyResponse(BaseModel):
     """A key's metadata. Never includes the secret (only the display prefix)."""
+
     user: str
     key_prefix: str
     enabled: bool
@@ -449,6 +466,7 @@ class ApiKeyResponse(BaseModel):
 
 class ApiKeyCreatedResponse(ApiKeyResponse):
     """Returned once, at creation — the ONLY time the plaintext key is exposed."""
+
     key: str = Field(..., description="Plaintext key — shown once; store it now")
 
 
@@ -461,11 +479,12 @@ class WhoAmIResponse(BaseModel):
 
     Never includes the secret — only a display label and the safe key prefix.
     """
-    authenticated: bool          # False in open (no-auth) and anonymous mode
-    kind: str                    # "admin" | "user" | "open" | "anon"
-    user: str = ""               # "admin", the per-user label, or "" in open mode
-    key_prefix: str = ""         # short non-secret prefix for a per-user key
-    is_admin: bool = False       # may manage keys (root/env key or first-run)
+
+    authenticated: bool  # False in open (no-auth) and anonymous mode
+    kind: str  # "admin" | "user" | "open" | "anon"
+    user: str = ""  # "admin", the per-user label, or "" in open mode
+    key_prefix: str = ""  # short non-secret prefix for a per-user key
+    is_admin: bool = False  # may manage keys (root/env key or first-run)
     # Anonymous (public chat) mode. `degraded` says the daily spend cap has been
     # reached and answers now come from free/local models, which is worth telling
     # a visitor. The dollar figures behind it are deliberately not exposed — how
@@ -486,14 +505,18 @@ class WhoAmIResponse(BaseModel):
 
 # ── Anonymous identity recovery ────────────────────────────────────────────────
 
+
 class AnonSessionResponse(BaseModel):
     """The signed token behind an anonymous visitor's own session cookie.
 
     A bearer credential for that visitor's chat history — see anon_routes.py for
     why handing it to the page is nonetheless the right call.
     """
+
     token: str = Field(..., description="Signed cookie value; treat as a secret")
-    session_id: str = Field(..., description="Identity behind it, without the anon: prefix")
+    session_id: str = Field(
+        ..., description="Identity behind it, without the anon: prefix"
+    )
 
 
 class AnonClaimRequest(BaseModel):
@@ -506,6 +529,7 @@ class AnonClaimResponse(BaseModel):
     `token` is the re-stamped cookie value, so a client mirroring it can store the
     fresh one rather than the expiring copy it presented.
     """
+
     ok: bool = True
     user: str = ""
     session_id: str = ""
@@ -514,6 +538,7 @@ class AnonClaimResponse(BaseModel):
 
 # ── Self-serve accounts ────────────────────────────────────────────────────────
 
+
 class SignupResponse(BaseModel):
     """A freshly minted self-issued key. Returned once and never recoverable.
 
@@ -521,6 +546,7 @@ class SignupResponse(BaseModel):
     collected. `user` is a random handle, not a name the caller chose — see
     self_signup.py.
     """
+
     key: str = Field(..., description="Plaintext key — shown once; store it now")
     user: str = Field(..., description="Generated account handle, e.g. u:9f3a2b17")
     key_prefix: str = Field("", description="Short non-secret prefix for display")
@@ -539,11 +565,13 @@ class SignupStatusResponse(BaseModel):
     `reason` is safe to show: it says the deployment is full or misconfigured, not
     anything about its budget or its other users.
     """
+
     available: bool = False
     reason: str = ""
 
 
 # ── Files (uploads) ────────────────────────────────────────────────────────────
+
 
 class FileResponse(BaseModel):
     """OpenAI-compatible file object.
@@ -552,6 +580,7 @@ class FileResponse(BaseModel):
     clients (and claudish downstream) can consume it unchanged. `created_at`
     is a Unix timestamp (seconds), per the OpenAI convention.
     """
+
     id: str
     object: str = "file"
     bytes: int = 0
@@ -573,8 +602,10 @@ class FileDeletedResponse(BaseModel):
 
 # ── Chat history (conversations) ─────────────────────────────────────────────────
 
+
 class ConversationResponse(BaseModel):
     """A saved chat thread's metadata (no messages)."""
+
     id: str
     title: str = "New chat"
     created_at: str = ""
@@ -583,7 +614,9 @@ class ConversationResponse(BaseModel):
     # The owner, so the admin's list can say whose thread each one is. A per-user
     # key only ever sees its own conversations, so this tells it nothing new.
     user: str = ""
-    shared: bool = Field(True, description="Whether the admin identity may see this thread")
+    shared: bool = Field(
+        True, description="Whether the admin identity may see this thread"
+    )
 
 
 class ConversationListResponse(BaseModel):
@@ -605,6 +638,7 @@ class ConversationCreateRequest(BaseModel):
 class ConversationUpdateRequest(BaseModel):
     """Rename, regroup, and/or change admin visibility. Every field is optional, but
     at least one must be present; `tags: []` clears a thread's labels."""
+
     title: str | None = Field(None, description="New title for the conversation")
     tags: list[str] | None = Field(
         None, description="Replacement tag set (order and case are normalized)"
@@ -617,25 +651,35 @@ class ConversationUpdateRequest(BaseModel):
 class ChatMessageResponse(BaseModel):
     """One turn. `content` is a plain string, or a content-parts array/object
     when the original turn carried file/image refs."""
+
     role: str
     content: object = ""
     ts: str = ""
-    truncated: bool = Field(False, description=(
-        "this reply was stopped at the output-token ceiling, so the text is "
-        "incomplete — reopening a thread would otherwise show it as merely short"))
+    truncated: bool = Field(
+        False,
+        description=(
+            "this reply was stopped at the output-token ceiling, so the text is "
+            "incomplete — reopening a thread would otherwise show it as merely short"
+        ),
+    )
 
 
 class ChatMessageCreateRequest(BaseModel):
     role: str = Field(..., description="user | assistant | system")
     # A plain string, or an OpenAI content-parts array (text + file/image refs).
     content: object = ""
-    truncated: bool = Field(False, description=(
-        "set when the reply hit finish_reason=length, so the incompleteness "
-        "survives a reload rather than living only in the tab that saw it"))
+    truncated: bool = Field(
+        False,
+        description=(
+            "set when the reply hit finish_reason=length, so the incompleteness "
+            "survives a reload rather than living only in the tab that saw it"
+        ),
+    )
 
 
 class ConversationDetailResponse(ConversationResponse):
     """A conversation plus its full message list (for loading into the UI)."""
+
     messages: list[ChatMessageResponse] = Field(default_factory=list)
 
 
@@ -647,10 +691,12 @@ class ConversationDeletedResponse(BaseModel):
 
 # ── Bad-response reports ───────────────────────────────────────────────────────
 
+
 class ReportCreateRequest(BaseModel):
     """File a report about a bad reply. The transcript comes from the client because
     it is the only party that has it in every case — an unsaved thread, an anonymous
     visitor's chat, or an API caller with no conversation at all."""
+
     description: str = Field(..., description="What was wrong with the interaction")
     conversation_id: str = Field("", description="The thread it happened in, if saved")
     transcript: list[object] = Field(
@@ -659,7 +705,7 @@ class ReportCreateRequest(BaseModel):
     meta: dict[str, object] = Field(
         default_factory=dict,
         description="Routing metadata for the reported turn (routed model, profile, "
-                    "classifier) — not stored per message anywhere else",
+        "classifier) — not stored per message anywhere else",
     )
 
 
@@ -671,8 +717,8 @@ class ReportResponse(BaseModel):
     description: str = ""
     transcript: list[object] = Field(default_factory=list)
     meta: dict[str, object] = Field(default_factory=dict)
-    issue_url: str = ""      # the public issue it was mirrored to, if enabled
-    github_error: str = ""   # why it wasn't — a token dies quietly otherwise
+    issue_url: str = ""  # the public issue it was mirrored to, if enabled
+    github_error: str = ""  # why it wasn't — a token dies quietly otherwise
 
 
 class ReportListResponse(BaseModel):
@@ -687,6 +733,7 @@ class ReportDeletedResponse(BaseModel):
 
 
 # ── Updates ───────────────────────────────────────────────────────────────────
+
 
 class UpdateStatusResponse(BaseModel):
     ok: bool

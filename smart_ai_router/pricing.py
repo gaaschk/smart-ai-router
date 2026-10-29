@@ -6,6 +6,7 @@ at sync time and live in ModelSpec.cost_input / cost_output.
 Returns None when a model's price is unknown (cost_input == 0 AND cost_output == 0
 and the provider is not known-free like Ollama).
 """
+
 from __future__ import annotations
 
 from smart_ai_router.models import ModelSpec
@@ -49,6 +50,6 @@ def cost_for(
     if spec.cost_input < 0 or spec.cost_output < 0:
         return None  # a provider's "variable price" sentinel, not a rate
 
-    input_usd  = spec.cost_input  * prompt_tokens     / 1_000_000
+    input_usd = spec.cost_input * prompt_tokens / 1_000_000
     output_usd = spec.cost_output * completion_tokens / 1_000_000
     return input_usd + output_usd

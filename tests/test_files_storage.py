@@ -4,6 +4,7 @@ Covers the pieces that back the Files API: OpenAI-style id generation with a
 path-traversal guard, on-disk blob read/write/delete, best-effort text
 extraction, and the SQLite metadata table.
 """
+
 import pytest
 
 from smart_ai_router import extract, files
@@ -12,6 +13,7 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 
 # ── Blob storage + id safety ───────────────────────────────────────────────────
+
 
 @pytest.fixture
 def files_root(tmp_path, monkeypatch):
@@ -23,7 +25,7 @@ def test_generate_id_is_openai_shaped():
     fid = files.generate_file_id()
     assert fid.startswith("file-")
     # token is lowercase hex
-    token = fid[len("file-"):]
+    token = fid[len("file-") :]
     assert token and all(c in "0123456789abcdef" for c in token)
 
 
@@ -36,7 +38,9 @@ def test_write_read_delete_roundtrip(files_root):
     assert files.delete_blob(fid) is False  # already gone
 
 
-@pytest.mark.parametrize("bad", ["../etc/passwd", "file-../x", "nope", "file-XYZ", "file-"])
+@pytest.mark.parametrize(
+    "bad", ["../etc/passwd", "file-../x", "nope", "file-XYZ", "file-"]
+)
 def test_bad_ids_rejected(bad):
     with pytest.raises(ValueError):
         files.blob_path(bad)
@@ -49,8 +53,12 @@ def test_max_file_bytes_env_override(monkeypatch):
 
 # ── Text extraction ────────────────────────────────────────────────────────────
 
+
 def test_extract_plain_text():
-    assert extract.extract_text(b"line one\nline two", "text/plain") == "line one\nline two"
+    assert (
+        extract.extract_text(b"line one\nline two", "text/plain")
+        == "line one\nline two"
+    )
 
 
 def test_extract_json_type():
@@ -60,7 +68,10 @@ def test_extract_json_type():
 
 def test_extract_octet_stream_falls_back_to_decode():
     # Many code files arrive as octet-stream; we still try a text decode.
-    assert extract.extract_text(b"print('hi')", "application/octet-stream") == "print('hi')"
+    assert (
+        extract.extract_text(b"print('hi')", "application/octet-stream")
+        == "print('hi')"
+    )
 
 
 def test_extract_image_yields_nothing():
@@ -75,12 +86,19 @@ def test_extract_malformed_pdf_never_raises():
 
 # ── Store metadata ─────────────────────────────────────────────────────────────
 
+
 def test_create_get_list_delete_file_record():
     store = SqliteStore(":memory:")
-    rec = store.create_file(FileRecord(
-        id="file-abc123", user="alice", filename="a.txt",
-        mime="text/plain", bytes=5, path="/tmp/x",
-    ))
+    rec = store.create_file(
+        FileRecord(
+            id="file-abc123",
+            user="alice",
+            filename="a.txt",
+            mime="text/plain",
+            bytes=5,
+            path="/tmp/x",
+        )
+    )
     assert rec.created_at  # stamped on insert
 
     got = store.get_file("file-abc123")

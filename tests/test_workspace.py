@@ -1,4 +1,5 @@
 """Path-jail tests: the security boundary for the agent's filesystem tools."""
+
 import pytest
 
 from smart_ai_router import workspace
@@ -26,7 +27,10 @@ def test_resolve_normal_relative_path_stays_inside():
 
 
 def test_empty_path_is_the_workspace_root():
-    assert workspace.resolve_in_workspace("alice", "") == workspace.user_workspace("alice").resolve()
+    assert (
+        workspace.resolve_in_workspace("alice", "")
+        == workspace.user_workspace("alice").resolve()
+    )
 
 
 def test_dotdot_traversal_is_blocked():

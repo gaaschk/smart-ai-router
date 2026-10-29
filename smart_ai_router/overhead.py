@@ -23,6 +23,7 @@ nothing is written by code paths that have no user to attribute it to.
 Best-effort, like the rest of usage logging: a failure here must never surface
 in a request that otherwise worked.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -45,7 +46,7 @@ class OverheadCall:
     """One completed non-request call: what it was, and what it consumed."""
 
     kind: str
-    model: str          # provider-side model id, e.g. "openai/gpt-5.6-luna"
+    model: str  # provider-side model id, e.g. "openai/gpt-5.6-luna"
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_ms: int = 0
@@ -80,8 +81,7 @@ def collect() -> Iterator[list[OverheadCall]]:
         _sink.reset(token)
 
 
-def note(kind: str, *, model: str, usage: object = None,
-         latency_ms: int = 0) -> None:
+def note(kind: str, *, model: str, usage: object = None, latency_ms: int = 0) -> None:
     """Record that an overhead call completed. No-op outside a collect() block.
 
     `usage` is the provider's OpenAI-style token block, or None when the reply
@@ -103,8 +103,11 @@ def note(kind: str, *, model: str, usage: object = None,
         prompt = completion = 0
     calls.append(
         OverheadCall(
-            kind=kind, model=model, prompt_tokens=prompt,
-            completion_tokens=completion, latency_ms=max(0, int(latency_ms or 0)),
+            kind=kind,
+            model=model,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            latency_ms=max(0, int(latency_ms or 0)),
         )
     )
 
@@ -134,7 +137,9 @@ def _catalog_value(cr, model: str) -> str:
     return model
 
 
-def record(cr, calls: list[OverheadCall], *, user: str = "", key_prefix: str = "") -> None:
+def record(
+    cr, calls: list[OverheadCall], *, user: str = "", key_prefix: str = ""
+) -> None:
     """Write collected overhead calls to the usage log (best-effort, never raises).
 
     Attributed to the identity whose work caused them: the requesting user for

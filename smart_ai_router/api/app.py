@@ -1,4 +1,5 @@
 """FastAPI application factory."""
+
 from __future__ import annotations
 
 import os
@@ -7,7 +8,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -38,27 +42,29 @@ _SIGNUP_PATH = "/api/signup"
 # 401s without a key — notably /api/keys, /api/settings, /api/usage and the file
 # endpoints, so opening the chat page never opens the dashboard or the upload
 # path. Matched as exact paths or, with a trailing "/", as a prefix.
-_ANON_PATHS = frozenset({
-    "/v1/chat/completions",
-    "/v1/models",
-    "/api/whoami",
-    "/api/conversations",
-    "/api/conversations/",
-    # Filing a report. Listed without a trailing slash, so /api/reports/{id} stays
-    # unreachable; reading the list is refused by the route itself, which is
-    # admin-only. The people most likely to be handed a bad answer are the ones
-    # with no other way to tell anyone about it.
-    "/api/reports",
-    # Recovering an anonymous identity is something only an anonymous visitor
-    # needs, so these have to be reachable without a key or the feature is
-    # unusable by exactly the people it exists for.
-    "/api/anon/session",
-    "/api/anon/claim",
-    # Creating an account is the one thing someone with no credential most needs
-    # to be able to do. Listed here so an anonymous visitor reaches it carrying
-    # their session identity, which is what lets their existing chats come along.
-    _SIGNUP_PATH,
-})
+_ANON_PATHS = frozenset(
+    {
+        "/v1/chat/completions",
+        "/v1/models",
+        "/api/whoami",
+        "/api/conversations",
+        "/api/conversations/",
+        # Filing a report. Listed without a trailing slash, so /api/reports/{id} stays
+        # unreachable; reading the list is refused by the route itself, which is
+        # admin-only. The people most likely to be handed a bad answer are the ones
+        # with no other way to tell anyone about it.
+        "/api/reports",
+        # Recovering an anonymous identity is something only an anonymous visitor
+        # needs, so these have to be reachable without a key or the feature is
+        # unusable by exactly the people it exists for.
+        "/api/anon/session",
+        "/api/anon/claim",
+        # Creating an account is the one thing someone with no credential most needs
+        # to be able to do. Listed here so an anonymous visitor reaches it carrying
+        # their session identity, which is what lets their existing chats come along.
+        _SIGNUP_PATH,
+    }
+)
 
 
 def _anon_path_allowed(path: str) -> bool:
@@ -78,9 +84,16 @@ def _rate_limited(detail: str, retry_after: int) -> JSONResponse:
 def _unauthorized(path="") -> JSONResponse:
     return JSONResponse(
         status_code=401,
-        content={"error": {"message": "Invalid or missing API key", "type": "invalid_request_error",
-                           "param": None, "code": "invalid_api_key"}} if path.startswith("/v1/responses") else
-                {"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
+        content={
+            "error": {
+                "message": "Invalid or missing API key",
+                "type": "invalid_request_error",
+                "param": None,
+                "code": "invalid_api_key",
+            }
+        }
+        if path.startswith("/v1/responses")
+        else {"error": "Invalid or missing API key. Set Authorization: Bearer <key>"},
     )
 
 
@@ -146,7 +159,9 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def api_validation_error(request, exc):
         if request.url.path.startswith("/v1/responses"):
-            return error_response(request, HTTPException(400, "Invalid request parameters"))
+            return error_response(
+                request, HTTPException(400, "Invalid request parameters")
+            )
         return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
@@ -248,16 +263,20 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
             if not ok:
                 return JSONResponse(
                     status_code=429,
-                    content={"error": "Rate limit reached for anonymous use. "
-                                      "Try again shortly, or use an API key."},
+                    content={
+                        "error": "Rate limit reached for anonymous use. "
+                        "Try again shortly, or use an API key."
+                    },
                     headers={"Retry-After": str(retry_after)},
                 )
 
             if not _public.inflight.try_acquire():
                 return JSONResponse(
                     status_code=429,
-                    content={"error": "Too many anonymous requests in flight. "
-                                      "Try again in a moment."},
+                    content={
+                        "error": "Too many anonymous requests in flight. "
+                        "Try again in a moment."
+                    },
                     headers={"Retry-After": "5"},
                 )
             try:
@@ -269,8 +288,8 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
                 request.state.is_anon = True
                 # What /api/anon/session hands to the page for mirroring: the value
                 # about to be set if there is one, else the cookie already held.
-                request.state.anon_cookie = (
-                    to_set or request.cookies.get(_public.COOKIE_NAME, "")
+                request.state.anon_cookie = to_set or request.cookies.get(
+                    _public.COOKIE_NAME, ""
                 )
 
                 response = await call_next(request)

@@ -5,6 +5,7 @@ state (branch, recent commits, tracked files, and obvious hotspots), then emits 
 single markdown review report using a fixed rubric. The output is designed for a
 scheduled LaunchAgent run and for a manual dry run before production use.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -74,12 +75,16 @@ def _repo_snapshot(repo: Path, days: int, focus: Sequence[str] | None = None) ->
     branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD") or "DETACHED"
     status = _git(repo, "status", "--short")
     since = f"{max(days, 1)} days ago"
-    recent = _git(repo, "log", "--date=short", "--pretty=%ad %h %an %s", "--since", since)
+    recent = _git(
+        repo, "log", "--date=short", "--pretty=%ad %h %an %s", "--since", since
+    )
     if not recent:
         recent = _git(repo, "log", "--date=short", "--pretty=%ad %h %an %s", "-n", "10")
     tracked = _tracked_files(repo, focus)
     todo_markers = _count_markers(tracked, repo)
-    ui_files = [p for p in tracked if "/ui/" in p or p.endswith((".html", ".css", ".js"))]
+    ui_files = [
+        p for p in tracked if "/ui/" in p or p.endswith((".html", ".css", ".js"))
+    ]
     tests = [p for p in tracked if p.startswith("tests/")]
     key_dirs = [
         "smart_ai_router",
@@ -110,93 +115,120 @@ def _findings(snapshot: dict) -> list[dict]:
     findings: list[dict] = []
     todo_markers = snapshot["todo_markers"]
     if todo_markers:
-        findings.append({
-            "severity": "follow-up",
-            "topic": "Code quality",
-            "summary": (
-                f"{len(todo_markers)} TODO/FIXME-style markers were found in the tracked code: "
-                + ", ".join(todo_markers[:3]) + (" …" if len(todo_markers) > 3 else "")
-            ),
-        })
+        findings.append(
+            {
+                "severity": "follow-up",
+                "topic": "Code quality",
+                "summary": (
+                    f"{len(todo_markers)} TODO/FIXME-style markers were found in the tracked code: "
+                    + ", ".join(todo_markers[:3])
+                    + (" …" if len(todo_markers) > 3 else "")
+                ),
+            }
+        )
     else:
-        findings.append({
-            "severity": "info",
-            "topic": "Code quality",
-            "summary": "No TODO/FIXME markers were detected in the current tracked source snapshot.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Code quality",
+                "summary": "No TODO/FIXME markers were detected in the current tracked source snapshot.",
+            }
+        )
 
     if snapshot["ui_files"]:
-        findings.append({
-            "severity": "info",
-            "topic": "Usability",
-            "summary": (
-                "The repo includes UI-facing code and assets; review the user flow, labels, "
-                "and accessibility surfaces for consistency after changes."
-            ),
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Usability",
+                "summary": (
+                    "The repo includes UI-facing code and assets; review the user flow, labels, "
+                    "and accessibility surfaces for consistency after changes."
+                ),
+            }
+        )
     else:
-        findings.append({
-            "severity": "info",
-            "topic": "Usability",
-            "summary": "No direct UI assets were detected in the scoped review window; check any human-facing flows manually.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Usability",
+                "summary": "No direct UI assets were detected in the scoped review window; check any human-facing flows manually.",
+            }
+        )
 
     if snapshot["ui_files"] and snapshot["tests"]:
-        findings.append({
-            "severity": "info",
-            "topic": "Design consistency",
-            "summary": "The repo appears to mix service logic with UI assets and tests; keep naming, terminology, and interaction patterns aligned across both layers.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Design consistency",
+                "summary": "The repo appears to mix service logic with UI assets and tests; keep naming, terminology, and interaction patterns aligned across both layers.",
+            }
+        )
     else:
-        findings.append({
-            "severity": "info",
-            "topic": "Design consistency",
-            "summary": "No immediately inconsistent design patterns were obvious in the scoped snapshot; confirm naming and flow coherence in the next review pass.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Design consistency",
+                "summary": "No immediately inconsistent design patterns were obvious in the scoped snapshot; confirm naming and flow coherence in the next review pass.",
+            }
+        )
 
     if snapshot["source_count"]:
-        findings.append({
-            "severity": "info",
-            "topic": "UX coherence",
-            "summary": f"{snapshot['source_count']} Python files were found in the tracked repo. Keep the command/service/API/UI boundaries explicit to avoid drift between user-facing behavior and backend logic.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "UX coherence",
+                "summary": f"{snapshot['source_count']} Python files were found in the tracked repo. Keep the command/service/API/UI boundaries explicit to avoid drift between user-facing behavior and backend logic.",
+            }
+        )
     else:
-        findings.append({
-            "severity": "info",
-            "topic": "UX coherence",
-            "summary": "No Python source files were detected in the current review scope; verify the intended review target before relying on this report.",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "UX coherence",
+                "summary": "No Python source files were detected in the current review scope; verify the intended review target before relying on this report.",
+            }
+        )
 
     if snapshot["status"]:
-        findings.append({
-            "severity": "follow-up",
-            "topic": "Feature gaps",
-            "summary": "The repo has uncommitted or modified files in the current working tree; review them for incomplete features, half-finished docs, or accidental build artifacts.",
-        })
+        findings.append(
+            {
+                "severity": "follow-up",
+                "topic": "Feature gaps",
+                "summary": "The repo has uncommitted or modified files in the current working tree; review them for incomplete features, half-finished docs, or accidental build artifacts.",
+            }
+        )
     else:
-        findings.append({
+        findings.append(
+            {
+                "severity": "info",
+                "topic": "Feature gaps",
+                "summary": "No uncommitted file changes were reported in the working tree; scan recent commits and user-facing flows for partial implementations and missing follow-through.",
+            }
+        )
+
+    findings.append(
+        {
             "severity": "info",
-            "topic": "Feature gaps",
-            "summary": "No uncommitted file changes were reported in the working tree; scan recent commits and user-facing flows for partial implementations and missing follow-through.",
-        })
+            "topic": "Architecture",
+            "summary": "The repo is organized across service, routing, docs, and tests; keep responsibilities clean and avoid cross-layer coupling when new capabilities are added.",
+        }
+    )
 
-    findings.append({
-        "severity": "info",
-        "topic": "Architecture",
-        "summary": "The repo is organized across service, routing, docs, and tests; keep responsibilities clean and avoid cross-layer coupling when new capabilities are added.",
-    })
+    findings.append(
+        {
+            "severity": "info",
+            "topic": "Performance & scalability",
+            "summary": "Review queue depth, repeated scans, and provider sync costs before expanding the model matrix or adding more background jobs.",
+        }
+    )
 
-    findings.append({
-        "severity": "info",
-        "topic": "Performance & scalability",
-        "summary": "Review queue depth, repeated scans, and provider sync costs before expanding the model matrix or adding more background jobs.",
-    })
-
-    findings.append({
-        "severity": "info",
-        "topic": "Operational risk",
-        "summary": "Use the existing LaunchAgent/service flow for daily execution and write the report to a stable log/output location so the review remains reproducible and easy to audit.",
-    })
+    findings.append(
+        {
+            "severity": "info",
+            "topic": "Operational risk",
+            "summary": "Use the existing LaunchAgent/service flow for daily execution and write the report to a stable log/output location so the review remains reproducible and easy to audit.",
+        }
+    )
     return findings
 
 
@@ -243,9 +275,15 @@ def render_review_markdown(snapshot: dict, findings: list[dict] | None = None) -
 
     lines.append("## Actionable follow-up")
     lines.append("")
-    lines.append("- Confirm that the review output is stored in a reliable path such as `logs/daily-review.md` and that the scheduled LaunchAgent is still the source of truth.")
-    lines.append("- Review any TODO/FIXME markers before shipping a release and keep the UX and service boundaries explicit as the repo grows.")
-    lines.append("- Repeat this review daily to catch drift in architecture, usability, and operational stability before it compounds.")
+    lines.append(
+        "- Confirm that the review output is stored in a reliable path such as `logs/daily-review.md` and that the scheduled LaunchAgent is still the source of truth."
+    )
+    lines.append(
+        "- Review any TODO/FIXME markers before shipping a release and keep the UX and service boundaries explicit as the repo grows."
+    )
+    lines.append(
+        "- Repeat this review daily to catch drift in architecture, usability, and operational stability before it compounds."
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -331,15 +369,24 @@ def install_review_launchd(
     )
 
     try:
-        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True, text=True)
-        subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True, check=True)
+        subprocess.run(
+            ["launchctl", "unload", str(plist_path)], capture_output=True, text=True
+        )
+        subprocess.run(
+            ["launchctl", "load", str(plist_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
     except (OSError, subprocess.CalledProcessError) as exc:
         err = ""
         if isinstance(exc, subprocess.CalledProcessError):
             err = (exc.stderr or exc.stdout or str(exc)).strip() or "launchctl failed"
         else:
             err = str(exc)
-        raise RuntimeError(f"Failed to install daily review LaunchAgent: {err}") from exc
+        raise RuntimeError(
+            f"Failed to install daily review LaunchAgent: {err}"
+        ) from exc
     return plist_path
 
 
@@ -349,13 +396,42 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run or schedule a daily repository review.",
     )
     parser.add_argument("--repo", default=str(ROOT), help="Repository root to review.")
-    parser.add_argument("--output", default=str(DEFAULT_REVIEW_PATH), help="Path for the markdown review report.")
-    parser.add_argument("--since-days", type=int, default=1, help="Look back this many days for recent repo activity.")
-    parser.add_argument("--focus", nargs="*", default=["smart_ai_router", "tests", "docs", "services"], help="Directories or prefixes to focus the review on.")
-    parser.add_argument("--dry-run", action="store_true", help="Generate the report in memory without writing the file.")
-    parser.add_argument("--schedule", action="store_true", help="Install a daily LaunchAgent to run this review automatically.")
-    parser.add_argument("--hour", type=int, default=3, help="Hour (0-23) for the daily LaunchAgent run.")
-    parser.add_argument("--minute", type=int, default=0, help="Minute (0-59) for the daily LaunchAgent run.")
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_REVIEW_PATH),
+        help="Path for the markdown review report.",
+    )
+    parser.add_argument(
+        "--since-days",
+        type=int,
+        default=1,
+        help="Look back this many days for recent repo activity.",
+    )
+    parser.add_argument(
+        "--focus",
+        nargs="*",
+        default=["smart_ai_router", "tests", "docs", "services"],
+        help="Directories or prefixes to focus the review on.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate the report in memory without writing the file.",
+    )
+    parser.add_argument(
+        "--schedule",
+        action="store_true",
+        help="Install a daily LaunchAgent to run this review automatically.",
+    )
+    parser.add_argument(
+        "--hour", type=int, default=3, help="Hour (0-23) for the daily LaunchAgent run."
+    )
+    parser.add_argument(
+        "--minute",
+        type=int,
+        default=0,
+        help="Minute (0-59) for the daily LaunchAgent run.",
+    )
     return parser
 
 
@@ -372,7 +448,9 @@ def run_review_cli(argv: Sequence[str] | None = None) -> int:
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        print("Installed daily review LaunchAgent: ~/Library/LaunchAgents/com.smart-ai-router-review.plist")
+        print(
+            "Installed daily review LaunchAgent: ~/Library/LaunchAgents/com.smart-ai-router-review.plist"
+        )
         return 0
 
     result = run_review(

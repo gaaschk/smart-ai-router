@@ -9,6 +9,7 @@ Three things these routes have to get right, mirroring the voice suite:
    which would break httpx's boundary generation — the exact bug that bites a
    naive copy of _headers() from proxy.py.
 """
+
 import io
 import json
 
@@ -32,9 +33,13 @@ def _client(cr) -> TestClient:
 def admin(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
-    cr.upsert_provider(ProviderConfig(
-        name="openrouter", kind="openrouter", api_key="or-test-key",
-    ))
+    cr.upsert_provider(
+        ProviderConfig(
+            name="openrouter",
+            kind="openrouter",
+            api_key="or-test-key",
+        )
+    )
     return _client(cr), cr
 
 
@@ -47,7 +52,11 @@ class _FakeUpstream:
 
     def __init__(self, *, tts_bytes=b"\x00\x01\x02\x03", stt_json=None, status=200):
         self.tts_bytes = tts_bytes
-        self.stt_json = stt_json or {"text": "hello world", "task": "transcribe", "duration": 1.2}
+        self.stt_json = stt_json or {
+            "text": "hello world",
+            "task": "transcribe",
+            "duration": 1.2,
+        }
         self.status = status
         self.tts_requests: list[dict] = []
         self.stt_requests: list[dict] = []
@@ -58,25 +67,33 @@ class _FakeUpstream:
         async def fake_send(self, request, **kwargs):
             url = str(request.url)
             if "/audio/speech" in url:
-                outer.tts_requests.append({
-                    "url": url,
-                    "headers": dict(request.headers),
-                    "json": json.loads(request.content),
-                })
+                outer.tts_requests.append(
+                    {
+                        "url": url,
+                        "headers": dict(request.headers),
+                        "json": json.loads(request.content),
+                    }
+                )
                 return httpx.Response(
-                    outer.status, content=outer.tts_bytes, request=request,
+                    outer.status,
+                    content=outer.tts_bytes,
+                    request=request,
                     headers={"Content-Type": "audio/mpeg"},
                 )
             if "/audio/transcriptions" in url:
                 content = await request.aread()
-                outer.stt_requests.append({
-                    "url": url,
-                    "headers": dict(request.headers),
-                    "content_type": request.headers.get("content-type", ""),
-                    "content": content,
-                })
+                outer.stt_requests.append(
+                    {
+                        "url": url,
+                        "headers": dict(request.headers),
+                        "content_type": request.headers.get("content-type", ""),
+                        "content": content,
+                    }
+                )
                 return httpx.Response(
-                    outer.status, content=json.dumps(outer.stt_json), request=request,
+                    outer.status,
+                    content=json.dumps(outer.stt_json),
+                    request=request,
                     headers={"Content-Type": "application/json"},
                 )
             return httpx.Response(404, request=request)
@@ -87,12 +104,14 @@ class _FakeUpstream:
 
 # ── the gate ─────────────────────────────────────────────────────────────────
 
+
 def test_tts_rejects_non_admin(admin):
     client, _ = admin
     made = client.post("/api/keys", json={"user": "alice"}, headers=_auth(_ADMIN))
     alice = made.json()["key"]
-    r = client.post("/v1/audio/speech", json={"input": "hi", "model": "tts"},
-                    headers=_auth(alice))
+    r = client.post(
+        "/v1/audio/speech", json={"input": "hi", "model": "tts"}, headers=_auth(alice)
+    )
     assert r.status_code == 403
 
 
@@ -100,9 +119,11 @@ def test_stt_rejects_non_admin(admin):
     client, _ = admin
     made = client.post("/api/keys", json={"user": "bob"}, headers=_auth(_ADMIN))
     bob = made.json()["key"]
-    r = client.post("/v1/audio/transcriptions",
-                    files={"file": ("a.wav", io.BytesIO(b"RIFF"))},
-                    headers=_auth(bob))
+    r = client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"))},
+        headers=_auth(bob),
+    )
     assert r.status_code == 403
 
 
@@ -110,11 +131,16 @@ def test_anonymous_is_401_not_403(admin):
     """Not in _ANON_PATHS, so the middleware turns it away before the route runs."""
     client, _ = admin
     assert client.post("/v1/audio/speech", json={"input": "hi"}).status_code == 401
-    assert client.post("/v1/audio/transcriptions",
-                       files={"file": ("a.wav", io.BytesIO(b"RIFF"))}).status_code == 401
+    assert (
+        client.post(
+            "/v1/audio/transcriptions", files={"file": ("a.wav", io.BytesIO(b"RIFF"))}
+        ).status_code
+        == 401
+    )
 
 
 # ── the guards ───────────────────────────────────────────────────────────────
+
 
 def test_tts_requires_input(admin, monkeypatch):
     client, _ = admin
@@ -137,8 +163,9 @@ def test_tts_requires_model_setting(admin, monkeypatch):
 def test_stt_requires_file(admin, monkeypatch):
     client, _ = admin
     fake = _FakeUpstream().install(monkeypatch)
-    r = client.post("/v1/audio/transcriptions",
-                    data={"model": "stt"}, headers=_auth(_ADMIN))
+    r = client.post(
+        "/v1/audio/transcriptions", data={"model": "stt"}, headers=_auth(_ADMIN)
+    )
     assert r.status_code == 422
     assert not fake.stt_requests
 
@@ -147,9 +174,11 @@ def test_stt_requires_model_setting(admin, monkeypatch):
     client, cr = admin
     cr.set_setting("stt_model", "")
     fake = _FakeUpstream().install(monkeypatch)
-    r = client.post("/v1/audio/transcriptions",
-                    files={"file": ("a.wav", io.BytesIO(b"RIFF"))},
-                    headers=_auth(_ADMIN))
+    r = client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"))},
+        headers=_auth(_ADMIN),
+    )
     assert r.status_code == 422
     assert "speech-to-text model" in r.json()["detail"].lower()
     assert not fake.stt_requests
@@ -157,17 +186,22 @@ def test_stt_requires_model_setting(admin, monkeypatch):
 
 # ── the forwarding ───────────────────────────────────────────────────────────
 
+
 def test_tts_forwards_json_and_strips_prefix(admin, monkeypatch):
     client, _ = admin
     fake = _FakeUpstream().install(monkeypatch)
-    r = client.post("/v1/audio/speech", json={
-        "input": "Hello [whispering] world",
-        "voice": "Rachel",
-        "response_format": "mp3",
-    }, headers=_auth(_ADMIN))
+    r = client.post(
+        "/v1/audio/speech",
+        json={
+            "input": "Hello [whispering] world",
+            "voice": "Rachel",
+            "response_format": "mp3",
+        },
+        headers=_auth(_ADMIN),
+    )
     assert r.status_code == 200, r.text
     sent = fake.tts_requests[0]
-    assert sent["json"]["model"] == "elevenlabs/eleven-v3"   # openrouter/ stripped
+    assert sent["json"]["model"] == "elevenlabs/eleven-v3"  # openrouter/ stripped
     assert sent["json"]["input"] == "Hello [whispering] world"
     assert sent["json"]["voice"] == "Rachel"
     # No Content-Type mismatch — the JSON path sets it correctly.
@@ -181,10 +215,12 @@ def test_stt_forwards_multipart_without_json_content_type(admin, monkeypatch):
     """The critical test: multipart must NOT carry Content-Type: application/json."""
     client, _ = admin
     fake = _FakeUpstream().install(monkeypatch)
-    r = client.post("/v1/audio/transcriptions",
-                    files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
-                    data={"model": "stt", "language": "en"},
-                    headers=_auth(_ADMIN))
+    r = client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
+        data={"model": "stt", "language": "en"},
+        headers=_auth(_ADMIN),
+    )
     assert r.status_code == 200, r.text
     sent = fake.stt_requests[0]
     # Must be multipart/form-data with a boundary — httpx sets this only when the
@@ -201,10 +237,14 @@ def test_stt_forwards_multipart_without_json_content_type(admin, monkeypatch):
 
 def test_stt_upstream_error_is_suraced(admin, monkeypatch):
     client, _ = admin
-    _FakeUpstream(stt_json={"error": {"message": "unsupported file"}}, status=400).install(monkeypatch)
-    r = client.post("/v1/audio/transcriptions",
-                    files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
-                    headers=_auth(_ADMIN))
+    _FakeUpstream(
+        stt_json={"error": {"message": "unsupported file"}}, status=400
+    ).install(monkeypatch)
+    r = client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
+        headers=_auth(_ADMIN),
+    )
     assert r.status_code == 400
     assert "unsupported file" in r.json()["detail"]
 
@@ -223,21 +263,26 @@ def test_stt_unreachable_is_502(admin, monkeypatch):
         raise httpx.ConnectError("no route")
 
     monkeypatch.setattr(httpx.AsyncClient, "send", fail)
-    r = client.post("/v1/audio/transcriptions",
-                    files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
-                    headers=_auth(_ADMIN))
+    r = client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
+        headers=_auth(_ADMIN),
+    )
     assert r.status_code == 502
 
 
 # ── usage tracking ───────────────────────────────────────────────────────────
 
+
 def test_usage_rows_are_recorded(admin, monkeypatch):
     client, cr = admin
     _FakeUpstream().install(monkeypatch)
     client.post("/v1/audio/speech", json={"input": "hi"}, headers=_auth(_ADMIN))
-    client.post("/v1/audio/transcriptions",
-                files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
-                headers=_auth(_ADMIN))
+    client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("a.wav", io.BytesIO(b"RIFF"), "audio/wav")},
+        headers=_auth(_ADMIN),
+    )
     rows = [u for u in cr.recent_usage("admin", "1970-01-01") if u.domain == "voice"]
     # One for tts, one for stt — both should be accounted for even though we can't
     # charge the text rate to an audio model's real cost.

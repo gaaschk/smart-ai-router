@@ -8,6 +8,7 @@ audio tokens whether or not it can use them. And the cost it records must be the
 one the provider reports, not the one the text rate implies — a voice conversation
 priced at the text rate reads as almost free.
 """
+
 import base64
 import json
 import warnings
@@ -36,9 +37,13 @@ def _client(cr) -> TestClient:
 def admin(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
     cr = CapabilityRouter(store=SqliteStore(":memory:"))
-    cr.upsert_provider(ProviderConfig(
-        name="openrouter", kind="openrouter", api_key="or-test-key",
-    ))
+    cr.upsert_provider(
+        ProviderConfig(
+            name="openrouter",
+            kind="openrouter",
+            api_key="or-test-key",
+        )
+    )
     return _client(cr), cr
 
 
@@ -70,7 +75,9 @@ class _FakeUpstream:
         async def fake_send(self, request, **kwargs):  # noqa: ANN001
             outer.sent = json.loads(request.content)
             return httpx.Response(
-                outer.status, content=outer.chunks, request=request,
+                outer.status,
+                content=outer.chunks,
+                request=request,
                 headers={"Content-Type": "text/event-stream"},
             )
 
@@ -79,6 +86,7 @@ class _FakeUpstream:
 
 
 # ── the gate ─────────────────────────────────────────────────────────────────
+
 
 def test_a_per_user_key_cannot_spend_audio_tokens(admin):
     client, cr = admin
@@ -98,22 +106,30 @@ def test_no_key_at_all_never_reaches_the_route(admin):
 
 def test_admin_gets_through(admin, monkeypatch):
     client, _ = admin
-    _FakeUpstream(_sse({"choices": [{"delta": {"audio": {"transcript": "hi"}}}]})).install(monkeypatch)
+    _FakeUpstream(
+        _sse({"choices": [{"delta": {"audio": {"transcript": "hi"}}}]})
+    ).install(monkeypatch)
     r = client.post("/v1/voice", json={"audio": _WAV}, headers=_auth(_ADMIN))
     assert r.status_code == 200, r.text
 
 
 # ── the guards, all of them before a provider call ───────────────────────────
 
-@pytest.mark.parametrize("body,status", [
-    ({}, 422),                                    # no audio at all
-    ({"audio": ""}, 422),                         # empty
-    ({"audio": 42}, 422),                         # not a string
-    ({"audio": "not!base64!"}, 422),              # undecodable
-    ({"audio": _WAV, "format": "webm"}, 422),     # MediaRecorder's format
-    ({"audio": "A" * 4_000_004}, 413),            # runaway recording
-])
-def test_a_bad_body_is_refused_without_spending_anything(admin, monkeypatch, body, status):
+
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ({}, 422),  # no audio at all
+        ({"audio": ""}, 422),  # empty
+        ({"audio": 42}, 422),  # not a string
+        ({"audio": "not!base64!"}, 422),  # undecodable
+        ({"audio": _WAV, "format": "webm"}, 422),  # MediaRecorder's format
+        ({"audio": "A" * 4_000_004}, 413),  # runaway recording
+    ],
+)
+def test_a_bad_body_is_refused_without_spending_anything(
+    admin, monkeypatch, body, status
+):
     client, _ = admin
     fake = _FakeUpstream(_sse()).install(monkeypatch)
     r = client.post("/v1/voice", json=body, headers=_auth(_ADMIN))
@@ -133,6 +149,7 @@ def test_an_unconfigured_model_is_a_422_not_a_provider_call(admin, monkeypatch):
 
 # ── the request actually built ───────────────────────────────────────────────
 
+
 def test_it_asks_for_audio_out_and_streams(admin, monkeypatch):
     client, _ = admin
     fake = _FakeUpstream(_sse()).install(monkeypatch)
@@ -145,7 +162,7 @@ def test_it_asks_for_audio_out_and_streams(admin, monkeypatch):
     assert sent["audio"]["format"] == "pcm16"
     assert sent["stream"] is True
     assert sent["usage"] == {"include": True}
-    assert sent["model"] == "openai/gpt-audio-mini"   # openrouter/ prefix stripped
+    assert sent["model"] == "openai/gpt-audio-mini"  # openrouter/ prefix stripped
     part = sent["messages"][-1]["content"][0]
     assert part["type"] == "input_audio"
     assert part["input_audio"] == {"data": _WAV, "format": "wav"}
@@ -154,20 +171,30 @@ def test_it_asks_for_audio_out_and_streams(admin, monkeypatch):
 def test_history_is_replayed_as_text_and_never_as_audio(admin, monkeypatch):
     client, _ = admin
     fake = _FakeUpstream(_sse()).install(monkeypatch)
-    client.post("/v1/voice", headers=_auth(_ADMIN), json={
-        "audio": _WAV,
-        "messages": [
-            {"role": "assistant", "content": "Paris."},
-            # An upload from the typed chat. Sent to an audio model this is at best
-            # ignored and at worst a 400 halfway through a conversation.
-            {"role": "user", "content": [
-                {"type": "text", "text": "and this one?"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,xx"}},
-            ]},
-            {"role": "tool", "content": "should not survive"},
-            {"role": "assistant", "content": "   "},   # whitespace only
-        ],
-    })
+    client.post(
+        "/v1/voice",
+        headers=_auth(_ADMIN),
+        json={
+            "audio": _WAV,
+            "messages": [
+                {"role": "assistant", "content": "Paris."},
+                # An upload from the typed chat. Sent to an audio model this is at best
+                # ignored and at worst a 400 halfway through a conversation.
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "and this one?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,xx"},
+                        },
+                    ],
+                },
+                {"role": "tool", "content": "should not survive"},
+                {"role": "assistant", "content": "   "},  # whitespace only
+            ],
+        },
+    )
     prior = fake.sent["messages"][:-1]
     assert prior == [
         {"role": "assistant", "content": "Paris."},
@@ -179,10 +206,16 @@ def test_history_is_replayed_as_text_and_never_as_audio(admin, monkeypatch):
 def test_only_the_last_turns_are_replayed(admin, monkeypatch):
     client, _ = admin
     fake = _FakeUpstream(_sse()).install(monkeypatch)
-    client.post("/v1/voice", headers=_auth(_ADMIN), json={
-        "audio": _WAV,
-        "messages": [{"role": "assistant", "content": f"turn {i}"} for i in range(50)],
-    })
+    client.post(
+        "/v1/voice",
+        headers=_auth(_ADMIN),
+        json={
+            "audio": _WAV,
+            "messages": [
+                {"role": "assistant", "content": f"turn {i}"} for i in range(50)
+            ],
+        },
+    )
     prior = fake.sent["messages"][:-1]
     assert len(prior) == 20
     assert prior[0]["content"] == "turn 30"
@@ -190,16 +223,25 @@ def test_only_the_last_turns_are_replayed(admin, monkeypatch):
 
 # ── the bill ─────────────────────────────────────────────────────────────────
 
+
 def test_the_recorded_cost_is_the_providers_not_the_text_rate(admin, monkeypatch):
     client, cr = admin
-    _FakeUpstream(_sse(
-        {"choices": [{"delta": {"audio": {"transcript": "Paris."}}}]},
-        {"choices": [], "usage": {"prompt_tokens": 480, "completion_tokens": 260,
-                                  "cost": 0.0731}},
-    )).install(monkeypatch)
+    _FakeUpstream(
+        _sse(
+            {"choices": [{"delta": {"audio": {"transcript": "Paris."}}}]},
+            {
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 480,
+                    "completion_tokens": 260,
+                    "cost": 0.0731,
+                },
+            },
+        )
+    ).install(monkeypatch)
     r = client.post("/v1/voice", json={"audio": _WAV}, headers=_auth(_ADMIN))
     assert r.status_code == 200
-    r.read()   # the usage row is written when the stream finishes, not before
+    r.read()  # the usage row is written when the stream finishes, not before
 
     rows = cr.recent_usage("admin", "1970-01-01")
     voice = [u for u in rows if u.domain == "voice"]
@@ -219,7 +261,9 @@ def test_the_recorded_cost_is_the_providers_not_the_text_rate(admin, monkeypatch
 
 def test_a_refusal_upstream_is_reported_and_logged(admin, monkeypatch):
     client, cr = admin
-    _FakeUpstream(b'{"error":{"message":"no audio for you"}}', status=402).install(monkeypatch)
+    _FakeUpstream(b'{"error":{"message":"no audio for you"}}', status=402).install(
+        monkeypatch
+    )
     r = client.post("/v1/voice", json={"audio": _WAV}, headers=_auth(_ADMIN))
     assert r.status_code == 402
     assert "no audio for you" in r.json()["detail"]
@@ -241,10 +285,20 @@ def test_the_stream_reaches_the_page_intact(admin, monkeypatch):
     is displayed, and re-encoding either one on the way past would only add
     latency to the thing being streamed."""
     client, _ = admin
-    _FakeUpstream(_sse(
-        {"choices": [{"delta": {"audio": {"data": "AAECAw==", "transcript": "Pa"}}}]},
-        {"choices": [{"delta": {"audio": {"data": "BAUGBw==", "transcript": "ris."}}}]},
-    )).install(monkeypatch)
+    _FakeUpstream(
+        _sse(
+            {
+                "choices": [
+                    {"delta": {"audio": {"data": "AAECAw==", "transcript": "Pa"}}}
+                ]
+            },
+            {
+                "choices": [
+                    {"delta": {"audio": {"data": "BAUGBw==", "transcript": "ris."}}}
+                ]
+            },
+        )
+    ).install(monkeypatch)
     r = client.post("/v1/voice", json={"audio": _WAV}, headers=_auth(_ADMIN))
     text = r.text
     assert "AAECAw==" in text and "BAUGBw==" in text

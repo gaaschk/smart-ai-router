@@ -24,6 +24,7 @@ Restarting has two routes, because kickstart only covers one kind of install:
      supervising us and what keeps the route from firing in a test run or in a
      hand-started process, where exiting would just take the app down.
 """
+
 from __future__ import annotations
 
 import os
@@ -69,7 +70,9 @@ _PLIST_DIRS = (
 
 
 def _git(*args) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args], capture_output=True, text=True
+    )
 
 
 def _git_error(proc: subprocess.CompletedProcess, limit: int = 300) -> str:
@@ -106,7 +109,9 @@ def source_update_status(fetch: bool = True) -> dict:
             "instance": INSTANCE,
         }
 
-    counts = _git("rev-list", "--left-right", "--count", "HEAD...origin/main").stdout.strip()
+    counts = _git(
+        "rev-list", "--left-right", "--count", "HEAD...origin/main"
+    ).stdout.strip()
     ahead = behind = 0
     if counts:
         parts = counts.split()
@@ -120,7 +125,9 @@ def source_update_status(fetch: bool = True) -> dict:
         "behind": behind,
         "ahead": ahead,
         "update_available": behind > 0,
-        "detail": "up to date" if behind == 0 else f"{behind} commit(s) behind origin/main",
+        "detail": "up to date"
+        if behind == 0
+        else f"{behind} commit(s) behind origin/main",
         "instance": INSTANCE,
     }
 
@@ -133,7 +140,8 @@ def _job_print(domain: str, label: str) -> str | None:
     """
     proc = subprocess.run(
         ["launchctl", "print", f"{domain}/{label}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     return proc.stdout if proc.returncode == 0 else None
 
@@ -180,6 +188,7 @@ def _relaunches_on_exit(keep_alive) -> bool:
 @dataclass(frozen=True)
 class _Job:
     """A launchd job that runs this application."""
+
     label: str
     domain: str
     relaunch_on_exit: bool
@@ -240,6 +249,7 @@ def _exit_for_relaunch(delay: float = 0.5, grace: float = 15.0) -> None:
     long-lived stream must not be able to hold the restart open forever, hence
     the escalation. KeepAlive relaunches either way.
     """
+
     def _stop() -> None:
         time.sleep(delay)
         os.kill(os.getpid(), signal.SIGTERM)
@@ -300,7 +310,9 @@ def apply_source_update() -> dict:
 
     # Reinstall deps in case pyproject.toml changed.
     uv = str(Path.home() / ".local/bin/uv")
-    subprocess.run([uv, "pip", "install", "-e", str(ROOT)], capture_output=True, text=True)
+    subprocess.run(
+        [uv, "pip", "install", "-e", str(ROOT)], capture_output=True, text=True
+    )
 
     pulled = _git("rev-parse", "HEAD").stdout.strip()[:7]
     result = _restart(pulled)
@@ -327,7 +339,8 @@ def _restart(pulled: str) -> dict:
         domain, label = target
         kick = subprocess.run(
             ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if kick.returncode == 0:
             return {"ok": True, "detail": f"Pulled {pulled} and restarting…"}
@@ -336,9 +349,7 @@ def _restart(pulled: str) -> dict:
         hint = f"launchctl kickstart -k {domain}/{label}"
     elif target is not None:
         # A root-owned LaunchDaemon: kickstart from this process is denied.
-        blocked = (
-            f"restart needs root — {target[1]} is a system LaunchDaemon"
-        )
+        blocked = f"restart needs root — {target[1]} is a system LaunchDaemon"
         hint = f"sudo launchctl kickstart -k system/{target[1]}"
     else:
         blocked = f"no launchd job named {APP_DAEMON_LABEL!r} was found"
@@ -347,7 +358,11 @@ def _restart(pulled: str) -> dict:
     # Nothing kickstartable, so ask launchd for a new process the other way: end
     # this one and let KeepAlive replace it. Only when launchd confirms this pid
     # is the job's — otherwise exiting is just an outage.
-    if job is not None and job.relaunch_on_exit and _job_pid(job.domain, job.label) == os.getpid():
+    if (
+        job is not None
+        and job.relaunch_on_exit
+        and _job_pid(job.domain, job.label) == os.getpid()
+    ):
         _exit_for_relaunch()
         return {
             "ok": True,

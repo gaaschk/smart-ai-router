@@ -7,6 +7,7 @@ route — the `/openai/` segment matters, a bare `/v1/chat/completions` is only
 ever documented as a legacy override, not the default. These tests pin that
 we build the `/openai/v1` form.
 """
+
 from smart_ai_router.api.proxy import _bedrock_base, _resolve_provider
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.models import ProviderConfig
@@ -17,8 +18,9 @@ def _router_with_bedrock(region: str = "") -> CapabilityRouter:
     store = SqliteStore(":memory:")
     cr = CapabilityRouter(store)
     cr.upsert_provider(
-        ProviderConfig(name="bedrock", kind="bedrock", api_key="fake-key",
-                        base_url=region)
+        ProviderConfig(
+            name="bedrock", kind="bedrock", api_key="fake-key", base_url=region
+        )
     )
     return cr
 

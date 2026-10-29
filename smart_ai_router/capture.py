@@ -27,6 +27,7 @@ JSONL beside the DB rather than a table: the only consumer is a script, rows are
 append-only and nothing in the UI queries them, and one rotation at MAX_BYTES
 bounds the disk with no schema migration.
 """
+
 from __future__ import annotations
 
 import json

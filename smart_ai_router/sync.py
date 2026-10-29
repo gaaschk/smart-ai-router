@@ -5,6 +5,7 @@ the provider catalog directly.
 
 Returns a SyncResult with counts of added/updated models and any errors.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -221,9 +222,9 @@ def sync_from_providers(
 # past anything a chat reply needs.
 _BEDROCK_CLAUDE_MODELS = [
     # (model_id, ctx_k, cost_input, cost_output, max_output)
-    ("us.anthropic.claude-haiku-4-5",   200, 1.0,  5.0, 32000),
+    ("us.anthropic.claude-haiku-4-5", 200, 1.0, 5.0, 32000),
     ("us.anthropic.claude-sonnet-4-6", 1000, 3.0, 15.0, 32000),
-    ("us.anthropic.claude-opus-4-8",   1000, 5.0, 25.0, 32000),
+    ("us.anthropic.claude-opus-4-8", 1000, 5.0, 25.0, 32000),
 ]
 
 
@@ -375,6 +376,7 @@ def _sync_ollama(
 
 # ── OpenRouter ────────────────────────────────────────────────────────────────
 
+
 def _sync_openrouter(
     store: MatrixStore,
     api_key: str,
@@ -409,7 +411,7 @@ def _sync_openrouter(
         # them is a preference, so this is a hard filter rather than a denylist.
         if mid.endswith(":batch"):
             continue
-        arch = (m.get("architecture") or {})
+        arch = m.get("architecture") or {}
         modality = arch.get("modality", "text->text")
         # Accept any text-in / text-out model (e.g. text->text,
         # text+image->text, text+image+file->text). Reject models that
