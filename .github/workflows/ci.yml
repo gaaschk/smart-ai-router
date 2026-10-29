@@ -10,6 +10,10 @@ on:
   pull_request:
     branches: [main]
 
+# Checkout needs repository reads; all unspecified token permissions are disabled.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
