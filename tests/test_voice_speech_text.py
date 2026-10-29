@@ -814,3 +814,26 @@ def test_the_room_tone_before_the_first_word_is_not_billed():
     # Three loud frames plus the quiet ones that ran the timer out — not the ten
     # frames of nothing that preceded them.
     assert r["frames"] == 3 + 5
+
+
+@pytest.mark.parametrize(
+    "secure,recognition,synthesis,expected",
+    [
+        (False, False, False, "HTTPS or http://localhost"),
+        (False, True, True, "HTTPS or http://localhost"),
+        (True, False, True, "Speech recognition is unavailable"),
+        (True, True, False, "Speech playback is unavailable"),
+        (True, True, True, ""),
+    ],
+)
+def test_voice_capability_warning_prioritizes_actionable_problem(
+    secure, recognition, synthesis, expected
+):
+    result = _run(
+        f"const window = {{isSecureContext: {json.dumps(secure)}, "
+        f"speechSynthesis: {json.dumps(synthesis)}}};"
+        f"const _Rec = {json.dumps(recognition)};"
+        + _js_function("voiceUnsupportedReason")
+        + "console.log(JSON.stringify([voiceUnsupportedReason()]));"
+    )[0]
+    assert expected in result if expected else result == ""

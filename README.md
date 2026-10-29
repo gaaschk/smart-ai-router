@@ -19,7 +19,7 @@ Beyond the routing proxy, the built-in web UI at `http://localhost:8001/` is a f
 - **Chat** with persistent, server-side conversation history — every message shows which model it was routed to and why.
 - **File uploads** — PDF, Word, PowerPoint, Excel, and text/code files are extracted to text and fed to the model as context; images are inlined for vision-capable models.
 - **Agent mode** — a tool-capable model can read, write, and edit files in your private, path-jailed workspace, and **create downloadable documents** (PDF, Word, PowerPoint, Excel, Markdown). Auto-enables when your request needs a file; can be forced on or off.
-- **Voice** — talk instead of typing and have the reply read back to you, using the browser's own speech engine so routing is unaffected. Needs Safari or Chrome, and HTTPS or localhost — see [Voice](docs/api.md#voice).
+- **Voice** — talk instead of typing and have the reply read back to you, using the browser's own speech engine so routing is unaffected. Requires a working browser speech engine and HTTPS or localhost — see the [browser compatibility and troubleshooting guide](docs/browser-compatibility.md).
 - **Per-user API keys** — mint, scope, rate-limit, revoke, and rotate keys from the Keys page; a signed-in badge shows which identity you're using.
 - **Feedback** — ⚑ on any reply, or the ⚑ tab on the right edge, files a report with the conversation and the routing decision attached; the operator can mirror those into a repo's issue tracker — see [Bad-response reports](docs/api.md#bad-response-reports).
 

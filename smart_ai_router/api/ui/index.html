@@ -6505,13 +6505,17 @@ function voiceUnsupportedReason() {
   // secure context, so on a plain-HTTP LAN address (http://host.local:8001) the
   // API object exists and simply never fires — which reads as a broken button
   // rather than a missing padlock.
-  if (!_Rec || !window.speechSynthesis) {
-    return 'This browser has no speech support. Try Chrome, Edge, or Safari 14.1+.';
-  }
   if (!window.isSecureContext) {
     return 'Voice needs HTTPS or http://localhost — browsers block the microphone '
          + 'on a plain-HTTP address, so this page cannot listen. Open the router at '
          + 'localhost, or put it behind TLS.';
+  }
+  if (!_Rec) {
+    return 'Speech recognition is unavailable in this browser. Try a browser with '
+         + 'a working speech engine, or type your message.';
+  }
+  if (!window.speechSynthesis) {
+    return 'Speech playback is unavailable in this browser. You can still use text chat.';
   }
   return '';
 }
