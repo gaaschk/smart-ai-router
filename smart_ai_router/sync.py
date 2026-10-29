@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import urllib.request
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 
 from smart_ai_router.models import ModelSpec
@@ -273,6 +274,16 @@ def _sync_bedrock(store: MatrixStore, result: SyncResult) -> None:
 # could never route locally — both silently fell through to paid providers.
 
 
+def _open_provider_http(request: urllib.request.Request, *, timeout: int):
+    """Provider catalog transport accepts HTTP(S), never local/custom schemes."""
+    parsed = urlsplit(request.full_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Provider URL must use http or https with a hostname")
+    # Scheme validated above; urllib's redirect handler rejects non-HTTP(S)/FTP
+    # redirects. Provider configuration remains operator-controlled.
+    return urllib.request.urlopen(request, timeout=timeout)  # nosec B310
+
+
 def _ollama_details(base_url: str, name: str, timeout: int) -> tuple[list[str], int]:
     """Fetch (capabilities, context_length) for one installed model.
 
@@ -289,7 +300,7 @@ def _ollama_details(base_url: str, name: str, timeout: int) -> tuple[list[str], 
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _open_provider_http(req, timeout=timeout) as r:
             info = json.load(r)
     except Exception:
         return [], 0
@@ -319,7 +330,7 @@ def _sync_ollama(
             f"{base_url}/api/tags",
             headers={"User-Agent": "smart-ai-router"},
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _open_provider_http(req, timeout=timeout) as r:
             tags = json.load(r)
     except Exception as e:
         result.errors.append(f"Ollama: {e}")
@@ -391,7 +402,7 @@ def _sync_openrouter(
                 "Authorization": f"Bearer {api_key}",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _open_provider_http(req, timeout=timeout) as r:
             catalog = json.load(r)
     except Exception as e:
         result.errors.append(f"OpenRouter: {e}")

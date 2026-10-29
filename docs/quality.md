@@ -22,3 +22,31 @@ Local dependency audit (pip-audit2.10.1,2026-10-29):97 packages,zero known vulne
 ## Formatting follow-up
 
 The formatter baseline has been applied mechanically across154files, with docstring whitespace as the only AST differences. Formatting is now blocking; security reports remain visible pending scoped triage. This change makes no intentional runtime behavior changes.
+
+## Security triage follow-up
+
+Provider catalog URL entry points now require HTTP(S) and a hostname before any
+URL handler opens. Six offline cases verify rejection and unchanged valid request
+identity/timeout. This checks initial configured URLs; it is not an SSRF/redirect
+policy or a change to operator-controlled local Ollama access.
+
+Bandit findings decreased53→50:40low,8medium,2high. New medium/high findings now
+block CI by a reviewed code fingerprint baseline; scanner errors fail closed.
+Line-number-only shifts do not invalidate fingerprints, but changed code does.
+Low findings remain visible in the full artifact. The dependency audit is blocking.
+
+The10existing medium/high findings are individually recorded with reasons in
+security-baseline.json:7internal parameterized SQL constructions,1existing all-
+interface server bind,2SHA1 source-identity uses. This is explicit risk tracking,
+not a claim that the10findings are fixed. SQL fragments come from internal literals
+and placeholder counts; user values are parameters. The bind is existing deployment
+behavior, not silently changed in a CI task. Source IDs participate in user isolation:
+SHA1 truncation and slug collisions require a compatible persisted mapping/migration
+plan. usedforsecurity=False would misdescribe this role, so it was not applied.
+
+Low findings were grouped by actual purpose: subprocess imports/argv dispatch
+(shell=False and existing argument validation), best-effort exception boundaries,
+non-cryptographic traffic/capture sampling, and a setting-key string mistaken for a
+password. They remain visible rather than broadly suppressed. Independent security
+review of boundaries and identifier migration is still required. No new external
+alert service, credentials or permissions are introduced.
