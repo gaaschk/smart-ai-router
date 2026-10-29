@@ -25,6 +25,10 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --install-dir)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == -* ]]; then
+        echo "--install-dir requires a non-empty path (use ./ for paths beginning with -)" >&2
+        exit 2
+      fi
       INSTALL_DIR="$2"
       shift 2
       ;;
