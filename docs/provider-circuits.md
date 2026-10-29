@@ -11,3 +11,14 @@ Streaming holds the recovery slot until the stream completes. A transport failur
 `GET /api/provider-circuits` is explicitly admin-only and returns enabled state, process scope, each provider state/thresholds and attempt counters. It contains no keys, URLs, prompts or error text. Counters reflect outcomes accepted in the current generation; late stale completions are ignored. State resets on process restart and is **not shared between worker processes**. This does not protect separate sync/classifier/media clients; it covers the routed Chat/Responses/agent dispatch path.
 
 Demonstration: `python -m pytest -q -p scripts.offline_test_isolation tests/test_provider_circuits.py tests/test_proxy_failover.py`. Tests use mocked providers and a controlled clock, including a one-probe concurrency check, both protocols/modes,503 failover, all-open rejection, cancellation and mid-stream failure. No production outage rehearsal or deployment occurred. Review before enabling this optional policy.
+
+Selection failures return503 only when removing the circuit filter permits a valid
+selection under the same pin/scope/capability constraints. Unrelated outages leave
+invalid requests at422. This diagnostic selection never dispatches a provider call.
+
+Status also exposes recovery_attempts, recoveries and fallbacks. Fallbacks count
+actual reroutes away from that provider while circuits are enabled, including
+same-provider model fallback; they do not count initial exclusion or failed reroute.
+Structured logger events name only provider and transition/event, with no request
+bodies or credentials. Operators can consume existing logs; no external alert
+integration or notification destination is configured.

@@ -1544,8 +1544,9 @@ async def chat_completions(request: Request):
 
     canary_used = decision is not None
 
-    def _pick(exclude: set[str]):
-        kw = {**route_kw, "exclude": (exclude | circuit_exclusions()) or None}
+    def _pick(exclude: set[str], *, apply_circuits: bool = True):
+        blocked = circuit_exclusions() if apply_circuits else set()
+        kw = {**route_kw, "exclude": (exclude | blocked) or None}
         return (
             cr.select(profile, **kw) if candidates is None
             else cr.select_from(candidates, profile, **kw)
@@ -1566,7 +1567,18 @@ async def chat_completions(request: Request):
                     raise
                 decision = _pick(set())
     except RuntimeError as exc:
-        raise HTTPException(status_code=503 if circuit_exclusions() else 422, detail=str(exc))
+        # Diagnose with the same pool/scope/capabilities but no circuit filter.
+        # This is selection only: never dispatch to the blocked provider. An
+        # unrelated outage must not make an invalid constrained request retryable.
+        status = 422
+        if circuits_enabled:
+            try:
+                _pick(set(), apply_circuits=False)
+            except RuntimeError:
+                pass
+            else:
+                status = 503
+        raise HTTPException(status_code=status, detail=str(exc))
     routed_model = decision.model
     request.state.routed_model = routed_model
 
@@ -1815,6 +1827,8 @@ async def chat_completions(request: Request):
               file=sys.stderr, flush=True)
         if nxt is None:
             return False
+        if circuits_enabled:
+            cr.provider_circuits.record_fallback(provider_for(failed))
         routed_model = nxt.model
         request.state.routed_model = routed_model
         request.state.usage_escalated = not nxt.qualified or (

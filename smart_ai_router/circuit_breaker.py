@@ -1,11 +1,14 @@
 """Process-local provider availability circuits; independent of semantic model health."""
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import logging
 import threading
 import time
 
 import httpx
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS = {'openrouter': (5, 60), 'ollama': (3, 30), 'bedrock': (10, 120)}
 
@@ -24,6 +27,9 @@ class _State:
     rejected: int = 0
     failed_attempts: int = 0
     successful_attempts: int = 0
+    recovery_attempts: int = 0
+    recoveries: int = 0
+    fallbacks: int = 0
 
 
 class ProviderCircuits:
@@ -45,6 +51,8 @@ class ProviderCircuits:
                 raise httpx.ConnectError(f'Provider circuit is open: {provider}')
             if state.opened_at is not None:
                 state.probe = True
+                state.recovery_attempts += 1
+                logger.info("provider_circuit provider=%s transition=open->half_open", provider)
             return state.generation, state.probe
 
     def finish(self, provider, lease, threshold, outcome):
@@ -62,6 +70,8 @@ class ProviderCircuits:
                 state.successful_attempts += 1
                 state.failures = 0
                 if probe:
+                    state.recoveries += 1
+                    logger.info("provider_circuit provider=%s transition=half_open->closed", provider)
                     state.opened_at = None
                     state.probe = False
                     state.generation += 1
@@ -69,9 +79,15 @@ class ProviderCircuits:
                 state.failed_attempts += 1
                 state.failures += 1
                 if probe or state.failures >= threshold:
+                    logger.warning("provider_circuit provider=%s transition=%s->open", provider, "half_open" if probe else "closed")
                     state.opened_at = self.clock()
                     state.probe = False
                     state.generation += 1
+
+    def record_fallback(self, provider):
+        with self.lock:
+            self.states[provider].fallbacks += 1
+        logger.info("provider_circuit provider=%s event=fallback", provider)
 
     def snapshot(self, policy):
         with self.lock:
@@ -84,6 +100,9 @@ class ProviderCircuits:
                 'failed_attempts': state.failed_attempts,
                 'successful_attempts': state.successful_attempts,
                 'rejected_attempts': state.rejected,
+                'recovery_attempts': state.recovery_attempts,
+                'recoveries': state.recoveries,
+                'fallbacks': state.fallbacks,
                 'failure_threshold': policy[provider][0], 'recovery_seconds': policy[provider][1],
             } for provider, state in self.states.items()}
 
