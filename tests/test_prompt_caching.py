@@ -12,6 +12,7 @@ the last place that can set them. These tests pin where they go and — just as
 important — every case where they must *not* be set, because a cache write costs
 25% extra and a marker nobody reads back is a surcharge.
 """
+
 import httpx
 import pytest
 
@@ -34,10 +35,15 @@ def _turns(*, system=True, assistant=True, filler=True):
     """A conversation in the shape a client re-sends it: stable prefix, new tail."""
     msgs = []
     if system:
-        msgs.append({"role": "system", "content": "You are a coding assistant. "
-                                                  + (_FILLER if filler else "")})
-    msgs.append({"role": "user", "content": "First question. "
-                                            + (_FILLER if filler else "")})
+        msgs.append(
+            {
+                "role": "system",
+                "content": "You are a coding assistant. " + (_FILLER if filler else ""),
+            }
+        )
+    msgs.append(
+        {"role": "user", "content": "First question. " + (_FILLER if filler else "")}
+    )
     if assistant:
         msgs.append({"role": "assistant", "content": "First answer."})
         msgs.append({"role": "user", "content": "Second question."})
@@ -45,9 +51,15 @@ def _turns(*, system=True, assistant=True, filler=True):
 
 
 def _chat(client, messages, **extra):
-    return client.post("/v1/chat/completions", json={
-        "model": "auto", "messages": messages, "stream": False, **extra,
-    })
+    return client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": messages,
+            "stream": False,
+            **extra,
+        },
+    )
 
 
 def _marked(msg) -> bool:
@@ -59,6 +71,7 @@ def _marked(msg) -> bool:
 
 
 # ── where the breakpoints go ──────────────────────────────────────────────────
+
 
 def test_a_continued_conversation_is_marked_at_system_and_at_the_tail(claude):
     r = _chat(claude, _turns())
@@ -94,15 +107,23 @@ def test_the_tail_marker_skips_a_message_with_nothing_to_mark(claude):
     msgs = [
         {"role": "system", "content": "You are a coding assistant."},
         {"role": "user", "content": "Fix it. " + _FILLER},
-        {"role": "assistant", "content": None,
-         "tool_calls": [{"id": "c1", "type": "function",
-                         "function": {"name": "read_file", "arguments": "{}"}}]},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
     ]
     r = _chat(claude, msgs)
     assert r.headers["X-Cache-Breakpoints"] == "2"
     sent = claude.sent[-1]["messages"]
-    assert _marked(sent[1])              # the user turn before it
-    assert sent[2]["content"] is None    # the tool_calls turn is left alone
+    assert _marked(sent[1])  # the user turn before it
+    assert sent[2]["content"] is None  # the tool_calls turn is left alone
 
 
 def test_a_conversation_with_no_system_turn_still_gets_the_rolling_marker(claude):
@@ -112,6 +133,7 @@ def test_a_conversation_with_no_system_turn_still_gets_the_rolling_marker(claude
 
 
 # ── where they must not go ────────────────────────────────────────────────────
+
 
 def test_a_first_turn_is_never_marked(claude):
     # A write is billed at 1.25×, a read at 0.10×. With no assistant turn in the
@@ -136,7 +158,7 @@ def test_a_fresh_agent_request_is_marked_on_its_first_turn(claude, monkeypatch):
     monkeypatch.setattr("smart_ai_router.api.proxy.run_agent_loop", fake_loop)
     r = _chat(claude, _turns(assistant=False), agent=True)
     assert r.headers["X-Cache-Breakpoints"] == "2"
-    assert _marked(seen[0]["messages"][0])     # the loop is seeded with them
+    assert _marked(seen[0]["messages"][0])  # the loop is seeded with them
 
 
 def test_a_short_conversation_is_never_marked(claude):
@@ -161,16 +183,22 @@ def test_a_caller_that_set_its_own_breakpoints_is_left_alone(claude):
     # guess is that its intent usually doesn't survive translation — when it does,
     # guessing on top of it would spend breakpoints against the caller's plan.
     msgs = _turns()
-    msgs[1] = {"role": "user", "content": [
-        {"type": "text", "text": "First question. " + _FILLER,
-         "cache_control": {"type": "ephemeral"}},
-    ]}
+    msgs[1] = {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": "First question. " + _FILLER,
+                "cache_control": {"type": "ephemeral"},
+            },
+        ],
+    }
     r = _chat(claude, msgs)
     assert r.headers["X-Cache-Breakpoints"] == "0"
     sent = claude.sent[-1]["messages"]
-    assert isinstance(sent[0]["content"], str)     # system untouched
-    assert _marked(sent[1])                        # the caller's own, still there
-    assert isinstance(sent[-1]["content"], str)    # tail untouched
+    assert isinstance(sent[0]["content"], str)  # system untouched
+    assert _marked(sent[1])  # the caller's own, still there
+    assert isinstance(sent[-1]["content"], str)  # tail untouched
 
 
 def test_the_setting_turns_it_off(claude, monkeypatch):
@@ -185,16 +213,29 @@ def test_the_setting_turns_it_off(claude, monkeypatch):
 # Billing a cache read at the full input rate looks exactly like caching not
 # working: same cost for the same tokens, no way to tell the fix landed.
 
+
 def test_cached_tokens_are_billed_at_a_tenth(claude, monkeypatch):
     async def cached_reply(self, url, **kwargs):
-        return httpx.Response(200, request=httpx.Request("POST", url), json={
-            "id": "cmpl-1",
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"},
-                         "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 100_000, "completion_tokens": 0,
-                      "total_tokens": 100_000,
-                      "prompt_tokens_details": {"cached_tokens": 90_000}},
-        })
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "id": "cmpl-1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "hi"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 100_000,
+                    "completion_tokens": 0,
+                    "total_tokens": 100_000,
+                    "prompt_tokens_details": {"cached_tokens": 90_000},
+                },
+            },
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", cached_reply)
     _chat(claude, _turns())

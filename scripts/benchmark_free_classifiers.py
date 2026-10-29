@@ -19,6 +19,7 @@ Usage:
 No arguments. Prints a table; picks nothing automatically — you choose the
 winner from the numbers.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,15 +50,21 @@ CANDIDATES = [
 
 # (prompt, expected_field) — expected is a sanity hint, not a hard assertion.
 PROMPTS = [
-    ("Derive the formula for the electronic orbitals about a hydrogen atom",
-     "natural_science"),
+    (
+        "Derive the formula for the electronic orbitals about a hydrogen atom",
+        "natural_science",
+    ),
     ("fix the null pointer bug in the login handler", "software_engineering"),
     ("write a readme explaining how to install this tool", "technical_writing"),
     ("hello", "general_knowledge"),
-    ("design a distributed rate limiter that survives node failures",
-     "systems_architecture"),
-    ("What acetaminophen dose is safe for a 16kg 4-year-old with a 39.4C fever?",
-     "medicine_health"),
+    (
+        "design a distributed rate limiter that survives node failures",
+        "systems_architecture",
+    ),
+    (
+        "What acetaminophen dose is safe for a 16kg 4-year-old with a 39.4C fever?",
+        "medicine_health",
+    ),
 ]
 
 _TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=30.0)

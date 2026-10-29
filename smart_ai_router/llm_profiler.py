@@ -42,6 +42,7 @@ adjustment nobody can inspect is one nobody should trust.
 Failure contract, same as llm_classifier.py: nothing here raises on a provider
 problem. A model that can't be rated is left exactly as sync profiled it.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -145,13 +146,13 @@ _SYSTEM_PROMPT = (
 class EnrichResult:
     """Outcome of one enrichment run, for the API response and the UI."""
 
-    considered: int = 0          # models that matched the candidate filters
-    rated: int = 0               # models the rater returned a usable reply for
-    changed: int = 0             # of those, how many moved at least one score
-    failed: int = 0              # models whose rating call failed (left as-is)
-    written: int = 0             # rows actually upserted (0 when dry_run)
+    considered: int = 0  # models that matched the candidate filters
+    rated: int = 0  # models the rater returned a usable reply for
+    changed: int = 0  # of those, how many moved at least one score
+    failed: int = 0  # models whose rating call failed (left as-is)
+    written: int = 0  # rows actually upserted (0 when dry_run)
     dry_run: bool = False
-    rater: str = ""              # the model that did the rating
+    rater: str = ""  # the model that did the rating
     rater_why: str = ""
     # Why that model. Reported because the rater is now chosen by routing rather
     # than typed into settings: a run that reshapes profiles across the catalog
@@ -332,7 +333,8 @@ def enrichment_candidates(
     every run — paying repeatedly for the same answer.
     """
     pool = [
-        spec for spec in models
+        spec
+        for spec in models
         if baseline_profile(spec)
         and not (only_missing and (spec.profile_ratings or spec.profile_note))
     ]
@@ -409,9 +411,7 @@ async def enrich_models(
     rater = model
     result = EnrichResult(dry_run=dry_run, rater=rater, rater_why=rater_why)
     if not rater:
-        result.errors.append(
-            "no model profiler available (Settings → Model profiling)"
-        )
+        result.errors.append("no model profiler available (Settings → Model profiling)")
         return result
     if not base_url:
         result.errors.append("no OpenRouter provider configured for the profiler")

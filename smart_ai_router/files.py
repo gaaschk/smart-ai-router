@@ -7,6 +7,7 @@ Disk is cheap and this keeps large uploads out of the DB.
 IDs follow OpenAI's convention ("file-<token>") so OpenAI-compatible clients —
 and claudish downstream of them — work unchanged.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,7 +46,7 @@ def _is_valid_id(file_id: str) -> bool:
     """Guard against path traversal — ids are prefix + lowercase hex only."""
     if not file_id.startswith(_FILE_PREFIX):
         return False
-    token = file_id[len(_FILE_PREFIX):]
+    token = file_id[len(_FILE_PREFIX) :]
     return bool(token) and all(c in "0123456789abcdef" for c in token)
 
 

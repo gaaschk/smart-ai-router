@@ -1,4 +1,5 @@
 """First-run setup wizard: `smart-ai-router setup`."""
+
 from __future__ import annotations
 
 import getpass
@@ -153,11 +154,13 @@ def run_setup() -> None:
     if _ask_yn("Configure OpenRouter? (cloud models via openrouter.ai)"):
         key = _ask("OpenRouter API key", secret=True)
         if key:
-            cr.upsert_provider(ProviderConfig(
-                name="openrouter",
-                kind="openrouter",
-                api_key=key,
-            ))
+            cr.upsert_provider(
+                ProviderConfig(
+                    name="openrouter",
+                    kind="openrouter",
+                    api_key=key,
+                )
+            )
             providers_configured += 1
             print(_green("    Saved."))
         else:
@@ -167,28 +170,34 @@ def run_setup() -> None:
     # Ollama
     if _ask_yn("Configure Ollama? (local models)"):
         url = _ask("Ollama base URL", default="http://localhost:11434")
-        cr.upsert_provider(ProviderConfig(
-            name="ollama",
-            kind="ollama",
-            base_url=url,
-        ))
+        cr.upsert_provider(
+            ProviderConfig(
+                name="ollama",
+                kind="ollama",
+                base_url=url,
+            )
+        )
         providers_configured += 1
         print(_green("    Saved."))
     print()
 
     # Bedrock (for existing AWS users)
     if _ask_yn("Configure AWS Bedrock? (Claude models via AWS)", default=False):
-        cr.upsert_provider(ProviderConfig(
-            name="bedrock",
-            kind="bedrock",
-            api_key="aws",
-        ))
+        cr.upsert_provider(
+            ProviderConfig(
+                name="bedrock",
+                kind="bedrock",
+                api_key="aws",
+            )
+        )
         providers_configured += 1
         print(_green("    Saved. (Uses your existing AWS credentials/profile.)"))
     print()
 
     if providers_configured == 0:
-        print(_yellow("No providers configured. You can add them later via the web UI."))
+        print(
+            _yellow("No providers configured. You can add them later via the web UI.")
+        )
         print()
 
     # ── Initial sync ─────────────────────────────────────────────────────────
@@ -198,10 +207,12 @@ def run_setup() -> None:
         if result.errors:
             for e in result.errors:
                 print(_yellow(f"  Warning: {e}"))
-        print(_green(
-            f"  Synced: {result.added} new, {result.updated} updated, "
-            f"{result.removed} removed ({result.unchanged} unchanged)."
-        ))
+        print(
+            _green(
+                f"  Synced: {result.added} new, {result.updated} updated, "
+                f"{result.removed} removed ({result.unchanged} unchanged)."
+            )
+        )
         # Deliberately not LLM-profiled here: that costs one call per model and a
         # first sync pulls in hundreds. Later syncs profile only what they add,
         # which is a handful; the backlog is a decision for the operator.

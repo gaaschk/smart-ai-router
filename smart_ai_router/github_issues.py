@@ -20,6 +20,7 @@ Failure here is not failure of the report: `create_issue` returns
 `(url, error)` and the caller records whichever it got. A revoked token costs
 the operator the issue, never the user's words.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,8 +68,7 @@ def _body(report_id: int, description: str, meta: dict, transcript: list) -> str
 
     if transcript:
         lines += [
-            "<details><summary>Conversation "
-            f"({len(transcript)} messages)</summary>",
+            f"<details><summary>Conversation ({len(transcript)} messages)</summary>",
             "",
             "```json",
             json.dumps(transcript, indent=1)[:60_000],

@@ -22,6 +22,7 @@ shell on a public-tunnel box.
 Docker would be the portable alternative; the deploy box has no running daemon,
 so seatbelt is the pragmatic isolation actually available here.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -135,7 +136,9 @@ def run_bash(command: str, workspace: Path, *, timeout: int | None = None) -> di
         )
     except subprocess.TimeoutExpired as exc:
         return {
-            "stdout": (exc.stdout or b"").decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+            "stdout": (exc.stdout or b"").decode(errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or ""),
             "stderr": f"[command timed out after {limit}s]",
             "exit_code": 124,
             "timed_out": True,

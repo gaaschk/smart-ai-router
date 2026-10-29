@@ -1,4 +1,5 @@
 """Shared pytest fixtures."""
+
 import pytest
 
 from smart_ai_router import settings as _settings

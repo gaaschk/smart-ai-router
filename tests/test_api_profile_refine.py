@@ -4,6 +4,7 @@ Offline throughout: the rating call itself is monkeypatched, so what's under tes
 is the endpoint's guards, its wiring to the enrichment + audit, and the shape of
 what it hands the UI.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -35,32 +36,52 @@ def _profile(**scores) -> dict[str, float]:
 
 
 def _seed(store: SqliteStore, *, with_key: bool = True) -> None:
-    store.upsert_provider(ProviderConfig(
-        name="openrouter", kind="openrouter",
-        api_key="sk-or-test" if with_key else "",
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/cheap-coder", provider="openrouter", cost=1,
-        reliability=1.0, profile=_profile(law_regulatory=0.90),
-        description="Agentic coding model",
-    ))
+    store.upsert_provider(
+        ProviderConfig(
+            name="openrouter",
+            kind="openrouter",
+            api_key="sk-or-test" if with_key else "",
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/cheap-coder",
+            provider="openrouter",
+            cost=1,
+            reliability=1.0,
+            profile=_profile(law_regulatory=0.90),
+            description="Agentic coding model",
+        )
+    )
     # The frontier model doubles as the rater the profiler routes to: profiling
     # is a routed helper call now, so a run needs a model that clears the
     # profiler's bar (general_knowledge @ specialist) and honors a json_schema.
-    store.upsert_model(ModelSpec(
-        value="openrouter/pricey-frontier", provider="openrouter", cost=12,
-        reliability=1.0, structured_outputs=True,
-        profile=_profile(law_regulatory=0.95, general_knowledge=0.95),
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/pricey-frontier",
+            provider="openrouter",
+            cost=12,
+            reliability=1.0,
+            structured_outputs=True,
+            profile=_profile(law_regulatory=0.95, general_knowledge=0.95),
+        )
+    )
     # One logged law prompt that the cheap coder currently wins — the audit has
     # to be able to see this move.
-    store.record_usage(UsageRecord(
-        user="kevin", routed_model="openrouter/cheap-coder",
-        domain="reasoning", complexity="hard",
-        profile={"domains": [{"field": "law_regulatory", "depth": "specialist"}],
-                 "demands": [], "stakes": "low"},
-        ts="2026-08-19T00:00:00+00:00",
-    ))
+    store.record_usage(
+        UsageRecord(
+            user="kevin",
+            routed_model="openrouter/cheap-coder",
+            domain="reasoning",
+            complexity="hard",
+            profile={
+                "domains": [{"field": "law_regulatory", "depth": "specialist"}],
+                "demands": [],
+                "stakes": "low",
+            },
+            ts="2026-08-19T00:00:00+00:00",
+        )
+    )
 
 
 def _fake_rating(monkeypatch, ratings, note="coder"):
@@ -74,16 +95,15 @@ def _fake_rating(monkeypatch, ratings, note="coder"):
 
 def _post(client, **body):
     return client.post(
-        "/api/models/profile", json=body,
+        "/api/models/profile",
+        json=body,
         headers={"Authorization": f"Bearer {_ADMIN}"},
     )
 
 
 def test_refine_writes_ratings_and_reports_the_routing_flip(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
-    monkeypatch.setattr(
-        "smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1"
-    )
+    monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     _fake_rating(monkeypatch, {"law_regulatory": "unsuited"})
     store = SqliteStore(":memory:")
     _seed(store)
@@ -109,9 +129,7 @@ def test_refine_writes_ratings_and_reports_the_routing_flip(monkeypatch):
 
 def test_dry_run_previews_the_flip_without_writing(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
-    monkeypatch.setattr(
-        "smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1"
-    )
+    monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     _fake_rating(monkeypatch, {"law_regulatory": "unsuited"})
     store = SqliteStore(":memory:")
     _seed(store)
@@ -121,7 +139,7 @@ def test_dry_run_previews_the_flip_without_writing(monkeypatch):
 
     assert d["enrich"]["written"] == 0
     assert d["enrich"]["dry_run"] is True
-    assert d["audit"]["flipped_requests"] == 1   # still predicts the flip
+    assert d["audit"]["flipped_requests"] == 1  # still predicts the flip
     assert store.get("openrouter/cheap-coder").profile_ratings == {}
     assert store.get("openrouter/cheap-coder").profile["law_regulatory"] == 0.90
     change = d["enrich"]["changes"][0]
@@ -135,9 +153,7 @@ def test_the_report_names_the_routed_rater_and_why(monkeypatch):
     reshaped the catalog and on what grounds — otherwise the next admin reading a
     report of shifted profiles has no way to judge it."""
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
-    monkeypatch.setattr(
-        "smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1"
-    )
+    monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     _fake_rating(monkeypatch, {"law_regulatory": "weak"})
     store = SqliteStore(":memory:")
     _seed(store)
@@ -152,9 +168,7 @@ def test_the_report_names_the_routed_rater_and_why(monkeypatch):
 
 def test_a_pinned_rater_is_reported_as_pinned(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
-    monkeypatch.setattr(
-        "smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1"
-    )
+    monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     _fake_rating(monkeypatch, {"law_regulatory": "weak"})
     store = SqliteStore(":memory:")
     _seed(store)
@@ -170,8 +184,11 @@ def test_refine_requires_admin(monkeypatch):
     store = SqliteStore(":memory:")
     _seed(store)
     client = _client(CapabilityRouter(store=store))
-    r = client.post("/api/models/profile", json={},
-                    headers={"Authorization": "Bearer not-the-admin"})
+    r = client.post(
+        "/api/models/profile",
+        json={},
+        headers={"Authorization": "Bearer not-the-admin"},
+    )
     assert r.status_code in (401, 403)
 
 
@@ -196,9 +213,11 @@ def test_refine_422s_when_no_model_qualifies_to_rate(monkeypatch):
     _seed(store)
     # Strip the one model that honors a json_schema: the rest of the catalog is
     # ineligible, exactly as a deployment with only small local models would be.
-    store.upsert_model(dataclasses.replace(
-        store.get("openrouter/pricey-frontier"), structured_outputs=False
-    ))
+    store.upsert_model(
+        dataclasses.replace(
+            store.get("openrouter/pricey-frontier"), structured_outputs=False
+        )
+    )
     client = _client(CapabilityRouter(store=store))
     r = _post(client)
     assert r.status_code == 422
@@ -209,11 +228,17 @@ def test_models_endpoint_exposes_ratings_and_note(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_API_KEYS", raising=False)
     store = SqliteStore(":memory:")
     _seed(store)
-    store.upsert_model(ModelSpec(
-        value="openrouter/rated", provider="openrouter", cost=2, reliability=1.0,
-        profile=_profile(), profile_ratings={"medicine_health": "unsuited"},
-        profile_note="code-tuned; keep away from clinical questions",
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/rated",
+            provider="openrouter",
+            cost=2,
+            reliability=1.0,
+            profile=_profile(),
+            profile_ratings={"medicine_health": "unsuited"},
+            profile_note="code-tuned; keep away from clinical questions",
+        )
+    )
     client = _client(CapabilityRouter(store=store))
     models = {m["value"]: m for m in client.get("/api/models").json()}
     rated = models["openrouter/rated"]
@@ -226,9 +251,7 @@ def test_models_endpoint_exposes_ratings_and_note(monkeypatch):
 
 def test_only_missing_makes_a_second_run_a_no_op(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_API_KEYS", _ADMIN)
-    monkeypatch.setattr(
-        "smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1"
-    )
+    monkeypatch.setattr("smart_ai_router.api.proxy._OPENROUTER_BASE", "http://fake/v1")
     _fake_rating(monkeypatch, {"law_regulatory": "weak"})
     store = SqliteStore(":memory:")
     _seed(store)

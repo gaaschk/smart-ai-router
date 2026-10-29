@@ -1,4 +1,5 @@
 """Turn capture: who gets captured, and whether a streamed reply survives it."""
+
 import json
 
 import pytest
@@ -46,8 +47,9 @@ def test_record_round_trips(capture_file, monkeypatch):
         routed_model="openrouter/anthropic/claude-haiku-4.5",
         messages=[{"role": "user", "content": "read setup.py"}],
         tools=[{"type": "function", "function": {"name": "Read"}}],
-        tool_calls=[{"function": {"name": "Read",
-                                  "arguments": '{"file_path": "setup.py"}'}}],
+        tool_calls=[
+            {"function": {"name": "Read", "arguments": '{"file_path": "setup.py"}'}}
+        ],
         content_len=0,
     )
     assert ok
@@ -60,8 +62,12 @@ def test_record_round_trips(capture_file, monkeypatch):
 def test_load_skips_a_malformed_line(capture_file, monkeypatch):
     """A rotation mid-write truncates the last line; one bad row must not cost
     the rest of the corpus."""
-    good = {"lane": "worker", "messages": [{"role": "user", "content": "hi"}],
-            "tools": [], "reference": {"tool_calls": [], "content_len": 3}}
+    good = {
+        "lane": "worker",
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [],
+        "reference": {"tool_calls": [], "content_len": 3},
+    }
     capture_file.write_text(
         json.dumps(good) + "\n" + '{"messages": [{"role": "user"' + "\n",
         encoding="utf-8",
@@ -70,10 +76,20 @@ def test_load_skips_a_malformed_line(capture_file, monkeypatch):
 
 
 def test_record_never_raises_on_an_unwritable_path(tmp_path, monkeypatch):
-    monkeypatch.setenv("SMART_ROUTER_CAPTURE_FILE",
-                       str(tmp_path / "nope" / "captures.jsonl"))
-    assert capture.record(lane="worker", routed_model="m", messages=[],
-                          tools=None, tool_calls=[], content_len=0) is False
+    monkeypatch.setenv(
+        "SMART_ROUTER_CAPTURE_FILE", str(tmp_path / "nope" / "captures.jsonl")
+    )
+    assert (
+        capture.record(
+            lane="worker",
+            routed_model="m",
+            messages=[],
+            tools=None,
+            tool_calls=[],
+            content_len=0,
+        )
+        is False
+    )
 
 
 def test_scanner_reassembles_a_tool_call_split_across_chunks():
@@ -92,7 +108,7 @@ def test_scanner_reassembles_a_tool_call_split_across_chunks():
     blob = "".join(f"data: {f}\n\n" for f in frames) + "data: [DONE]\n\n"
     # Fed in small slices, so whole lines are assembled from partial ones.
     for i in range(0, len(blob), 17):
-        scanner.feed(blob[i:i + 17].encode())
+        scanner.feed(blob[i : i + 17].encode())
 
     calls = scanner.tool_calls()
     assert len(calls) == 1
@@ -103,7 +119,9 @@ def test_scanner_reassembles_a_tool_call_split_across_chunks():
 def test_scanner_ignores_a_call_that_never_named_a_tool():
     """A stream cut off before the name arrived is not a reference."""
     scanner = _StreamUsageScanner()
-    scanner.feed(b'data: {"choices":[{"delta":{"tool_calls":'
-                 b'[{"index":0,"function":{"arguments":"{\\"a\\":1}"}}]}}]}\n\n')
+    scanner.feed(
+        b'data: {"choices":[{"delta":{"tool_calls":'
+        b'[{"index":0,"function":{"arguments":"{\\"a\\":1}"}}]}}]}\n\n'
+    )
     assert scanner.tool_calls() == []
     assert scanner.content_len == 0

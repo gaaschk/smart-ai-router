@@ -26,12 +26,17 @@ link is opt-in, the UI says plainly that sharing it shares the chats, and it rid
 in a URL *fragment* — never sent to the server, so it stays out of access logs and
 ``Referer`` headers.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from smart_ai_router import public_access as _public
-from smart_ai_router.api.schemas import AnonClaimRequest, AnonClaimResponse, AnonSessionResponse
+from smart_ai_router.api.schemas import (
+    AnonClaimRequest,
+    AnonClaimResponse,
+    AnonSessionResponse,
+)
 
 anon_router = APIRouter()
 
@@ -56,7 +61,7 @@ def get_anon_session(request: Request):
         # nothing to hand back.
         raise HTTPException(status_code=404, detail="Not an anonymous session")
     token = getattr(request.state, "anon_cookie", "") or ""
-    session_id = (getattr(request.state, "user", "") or "")[len(_public.ANON_PREFIX):]
+    session_id = (getattr(request.state, "user", "") or "")[len(_public.ANON_PREFIX) :]
     if not token or not session_id:
         raise HTTPException(status_code=404, detail="Not an anonymous session")
     return AnonSessionResponse(token=token, session_id=session_id)

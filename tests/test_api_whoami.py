@@ -4,6 +4,7 @@ The endpoint lets the UI show who you're signed in as (root/admin, a per-user
 label, or open mode) without ever exposing the secret. It mirrors the identity
 the auth middleware attaches to each request.
 """
+
 import warnings
 
 import pytest

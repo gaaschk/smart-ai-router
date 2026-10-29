@@ -5,6 +5,7 @@ clears the bar a prompt sets. That knowledge is worthless unless it reaches the
 caller, so these tests pin the wire contract — the profile, the reason, the
 qualified flag, and the caveat prepended to an under-qualified answer.
 """
+
 import warnings
 
 import httpx
@@ -18,8 +19,13 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "answer."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -43,13 +49,23 @@ def client(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     store = SqliteStore(":memory:")
-    store.upsert_model(ModelSpec(
-        value="openrouter/cheap-coder", provider="openrouter", cost=1, ctx_k=200,
-        reliability=1.0, tools=True,
-        profile={"software_engineering": 0.95, "law_regulatory": 0.55,
-                 "medicine_health": 0.50, "general_knowledge": 0.70},
-        competence={"coding": 0.95, "reasoning": 0.55, "docs": 0.7, "general": 0.7},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/cheap-coder",
+            provider="openrouter",
+            cost=1,
+            ctx_k=200,
+            reliability=1.0,
+            tools=True,
+            profile={
+                "software_engineering": 0.95,
+                "law_regulatory": 0.55,
+                "medicine_health": 0.50,
+                "general_knowledge": 0.70,
+            },
+            competence={"coding": 0.95, "reasoning": 0.55, "docs": 0.7, "general": 0.7},
+        )
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
@@ -59,11 +75,14 @@ def client(monkeypatch):
 
 
 def _chat(client, prompt):
-    return client.post("/v1/chat/completions", json={
-        "model": "auto",
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-    })
+    return client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        },
+    )
 
 
 def test_headers_carry_the_profile_and_the_reason(client):
@@ -71,8 +90,8 @@ def test_headers_carry_the_profile_and_the_reason(client):
     assert r.status_code == 200
     assert r.headers["X-Routed-Model"] == "openrouter/cheap-coder"
     assert r.headers["X-Qualified"] == "true"
-    assert r.headers["X-Prompt-Profile"]          # human-readable profile
-    assert r.headers["X-Routing-Why"]             # the binding constraint
+    assert r.headers["X-Prompt-Profile"]  # human-readable profile
+    assert r.headers["X-Routing-Why"]  # the binding constraint
     assert r.headers["X-Classifier"] == "keyword"
     # Legacy headers still populated, derived from the profile.
     assert r.headers["X-Domain"] in {"coding", "docs", "reasoning", "general"}
@@ -114,8 +133,8 @@ def test_headers_survive_an_unencodable_profile(client):
 
 def test_forwarded_body_keeps_the_provider_model_id(client):
     _chat(client, "Write a Python function to reverse a linked list.")
-    assert client.sent[-1]["model"] == "cheap-coder"   # provider prefix stripped
-    assert client.sent[-1]["max_tokens"] > 0           # generous default applied
+    assert client.sent[-1]["model"] == "cheap-coder"  # provider prefix stripped
+    assert client.sent[-1]["max_tokens"] > 0  # generous default applied
 
 
 def test_usage_log_records_the_profile_that_routed(client):
@@ -157,7 +176,7 @@ def test_usage_log_records_which_classifier_ran(client):
     what turns that into a rate, which is the only form in which "the configured
     model stopped answering and nobody noticed" is visible."""
     r = _chat(client, "Write a Python function to reverse a linked list.")
-    assert r.headers["X-Classifier"] == "keyword"   # no models configured here
+    assert r.headers["X-Classifier"] == "keyword"  # no models configured here
     rows = client.store.recent_usage("", "1970-01-01T00:00:00+00:00")
     assert [row.classifier for row in rows] == ["keyword"]
 

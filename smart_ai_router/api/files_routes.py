@@ -8,6 +8,7 @@ Files are scoped to the calling identity (request.state.user, set by the auth
 middleware). The admin identity may see and manage every file; a per-user key
 sees only its own. In open (no-auth) mode every request shares the "" owner.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

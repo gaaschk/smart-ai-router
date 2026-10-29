@@ -1,4 +1,5 @@
 """Tests for the SQLite API-key + usage-log store layer."""
+
 from smart_ai_router.apikeys import display_prefix, generate_key, hash_key
 from smart_ai_router.models import ApiKey, UsageRecord
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -81,9 +82,14 @@ def test_recreate_rotates_secret_keeping_identity():
 def test_recreate_unknown_prefix_returns_none():
     store = SqliteStore(":memory:")
     new_plain = generate_key()
-    assert store.recreate_api_key(
-        "sk-smart-nope", new_hash=hash_key(new_plain), new_prefix=display_prefix(new_plain)
-    ) is None
+    assert (
+        store.recreate_api_key(
+            "sk-smart-nope",
+            new_hash=hash_key(new_plain),
+            new_prefix=display_prefix(new_plain),
+        )
+        is None
+    )
 
 
 def test_all_api_keys_ordered():
@@ -106,15 +112,27 @@ def test_touch_updates_last_used():
 
 def test_record_and_query_usage():
     store = SqliteStore(":memory:")
-    store.record_usage(UsageRecord(
-        user="alice", key_prefix="sk-smart-aaa", routed_model="ollama/llama3.1:8b",
-        domain="coding", complexity="moderate",
-        prompt_tokens=100, completion_tokens=50, cost_usd=0.0, status=200,
-        ts="2026-07-24T00:00:00+00:00",
-    ))
-    store.record_usage(UsageRecord(
-        user="bob", prompt_tokens=10, ts="2026-07-24T00:00:00+00:00",
-    ))
+    store.record_usage(
+        UsageRecord(
+            user="alice",
+            key_prefix="sk-smart-aaa",
+            routed_model="ollama/llama3.1:8b",
+            domain="coding",
+            complexity="moderate",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost_usd=0.0,
+            status=200,
+            ts="2026-07-24T00:00:00+00:00",
+        )
+    )
+    store.record_usage(
+        UsageRecord(
+            user="bob",
+            prompt_tokens=10,
+            ts="2026-07-24T00:00:00+00:00",
+        )
+    )
     alice = store.recent_usage("alice", "2026-01-01T00:00:00+00:00")
     assert len(alice) == 1
     assert alice[0].prompt_tokens == 100

@@ -3,6 +3,7 @@
 Where a format can be read back with the extraction libs, we round-trip through
 extract.py to prove real content landed — no byte-for-byte fixtures needed.
 """
+
 import pytest
 
 from smart_ai_router import docgen, extract
@@ -27,6 +28,7 @@ SAMPLE = """# Kevin Gaasch
 
 
 # ── markdown parsing ──────────────────────────────────────────────────────────
+
 
 def test_parse_headings_bullets_para_table():
     blocks = docgen.parse_markdown(SAMPLE)
@@ -54,10 +56,11 @@ def test_strip_inline_drops_emphasis():
 
 # ── support detection ──────────────────────────────────────────────────────────
 
+
 def test_is_supported():
     for ext in (".pdf", ".docx", ".pptx", ".xlsx", ".md", ".txt"):
         assert docgen.is_supported("file" + ext)
-    assert not docgen.is_supported("file.doc")   # legacy binary
+    assert not docgen.is_supported("file.doc")  # legacy binary
     assert not docgen.is_supported("file.html")
     assert not docgen.is_supported("noext")
 
@@ -69,12 +72,14 @@ def test_unsupported_type_raises():
 
 # ── text passthrough ────────────────────────────────────────────────────────────
 
+
 def test_markdown_passthrough_is_verbatim():
     assert docgen.render("x.md", SAMPLE) == SAMPLE.encode("utf-8")
     assert docgen.render("x.txt", "plain body").decode() == "plain body"
 
 
 # ── PDF ─────────────────────────────────────────────────────────────────────────
+
 
 def test_pdf_has_pdf_magic_and_nonempty():
     data = docgen.render("resume.pdf", SAMPLE)
@@ -88,6 +93,7 @@ def test_pdf_empty_content_still_valid():
 
 
 # ── docx / pptx / xlsx round-trip through the extractor ─────────────────────────
+
 
 def test_docx_roundtrip():
     data = docgen.render("resume.docx", SAMPLE)

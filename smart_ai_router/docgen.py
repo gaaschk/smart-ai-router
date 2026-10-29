@@ -22,6 +22,7 @@ the caller wants a file. Each renderer raises DocGenError on failure so the tool
 layer can report a clear message to the model instead of silently producing an
 empty file.
 """
+
 from __future__ import annotations
 
 import io
@@ -49,10 +50,11 @@ def _ext(path: str) -> str:
 
 # ── markdown model ────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Block:
-    kind: str          # "h1" | "h2" | "h3" | "bullet" | "para" | "table"
-    text: str = ""     # for headings/bullets/paragraphs
+    kind: str  # "h1" | "h2" | "h3" | "bullet" | "para" | "table"
+    text: str = ""  # for headings/bullets/paragraphs
     rows: list = None  # for tables: list[list[str]]
 
 
@@ -141,6 +143,7 @@ def parse_markdown(content: str) -> list[Block]:
 
 # ── public entry point ──────────────────────────────────────────────────────
 
+
 def render(path: str, content: str) -> bytes:
     """Render `content` (markdown) into bytes for the file type implied by
     `path`'s extension. Raises DocGenError for unsupported types or on failure.
@@ -213,12 +216,16 @@ def _render_pdf(content: str) -> bytes:
                 )
             elif b.kind == "table":
                 t = Table(b.rows)
-                t.setStyle(TableStyle([
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]))
+                t.setStyle(
+                    TableStyle(
+                        [
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ]
+                    )
+                )
                 flow.append(t)
                 flow.append(Spacer(1, 6))
             else:  # para
@@ -244,7 +251,7 @@ def _render_docx(content: str) -> bytes:
         pos = 0
         for m in _BOLD.finditer(text):
             if m.start() > pos:
-                paragraph.add_run(text[pos:m.start()])
+                paragraph.add_run(text[pos : m.start()])
             paragraph.add_run(m.group(1)).bold = True
             pos = m.end()
         if pos < len(text):

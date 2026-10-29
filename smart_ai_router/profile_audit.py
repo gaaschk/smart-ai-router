@@ -19,6 +19,7 @@ That makes "does this enrichment help?" an answerable question: it shows which
 prompts move, to which model, and whether each move buys qualification (the
 router previously had to admit no model cleared the bar) or spends money.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,14 +33,14 @@ from smart_ai_router.taxonomy import normalize_profile
 class Flip:
     """One prompt profile that routes differently under the proposed profiles."""
 
-    described_as: str        # PromptProfile.describe() — human-readable demand
-    requests: int            # how many logged requests carried this profile
+    described_as: str  # PromptProfile.describe() — human-readable demand
+    requests: int  # how many logged requests carried this profile
     before_model: str
     after_model: str
     before_qualified: bool
     after_qualified: bool
-    before_cost: int         # cost tier of each pick, so a flip can be read as
-    after_cost: int          # cheaper / pricier at a glance
+    before_cost: int  # cost tier of each pick, so a flip can be read as
+    after_cost: int  # cheaper / pricier at a glance
 
     def direction(self) -> str:
         """What this flip buys, in one word.
@@ -65,9 +66,9 @@ class Flip:
 class AuditResult:
     """Aggregate effect of a profile change on real traffic."""
 
-    profiles: int = 0        # distinct prompt profiles replayed
-    requests: int = 0        # logged requests they represent
-    flipped: int = 0         # distinct profiles whose pick changed
+    profiles: int = 0  # distinct prompt profiles replayed
+    requests: int = 0  # logged requests they represent
+    flipped: int = 0  # distinct profiles whose pick changed
     flipped_requests: int = 0  # requests those represent — the number that matters
     flips: list[Flip] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)

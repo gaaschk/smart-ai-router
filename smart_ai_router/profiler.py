@@ -45,6 +45,7 @@ agentic_level() here and consumed by the router when the request actually
 involves tool use. See that function for what happened when it was folded into a
 field instead.
 """
+
 from __future__ import annotations
 
 import re
@@ -130,44 +131,92 @@ _AGENTIC_ANCHORS: tuple[tuple[float, float], ...] = (
 # answer, since it is the broad frontier models that carry that knowledge.
 _CUES: dict[str, tuple[str, ...]] = {
     "software_engineering": (
-        "coding", "code", "coder", "software engineering", "programming",
-        "swe-bench", "developer", "pull request", "bug finding", "code review",
+        "coding",
+        "code",
+        "coder",
+        "software engineering",
+        "programming",
+        "swe-bench",
+        "developer",
+        "pull request",
+        "bug finding",
+        "code review",
     ),
     # No bare "workflow" — "agent workflows" appears in a large share of
     # descriptions and would credit architecture depth to nearly everything.
     "systems_architecture": (
-        "long-horizon", "enterprise-grade", "orchestrat", "system design",
-        "architecture design", "distributed system",
+        "long-horizon",
+        "enterprise-grade",
+        "orchestrat",
+        "system design",
+        "architecture design",
+        "distributed system",
     ),
     "math_formal": (
-        "math", "mathematic", "aime", "olympiad", "theorem", "formal reasoning",
+        "math",
+        "mathematic",
+        "aime",
+        "olympiad",
+        "theorem",
+        "formal reasoning",
         "logical reasoning",
     ),
     "data_analysis": (
-        "data analysis", "analytics", "tabular", "structured data",
+        "data analysis",
+        "analytics",
+        "tabular",
+        "structured data",
         "quantitative",
     ),
-    "natural_science": ("science", "scientific", "gpqa", "physics", "chemistry", "biolog"),
+    "natural_science": (
+        "science",
+        "scientific",
+        "gpqa",
+        "physics",
+        "chemistry",
+        "biolog",
+    ),
     "medicine_health": ("medical", "clinical", "biomedical", "healthcare", "medicine"),
     "law_regulatory": ("legal", "law", "compliance", "regulatory", "contract"),
     "finance_business": ("financ", "trading", "accounting", "business analysis"),
     "humanities_social": ("humanities", "history", "philosoph", "social science"),
     "creative_writing": (
-        "creative writing", "creative", "roleplay", "role-play", "storytelling",
-        "fiction", "narrative", "prose", "character",
+        "creative writing",
+        "creative",
+        "roleplay",
+        "role-play",
+        "storytelling",
+        "fiction",
+        "narrative",
+        "prose",
+        "character",
     ),
     "technical_writing": ("documentation", "technical writing", "summariz"),
     "education_explanation": ("tutor", "teaching", "educational", "explain"),
     "translation_multilingual": (
-        "multilingual", "translation", "translate", "languages",
+        "multilingual",
+        "translation",
+        "translate",
+        "languages",
     ),
     # Never a bare "design": "designed for advanced reasoning" appears in a large
     # fraction of descriptions and would make every model a design specialist.
     "product_design": (
-        "product design", "ui design", "user interface", "ux", "front-end",
-        "frontend", "web design",
+        "product design",
+        "ui design",
+        "user interface",
+        "ux",
+        "front-end",
+        "frontend",
+        "web design",
     ),
-    "operations_process": ("agentic", "agent workflows", "tool use", "tool-use", "automation"),
+    "operations_process": (
+        "agentic",
+        "agent workflows",
+        "tool use",
+        "tool-use",
+        "automation",
+    ),
     "general_knowledge": ("general-purpose", "general purpose", "versatile"),
 }
 
@@ -180,8 +229,21 @@ _CUE_BOOST = 0.04
 # discount, because "agentic" or "reasoning" appearing in a description says
 # nothing about narrowness (nearly every model claims both).
 _NARROW_MARKERS: dict[str, tuple[str, ...]] = {
-    "software_engineering": ("coder", "-code", "code model", "coding model", "codestral", "starcoder"),
-    "creative_writing": ("roleplay", "role-play", "storytelling", "companion", "uncensored"),
+    "software_engineering": (
+        "coder",
+        "-code",
+        "code model",
+        "coding model",
+        "codestral",
+        "starcoder",
+    ),
+    "creative_writing": (
+        "roleplay",
+        "role-play",
+        "storytelling",
+        "companion",
+        "uncensored",
+    ),
     "math_formal": ("math-", "-math", "prover", "theorem"),
     "translation_multilingual": ("translation model", "translate-"),
     "medicine_health": ("medgemma", "medical model", "-med-", "biomed"),
@@ -199,11 +261,18 @@ _NARROW_MARKERS: dict[str, tuple[str, ...]] = {
 # any competent model can attempt (general knowledge, explanation, writing) — the
 # discount is about not trusting a code model with a regulatory question, not
 # about pretending it cannot form sentences.
-_DISCOUNTED_FIELDS = frozenset({
-    "law_regulatory", "medicine_health", "finance_business",
-    "natural_science", "humanities_social", "data_analysis",
-    "systems_architecture", "product_design",
-})
+_DISCOUNTED_FIELDS = frozenset(
+    {
+        "law_regulatory",
+        "medicine_health",
+        "finance_business",
+        "natural_science",
+        "humanities_social",
+        "data_analysis",
+        "systems_architecture",
+        "product_design",
+    }
+)
 
 # Size of that discount. Tuned so a narrow specialist at frontier capability
 # still clears `practitioner` on unrelated professional fields but not
@@ -230,10 +299,7 @@ def _reasoning_credit(score: float) -> float:
 
 def _cue_fields(text: str) -> set[str]:
     """Fields the text advertises."""
-    return {
-        field for field, cues in _CUES.items()
-        if any(cue in text for cue in cues)
-    }
+    return {field for field, cues in _CUES.items() if any(cue in text for cue in cues)}
 
 
 def _narrow_specialty(text: str) -> str | None:
@@ -374,10 +440,13 @@ def agentic_level(agentic_index: float | None) -> float:
 # same size as _CUE_BOOST because it is the same claim ("the vendor tuned for
 # this") from a better reader.
 RATINGS: dict[str, tuple[float, str]] = {
-    "specialty": (0.04, "purpose-built or explicitly tuned for this; a headline capability"),
-    "capable":   (0.00, "handles this about as well as its overall level suggests"),
-    "weak":      (-0.10, "noticeably worse at this than its overall level suggests"),
-    "unsuited":  (-0.20, "should not be relied on for this at all"),
+    "specialty": (
+        0.04,
+        "purpose-built or explicitly tuned for this; a headline capability",
+    ),
+    "capable": (0.00, "handles this about as well as its overall level suggests"),
+    "weak": (-0.10, "noticeably worse at this than its overall level suggests"),
+    "unsuited": (-0.20, "should not be relied on for this at all"),
 }
 
 RATING_KEYS = tuple(RATINGS)
@@ -402,9 +471,7 @@ def apply_ratings(
     out: dict[str, float] = {}
     for field_name, score in baseline.items():
         offset = RATINGS.get(ratings.get(field_name, DEFAULT_RATING), (0.0, ""))[0]
-        out[field_name] = round(
-            max(_MIN_SCORE, min(_MAX_SCORE, score + offset)), 4
-        )
+        out[field_name] = round(max(_MIN_SCORE, min(_MAX_SCORE, score + offset)), 4)
     return out
 
 

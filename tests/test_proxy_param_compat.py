@@ -12,6 +12,7 @@ These tests pin the three ways that guess can be wrong, and which fix each one
 gets: drop the param (a preference the answer survives without), clamp it (an
 output ceiling), or *route* on it (a schema, where dropping is a silent failure).
 """
+
 import warnings
 
 import httpx
@@ -25,8 +26,13 @@ from smart_ai_router.store.sqlite_store import SqliteStore
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "answer."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -35,8 +41,12 @@ _CODING = {"software_engineering": 0.95, "general_knowledge": 0.75}
 
 def _spec(value, **kw) -> ModelSpec:
     return ModelSpec(
-        value=value, provider="openrouter", ctx_k=200, reliability=1.0,
-        tools=True, profile=dict(_CODING),
+        value=value,
+        provider="openrouter",
+        ctx_k=200,
+        reliability=1.0,
+        tools=True,
+        profile=dict(_CODING),
         competence={"coding": 0.95, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
         **kw,
     )
@@ -64,21 +74,25 @@ def _client(monkeypatch, *specs: ModelSpec) -> TestClient:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
-    c.sent = sent       # forwarded bodies, for asserting what the provider saw
-    c.store = store     # for asserting what landed in the usage log
+    c.sent = sent  # forwarded bodies, for asserting what the provider saw
+    c.store = store  # for asserting what landed in the usage log
     return c
 
 
 def _chat(client, **extra):
-    return client.post("/v1/chat/completions", json={
-        "model": "auto",
-        "messages": [{"role": "user", "content": "Refactor this Python parser."}],
-        "stream": False,
-        **extra,
-    })
+    return client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "Refactor this Python parser."}],
+            "stream": False,
+            **extra,
+        },
+    )
 
 
 # ── thinking knobs on a model that can't think ────────────────────────────────
+
 
 def test_reasoning_effort_is_dropped_for_a_non_reasoning_model(monkeypatch):
     c = _client(monkeypatch, _spec("openrouter/plain-coder", cost=1, reasoning=False))
@@ -118,6 +132,7 @@ def test_reasoning_effort_survives_to_a_reasoning_model(monkeypatch):
 
 
 # ── an output ceiling the caller couldn't have known ──────────────────────────
+
 
 def test_caller_supplied_max_tokens_is_clamped_to_the_pick(monkeypatch):
     # Several providers *reject* a request over their output limit rather than
@@ -170,7 +185,9 @@ def two_models(monkeypatch):
     return _client(
         monkeypatch,
         _spec("openrouter/cheap-prose", cost=1, structured_outputs=False),
-        _spec("openrouter/dear-schema", cost=2, cost_input=1.0, structured_outputs=True),
+        _spec(
+            "openrouter/dear-schema", cost=2, cost_input=1.0, structured_outputs=True
+        ),
     )
 
 
@@ -197,6 +214,7 @@ def test_a_plain_json_object_request_is_not_a_schema_requirement(two_models):
 
 # ── the agent loop is the same routed model ───────────────────────────────────
 
+
 def test_the_agent_loop_is_seeded_with_the_filtered_body(monkeypatch):
     """Every round of the agent loop hits the same pick, so it needs the same
     filtering. The loop used to be seeded from the raw request body, which handed
@@ -212,7 +230,7 @@ def test_the_agent_loop_is_seeded_with_the_filtered_body(monkeypatch):
     r = _chat(c, agent=True, reasoning_effort="high", max_tokens=200_000)
     assert r.status_code == 200
     assert seen and "reasoning_effort" not in seen[0]
-    assert seen[0]["model"] == "plain-coder"   # provider id, as the loop forwards it
+    assert seen[0]["model"] == "plain-coder"  # provider id, as the loop forwards it
 
 
 def test_a_malformed_response_format_does_not_500(two_models):

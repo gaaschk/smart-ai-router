@@ -94,6 +94,7 @@ disabled, an empty catalog, or nothing qualified. Both callers treat None as
 never fails a request — the same contract llm_classifier.py and llm_profiler.py
 already hold.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -111,17 +112,17 @@ AUTO = "auto"
 class HelperTask:
     """One internal LLM call the router makes, and what it demands of a model."""
 
-    key: str            # settings key holding "auto" | "" | a pinned model name
-    label: str          # how this call is identified in headers and logs
+    key: str  # settings key holding "auto" | "" | a pinned model name
+    label: str  # how this call is identified in headers and logs
     profile: PromptProfile
-    purpose: str        # one line, used in the "why this model" explanation
+    purpose: str  # one line, used in the "why this model" explanation
 
 
 @dataclass(frozen=True)
 class HelperChoice:
     """The model a helper call will use, and why it is that one."""
 
-    model: str          # provider-prefixed value when routed; verbatim when pinned
+    model: str  # provider-prefixed value when routed; verbatim when pinned
     why: str
     pinned: bool = False
 
@@ -176,4 +177,6 @@ def resolve(task: HelperTask, cr) -> HelperChoice | None:
         return None
     # Both halves of the reason, because a routed pick is reported to whoever has
     # to judge the run: what the call was for, and why this model got it.
-    return HelperChoice(model=decision.model, why=f"{task.purpose}: {decision.explain()}")
+    return HelperChoice(
+        model=decision.model, why=f"{task.purpose}: {decision.explain()}"
+    )

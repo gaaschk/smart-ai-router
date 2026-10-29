@@ -1,4 +1,5 @@
 """Tests for profile-based routing — select(), RouteDecision, field_score()."""
+
 import pytest
 
 from smart_ai_router.models import ModelSpec
@@ -25,18 +26,31 @@ def _p(*needs, demands=(), stakes="low"):
 # A cheap coding specialist and an expensive generalist — the exact pair the old
 # router got wrong, because both cleared one 0.88 bar and the cheap one won.
 _CODER = ModelSpec(
-    "cheap-coder", cost=1, reliability=1.0,
-    profile={"software_engineering": 0.95, "law_regulatory": 0.55,
-             "natural_science": 0.60, "general_knowledge": 0.70},
+    "cheap-coder",
+    cost=1,
+    reliability=1.0,
+    profile={
+        "software_engineering": 0.95,
+        "law_regulatory": 0.55,
+        "natural_science": 0.60,
+        "general_knowledge": 0.70,
+    },
 )
 _FRONTIER = ModelSpec(
-    "pricey-frontier", cost=12, reliability=1.0,
-    profile={"software_engineering": 0.94, "law_regulatory": 0.95,
-             "natural_science": 0.94, "general_knowledge": 0.95},
+    "pricey-frontier",
+    cost=12,
+    reliability=1.0,
+    profile={
+        "software_engineering": 0.94,
+        "law_regulatory": 0.95,
+        "natural_science": 0.94,
+        "general_knowledge": 0.95,
+    },
 )
 
 
 # ── field_score ───────────────────────────────────────────────────────────────
+
 
 def test_field_score_reads_the_profile():
     assert field_score(_CODER, "law_regulatory") == 0.55
@@ -65,6 +79,7 @@ def test_partial_profile_falls_back_per_field():
 
 # ── The core match ────────────────────────────────────────────────────────────
 
+
 def test_cheapest_qualified_model_wins():
     store = _store_with(_CODER, _FRONTIER)
     decision = select(
@@ -80,7 +95,9 @@ def test_every_named_field_must_clear_its_bar():
     store = _store_with(_CODER, _FRONTIER)
     decision = select(
         store,
-        profile=_p(("law_regulatory", "specialist"), ("software_engineering", "specialist")),
+        profile=_p(
+            ("law_regulatory", "specialist"), ("software_engineering", "specialist")
+        ),
         needs_tools=False,
     )
     assert decision.model == "pricey-frontier"
@@ -101,12 +118,15 @@ def test_binding_constraint_is_the_weakest_field():
 
 def test_scores_report_only_the_required_fields():
     store = _store_with(_FRONTIER)
-    decision = select(store, profile=_p(("law_regulatory", "specialist")), needs_tools=False)
+    decision = select(
+        store, profile=_p(("law_regulatory", "specialist")), needs_tools=False
+    )
     assert set(decision.scores) == {"law_regulatory"}
     assert set(decision.requirements) == {"law_regulatory"}
 
 
 # ── Nothing qualifies: the escalation path ────────────────────────────────────
+
 
 def test_unqualified_pick_is_reported_honestly():
     # This is the case the old router could not even detect: it returned a model
@@ -141,7 +161,9 @@ def test_unqualified_fallback_prefers_the_closest_miss_over_the_cheapest():
 
 def test_qualified_explain_names_the_pick_and_the_bar():
     store = _store_with(_FRONTIER)
-    decision = select(store, profile=_p(("law_regulatory", "specialist")), needs_tools=False)
+    decision = select(
+        store, profile=_p(("law_regulatory", "specialist")), needs_tools=False
+    )
     text = decision.explain()
     assert "qualified" in text
     assert "law_regulatory" in text
@@ -156,17 +178,25 @@ def test_no_requirements_is_not_reported_as_a_constraint():
 
 # ── Demands and stakes change the outcome, not just the number ────────────────
 
+
 def test_high_stakes_can_disqualify_a_borderline_model():
     borderline = ModelSpec(
-        "borderline", cost=0, reliability=1.0,
+        "borderline",
+        cost=0,
+        reliability=1.0,
         profile={"law_regulatory": DEPTHS["specialist"] + 0.01},
     )
     store = _store_with(borderline, _FRONTIER)
-    plain = select(store, profile=_p(("law_regulatory", "specialist")), needs_tools=False)
+    plain = select(
+        store, profile=_p(("law_regulatory", "specialist")), needs_tools=False
+    )
     loaded = select(
         store,
-        profile=_p(("law_regulatory", "specialist"),
-                   demands=["factual_precision"], stakes="high"),
+        profile=_p(
+            ("law_regulatory", "specialist"),
+            demands=["factual_precision"],
+            stakes="high",
+        ),
         needs_tools=False,
     )
     assert plain.model == "borderline"
@@ -175,12 +205,23 @@ def test_high_stakes_can_disqualify_a_borderline_model():
 
 # ── Hard filters still apply ──────────────────────────────────────────────────
 
+
 def test_hard_filters_apply_to_profile_routing():
     store = _store_with(
-        ModelSpec("no-tools", cost=0, reliability=1.0, tools=False,
-                  profile={"software_engineering": 0.99}),
-        ModelSpec("tools", cost=5, reliability=1.0, tools=True,
-                  profile={"software_engineering": 0.90}),
+        ModelSpec(
+            "no-tools",
+            cost=0,
+            reliability=1.0,
+            tools=False,
+            profile={"software_engineering": 0.99},
+        ),
+        ModelSpec(
+            "tools",
+            cost=5,
+            reliability=1.0,
+            tools=True,
+            profile={"software_engineering": 0.90},
+        ),
     )
     decision = select(
         store, profile=_p(("software_engineering", "specialist")), needs_tools=True
@@ -205,12 +246,17 @@ def test_exclude_applies_to_profile_routing():
 # holds a multi-step tool loop together. It gates tool traffic only, and only for
 # models that were actually measured.
 
+
 # Same field scores, tools on, and the candidate under test is always the
 # *cheapest* — so if a pricier model wins, the floor is the only thing that could
 # have moved it, not a tiebreak.
 def _looper(name, agentic, cost=1):
     return ModelSpec(
-        name, cost=cost, reliability=1.0, tools=True, agentic=agentic,
+        name,
+        cost=cost,
+        reliability=1.0,
+        tools=True,
+        agentic=agentic,
         profile={"software_engineering": 0.95},
     )
 
@@ -279,9 +325,12 @@ def test_the_floor_is_overridable_like_every_other_threshold():
     # A deployment that finds `surface` too permissive should be able to raise it
     # from config rather than by editing taxonomy.
     store = _store_with(_looper("strong-loop", 0.62))
-    assert select(
-        store, profile=_p(("software_engineering", "specialist")), needs_tools=True
-    ).model == "strong-loop"
+    assert (
+        select(
+            store, profile=_p(("software_engineering", "specialist")), needs_tools=True
+        ).model
+        == "strong-loop"
+    )
     with pytest.raises(RuntimeError, match="tool-loop floor"):
         select(
             store,
@@ -303,7 +352,9 @@ def test_the_floor_says_so_when_it_empties_the_pool():
 def test_raises_when_nothing_is_eligible():
     store = SqliteStore(":memory:")
     with pytest.raises(RuntimeError, match="no eligible model"):
-        select(store, profile=_p(("software_engineering", "specialist")), needs_tools=False)
+        select(
+            store, profile=_p(("software_engineering", "specialist")), needs_tools=False
+        )
 
 
 def test_eligibility_error_describes_the_demand():
@@ -316,12 +367,19 @@ def test_eligibility_error_describes_the_demand():
 
 # ── route() interop ───────────────────────────────────────────────────────────
 
+
 def test_route_accepts_a_profile():
     store = _store_with(_CODER, _FRONTIER)
-    assert route(
-        store, "", "", needs_tools=False,
-        profile=_p(("law_regulatory", "specialist")),
-    ) == "pricey-frontier"
+    assert (
+        route(
+            store,
+            "",
+            "",
+            needs_tools=False,
+            profile=_p(("law_regulatory", "specialist")),
+        )
+        == "pricey-frontier"
+    )
 
 
 def test_route_without_profile_uses_the_legacy_single_bar():
@@ -332,8 +390,10 @@ def test_route_without_profile_uses_the_legacy_single_bar():
         ModelSpec("b", cost=5, reliability=1.0, competence={"coding": 0.95}),
     )
     assert route(store, "coding", "hard", needs_tools=False) == "b"
-    assert route(store, "coding", "hard", needs_tools=False,
-                 thresholds={"hard": 0.75}) == "a"
+    assert (
+        route(store, "coding", "hard", needs_tools=False, thresholds={"hard": 0.75})
+        == "a"
+    )
 
 
 def test_expert_tier_has_a_threshold():
@@ -352,11 +412,19 @@ def test_expert_tier_has_a_threshold():
 # prompt touches only at surface depth (bar 0.53), which both clear by 0.3+. The
 # 0.001 margin difference bought the 33%-dearer model 195 times.
 _SONNET_4 = ModelSpec(
-    "claude-sonnet-4", cost=5, cost_input=3.0, cost_output=15.0, reliability=1.0,
+    "claude-sonnet-4",
+    cost=5,
+    cost_input=3.0,
+    cost_output=15.0,
+    reliability=1.0,
     profile={"software_engineering": 0.95, "data_analysis": 0.91},
 )
 _SONNET_5 = ModelSpec(
-    "claude-sonnet-5", cost=5, cost_input=2.0, cost_output=10.0, reliability=1.0,
+    "claude-sonnet-5",
+    cost=5,
+    cost_input=2.0,
+    cost_output=10.0,
+    reliability=1.0,
     profile={"software_engineering": 0.95, "data_analysis": 0.85},
 )
 
@@ -364,9 +432,13 @@ _SONNET_5 = ModelSpec(
 def test_same_tier_picks_the_genuinely_cheaper_model():
     store = _store_with(_SONNET_4, _SONNET_5)
     decision = select(
-        store, needs_tools=False,
-        profile=_p(("software_engineering", "practitioner"),
-                   ("data_analysis", "surface"), stakes="medium"),
+        store,
+        needs_tools=False,
+        profile=_p(
+            ("software_engineering", "practitioner"),
+            ("data_analysis", "surface"),
+            stakes="medium",
+        ),
     )
     assert decision.qualified
     assert decision.model == "claude-sonnet-5"
@@ -378,12 +450,20 @@ def test_same_tier_picks_the_genuinely_cheaper_model():
 # $0.31/1M hosted model that cleared it by 0.30, because the coarse cost tier is
 # the primary sort key. Free won, and it was slow.
 _SLOW_LOCAL = ModelSpec(
-    "ollama/slow-local", cost=0, cost_input=0.0, cost_output=0.0, reliability=1.0,
+    "ollama/slow-local",
+    cost=0,
+    cost_input=0.0,
+    cost_output=0.0,
+    reliability=1.0,
     profile={"software_engineering": 0.68},
 )
 _CHEAP_HOSTED = ModelSpec(
-    "openrouter/openai/gpt-5-nano", cost=1, cost_input=0.125, cost_output=0.375,
-    reliability=1.0, profile={"software_engineering": 0.98},
+    "openrouter/openai/gpt-5-nano",
+    cost=1,
+    cost_input=0.125,
+    cost_output=0.375,
+    reliability=1.0,
+    profile={"software_engineering": 0.98},
 )
 # Present so the pool's price ceiling is realistic. It matters: both axes are
 # normalized against the pool, so in a two-model pool where each wins one axis
@@ -391,15 +471,20 @@ _CHEAP_HOSTED = ModelSpec(
 # real ceiling the log scale puts $0.31 and $0 almost on top of each other, which
 # is why a *low* bias is enough to buy a lot of headroom.
 _DEAR_FRONTIER = ModelSpec(
-    "openrouter/anthropic/claude-sonnet-5", cost=5, cost_input=2.0, cost_output=10.0,
-    reliability=1.0, profile={"software_engineering": 0.95},
+    "openrouter/anthropic/claude-sonnet-5",
+    cost=5,
+    cost_input=2.0,
+    cost_output=10.0,
+    reliability=1.0,
+    profile={"software_engineering": 0.95},
 )
 
 
 def _practitioner(store, bias, monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_COST_QUALITY_BIAS", str(bias))
     return select(
-        store, needs_tools=False,
+        store,
+        needs_tools=False,
         profile=_p(("software_engineering", "practitioner")),
     ).model
 
@@ -426,7 +511,11 @@ def test_full_bias_ignores_price(monkeypatch):
     # At 100 the most capable wins even when it is the most expensive, which is
     # the only way to tell the blend from a cheap-model preference.
     dear_and_strong = ModelSpec(
-        "dear", cost=15, cost_input=100.0, cost_output=300.0, reliability=1.0,
+        "dear",
+        cost=15,
+        cost_input=100.0,
+        cost_output=300.0,
+        reliability=1.0,
         profile={"software_engineering": 0.98},
     )
     store = _store_with(_SLOW_LOCAL, dear_and_strong)
@@ -438,7 +527,11 @@ def test_bias_never_promotes_an_unqualified_model(monkeypatch):
     # The blend ranks the qualified pool only. A strong-but-unqualified model must
     # not be reachable by turning the knob up.
     fails_the_bar = ModelSpec(
-        "fails", cost=15, cost_input=100.0, cost_output=300.0, reliability=1.0,
+        "fails",
+        cost=15,
+        cost_input=100.0,
+        cost_output=300.0,
+        reliability=1.0,
         profile={"software_engineering": 0.50, "law_regulatory": 0.99},
     )
     store = _store_with(_SLOW_LOCAL, fails_the_bar)
@@ -448,12 +541,23 @@ def test_bias_never_promotes_an_unqualified_model(monkeypatch):
 def test_equal_price_still_breaks_on_margin():
     # Price only outranks margin when the prices actually differ.
     dearer_but_stronger = ModelSpec(
-        "strong", cost=5, cost_input=3.0, cost_output=15.0, reliability=1.0,
+        "strong",
+        cost=5,
+        cost_input=3.0,
+        cost_output=15.0,
+        reliability=1.0,
         profile={"software_engineering": 0.98, "data_analysis": 0.91},
     )
     store = _store_with(_SONNET_4, dearer_but_stronger)
-    assert select(
-        store, needs_tools=False,
-        profile=_p(("software_engineering", "practitioner"),
-                   ("data_analysis", "surface"), stakes="medium"),
-    ).model == "strong"
+    assert (
+        select(
+            store,
+            needs_tools=False,
+            profile=_p(
+                ("software_engineering", "practitioner"),
+                ("data_analysis", "surface"),
+                stakes="medium",
+            ),
+        ).model
+        == "strong"
+    )

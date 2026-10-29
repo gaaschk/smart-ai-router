@@ -13,6 +13,7 @@ Each group pins the property, not the implementation: the numbers come from
 settings, so a test asserting "16384" would pass while asserting nothing about
 whether the *profile* is what chose it.
 """
+
 import json
 import warnings
 from io import BytesIO
@@ -35,8 +36,13 @@ from smart_ai_router.taxonomy import DomainNeed, PromptProfile
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "answer."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -50,9 +56,14 @@ _UI = {"X-Smart-Router-Client": "ui"}
 
 
 def _profile(score=0.95):
-    return {"software_engineering": score, "law_regulatory": score,
-            "medicine_health": score, "general_knowledge": score,
-            "creative_writing": score, "technical_writing": score}
+    return {
+        "software_engineering": score,
+        "law_regulatory": score,
+        "medicine_health": score,
+        "general_knowledge": score,
+        "creative_writing": score,
+        "technical_writing": score,
+    }
 
 
 @pytest.fixture
@@ -75,27 +86,43 @@ def client(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     store = SqliteStore(":memory:")
-    store.upsert_model(ModelSpec(
-        value="openrouter/generalist", provider="openrouter", cost=1, ctx_k=200,
-        reliability=1.0, tools=True, profile=_profile(),
-        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/generalist",
+            provider="openrouter",
+            cost=1,
+            ctx_k=200,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(),
+            competence={
+                "coding": 0.95,
+                "reasoning": 0.95,
+                "docs": 0.95,
+                "general": 0.95,
+            },
+        )
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
-    c.sent = sent    # forwarded bodies, for asserting what the provider saw
+    c.sent = sent  # forwarded bodies, for asserting what the provider saw
     c.store = store
     return c
 
 
 def _chat(client, prompt, *, headers=None, **body):
-    payload = {"model": "auto", "messages": [{"role": "user", "content": prompt}],
-               "stream": False}
+    payload = {
+        "model": "auto",
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }
     payload.update(body)
     return client.post("/v1/chat/completions", json=payload, headers=headers or {})
 
 
 # ── The output budget ───────────────────────────────────────────────────────────
+
 
 def test_a_document_request_gets_a_bigger_ceiling_than_a_question(client):
     """The reported bug, at the wire level.
@@ -150,7 +177,7 @@ def test_the_budget_never_lowers_a_raised_default(monkeypatch):
 
 
 def test_a_secondary_long_form_field_counts(client):
-    """"Write the API guide for this service" is a document even though the
+    """ "Write the API guide for this service" is a document even though the
     classifier names the subject matter first — so is_long_form() looks at every
     named field, not just the primary one."""
     profile = classify_profile("Write the API guide for this service")
@@ -159,6 +186,7 @@ def test_a_secondary_long_form_field_counts(client):
 
 
 # ── The one ceiling we can't raise: the model's own ─────────────────────────────
+
 
 def _long_form():
     return PromptProfile(
@@ -192,9 +220,12 @@ def test_an_unknown_model_ceiling_does_not_clamp(monkeypatch):
     num_predict and simply stops there.
     """
     monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MAX_TOKENS", "32768")
-    assert _proxy._output_budget(
-        _long_form(), ModelSpec(value="ollama/local", max_output=0)
-    ) == 32768
+    assert (
+        _proxy._output_budget(
+            _long_form(), ModelSpec(value="ollama/local", max_output=0)
+        )
+        == 32768
+    )
     assert _proxy._output_budget(_long_form(), None) == 32768
 
 
@@ -214,22 +245,37 @@ def test_sync_reads_each_models_output_ceiling_from_the_catalog(monkeypatch):
     2048-token output ceiling. Reading it off context_length — the obvious guess —
     would ask for 100x what it can give.
     """
-    catalog = {"data": [
-        {"id": "vendor/roomy", "context_length": 200000,
-         "architecture": {"modality": "text->text"},
-         "top_provider": {"max_completion_tokens": 64000}},
-        {"id": "vendor/cramped", "context_length": 200000,
-         "architecture": {"modality": "text->text"},
-         "top_provider": {"max_completion_tokens": 2048}},
-        # No top_provider block at all — a handful of real rows look like this.
-        {"id": "vendor/silent", "context_length": 200000,
-         "architecture": {"modality": "text->text"}},
-    ]}
+    catalog = {
+        "data": [
+            {
+                "id": "vendor/roomy",
+                "context_length": 200000,
+                "architecture": {"modality": "text->text"},
+                "top_provider": {"max_completion_tokens": 64000},
+            },
+            {
+                "id": "vendor/cramped",
+                "context_length": 200000,
+                "architecture": {"modality": "text->text"},
+                "top_provider": {"max_completion_tokens": 2048},
+            },
+            # No top_provider block at all — a handful of real rows look like this.
+            {
+                "id": "vendor/silent",
+                "context_length": 200000,
+                "architecture": {"modality": "text->text"},
+            },
+        ]
+    }
 
     def _open(req, timeout=0):
         class _Resp(BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
         return _Resp(json.dumps(catalog).encode())
 
     monkeypatch.setattr(sync_mod.urllib.request, "urlopen", _open)
@@ -265,16 +311,42 @@ def mixed_client(monkeypatch, client):
     """
     monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT", "8192")
     client.store.delete_model("openrouter/generalist")
-    client.store.upsert_model(ModelSpec(
-        value="openrouter/cheap-cramped", provider="openrouter", cost=1, ctx_k=200,
-        max_output=2048, reliability=1.0, tools=True, profile=_profile(),
-        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
-    ))
-    client.store.upsert_model(ModelSpec(
-        value="openrouter/dear-roomy", provider="openrouter", cost=5, ctx_k=200,
-        max_output=64000, reliability=1.0, tools=True, profile=_profile(),
-        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
-    ))
+    client.store.upsert_model(
+        ModelSpec(
+            value="openrouter/cheap-cramped",
+            provider="openrouter",
+            cost=1,
+            ctx_k=200,
+            max_output=2048,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(),
+            competence={
+                "coding": 0.95,
+                "reasoning": 0.95,
+                "docs": 0.95,
+                "general": 0.95,
+            },
+        )
+    )
+    client.store.upsert_model(
+        ModelSpec(
+            value="openrouter/dear-roomy",
+            provider="openrouter",
+            cost=5,
+            ctx_k=200,
+            max_output=64000,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(),
+            competence={
+                "coding": 0.95,
+                "reasoning": 0.95,
+                "docs": 0.95,
+                "general": 0.95,
+            },
+        )
+    )
     return client
 
 
@@ -310,11 +382,24 @@ def test_capacity_is_a_preference_not_a_veto(monkeypatch, client):
     """
     monkeypatch.setenv("SMART_ROUTER_LONG_FORM_MIN_MODEL_OUTPUT", "8192")
     client.store.delete_model("openrouter/generalist")
-    client.store.upsert_model(ModelSpec(
-        value="openrouter/only-option", provider="openrouter", cost=1, ctx_k=200,
-        max_output=2048, reliability=1.0, tools=True, profile=_profile(),
-        competence={"coding": 0.95, "reasoning": 0.95, "docs": 0.95, "general": 0.95},
-    ))
+    client.store.upsert_model(
+        ModelSpec(
+            value="openrouter/only-option",
+            provider="openrouter",
+            cost=1,
+            ctx_k=200,
+            max_output=2048,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(),
+            competence={
+                "coding": 0.95,
+                "reasoning": 0.95,
+                "docs": 0.95,
+                "general": 0.95,
+            },
+        )
+    )
     r = _chat(client, _STORY)
     assert r.status_code == 200
     assert r.headers["X-Routed-Model"] == "openrouter/only-option"
@@ -324,12 +409,15 @@ def test_capacity_is_a_preference_not_a_veto(monkeypatch, client):
     assert client.sent[-1]["max_tokens"] == 2048
 
 
-@pytest.mark.parametrize("prompt", [
-    "Explain this error message",              # "explain" alone is not a lesson
-    "How do you say hello in Spanish?",        # a phrase, not a translation job
-    "add a docstring to this function",        # writing, but not a document
-    "refactor this god class",
-])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Explain this error message",  # "explain" alone is not a lesson
+        "How do you say hello in Spanish?",  # a phrase, not a translation job
+        "add a docstring to this function",  # writing, but not a document
+        "refactor this god class",
+    ],
+)
 def test_ordinary_requests_keep_the_ordinary_ceiling(prompt):
     """The cues have to be narrow or the budget means nothing.
 
@@ -346,13 +434,16 @@ def test_ordinary_requests_keep_the_ordinary_ceiling(prompt):
     assert classify_profile(prompt).is_long_form() is False
 
 
-@pytest.mark.parametrize("prompt", [
-    "Write me a short story about a lighthouse keeper",
-    "Write a poem about the sea",
-    "Write the migration guide for v2",
-    "Write a lesson plan on the water cycle",
-    "Translate this into Japanese",
-])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Write me a short story about a lighthouse keeper",
+        "Write a poem about the sea",
+        "Write the migration guide for v2",
+        "Write a lesson plan on the water cycle",
+        "Translate this into Japanese",
+    ],
+)
 def test_document_requests_are_recognized_without_an_llm(prompt):
     """These run through the keyword fallback, which is the path that had no
     creative-writing cue at all — so the reported bug reproduced even when the
@@ -361,6 +452,7 @@ def test_document_requests_are_recognized_without_an_llm(prompt):
 
 
 # ── The caps that bound cost still win ──────────────────────────────────────────
+
 
 @pytest.fixture
 def anon_client(monkeypatch, client):
@@ -397,6 +489,7 @@ def test_an_anonymous_visitors_cap_still_beats_the_document_budget(anon_client):
 
 # ── The rich-output note ────────────────────────────────────────────────────────
 
+
 def _system_turns(body):
     return [m for m in body["messages"] if m.get("role") == "system"]
 
@@ -432,10 +525,20 @@ def test_an_api_client_gets_exactly_the_messages_it_sent(client):
 
 def test_a_tool_using_client_gets_no_note_even_from_the_page(client):
     """Tools mean an agent loop, where prose about rendering is noise at best."""
-    _chat(client, _STORY, headers=_UI, tools=[{
-        "type": "function",
-        "function": {"name": "noop", "parameters": {"type": "object", "properties": {}}},
-    }])
+    _chat(
+        client,
+        _STORY,
+        headers=_UI,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "noop",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+    )
     assert _render_notes(client.sent[-1]) == []
 
 
@@ -462,19 +565,28 @@ def test_the_note_does_not_change_how_the_prompt_is_classified(client):
 
 # ── Truncation survives a reload ────────────────────────────────────────────────
 
+
 def test_a_truncated_message_is_still_truncated_after_a_reload():
     """A cut-off reply that reopens looking complete is the worst version of this
     bug: the reader blames the model for stopping mid-sentence, and the ceiling
     that actually stopped it is invisible. So the flag is stored, not derived."""
     store = SqliteStore(":memory:")
     conv = store.create_conversation(Conversation(id="conv-t1", user="alice"))
-    store.add_chat_message(ChatMessage(
-        conversation_id=conv.id, role="assistant", content="The bounty was",
-        truncated=True,
-    ))
-    store.add_chat_message(ChatMessage(
-        conversation_id=conv.id, role="assistant", content="Done.",
-    ))
+    store.add_chat_message(
+        ChatMessage(
+            conversation_id=conv.id,
+            role="assistant",
+            content="The bounty was",
+            truncated=True,
+        )
+    )
+    store.add_chat_message(
+        ChatMessage(
+            conversation_id=conv.id,
+            role="assistant",
+            content="Done.",
+        )
+    )
     assert [m.truncated for m in store.list_chat_messages(conv.id)] == [True, False]
 
 
@@ -484,10 +596,14 @@ def test_truncation_round_trips_through_the_api(monkeypatch):
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=SqliteStore(":memory:"))))
     conv = c.post("/api/conversations", json={"title": "Story"}).json()
-    c.post(f"/api/conversations/{conv['id']}/messages",
-           json={"role": "assistant", "content": "The bounty was", "truncated": True})
-    c.post(f"/api/conversations/{conv['id']}/messages",
-           json={"role": "assistant", "content": "Done."})
+    c.post(
+        f"/api/conversations/{conv['id']}/messages",
+        json={"role": "assistant", "content": "The bounty was", "truncated": True},
+    )
+    c.post(
+        f"/api/conversations/{conv['id']}/messages",
+        json={"role": "assistant", "content": "Done."},
+    )
 
     msgs = c.get(f"/api/conversations/{conv['id']}").json()["messages"]
     assert [m["truncated"] for m in msgs] == [True, False]

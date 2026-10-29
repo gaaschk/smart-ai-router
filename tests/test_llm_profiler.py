@@ -3,6 +3,7 @@
 Every test here is offline: rate_model() is monkeypatched or the HTTP layer is
 faked, so the suite never depends on a provider being reachable.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,11 +25,13 @@ from smart_ai_router.taxonomy import FIELD_KEYS
 
 def _spec(value: str, *, cost: int = 1, **kw) -> ModelSpec:
     profile = kw.pop("profile", None) or {f: 0.80 for f in FIELD_KEYS}
-    return ModelSpec(value=value, provider="openrouter", cost=cost,
-                     profile=profile, **kw)
+    return ModelSpec(
+        value=value, provider="openrouter", cost=cost, profile=profile, **kw
+    )
 
 
 # ── The ratings vocabulary ────────────────────────────────────────────────────
+
 
 def test_ratings_are_signed_offsets_around_capable():
     """`capable` must be exactly neutral, or an unremarkable model would drift."""
@@ -68,14 +71,17 @@ def test_weak_rating_costs_more_than_the_top_depth_gap():
 
 # ── Parsing rater replies ─────────────────────────────────────────────────────
 
+
 def test_normalize_ratings_drops_capable_and_unknown_keys():
-    ratings, note = llm_profiler.normalize_ratings({
-        "software_engineering": "specialty",
-        "law_regulatory": "capable",       # neutral — not worth storing
-        "quantum_basketweaving": "weak",   # not a field
-        "medicine_health": "nonsense",     # not a rating
-        "note": "code-tuned model",
-    })
+    ratings, note = llm_profiler.normalize_ratings(
+        {
+            "software_engineering": "specialty",
+            "law_regulatory": "capable",  # neutral — not worth storing
+            "quantum_basketweaving": "weak",  # not a field
+            "medicine_health": "nonsense",  # not a rating
+            "note": "code-tuned model",
+        }
+    )
     assert ratings == {"software_engineering": "specialty"}
     assert note == "code-tuned model"
 
@@ -94,14 +100,13 @@ def test_parse_tolerates_fences_and_prose():
 
 
 def test_parse_truncates_a_runaway_note():
-    ratings, note = llm_profiler._parse(
-        '{"note": "%s"}' % ("x" * 500)
-    )
+    ratings, note = llm_profiler._parse('{"note": "%s"}' % ("x" * 500))
     assert ratings == {}
     assert len(note) == 240
 
 
 # ── The schema sent to the provider ───────────────────────────────────────────
+
 
 def test_response_format_is_strict_and_covers_every_field():
     schema = llm_profiler._RESPONSE_FORMAT["json_schema"]
@@ -128,6 +133,7 @@ def test_system_prompt_states_the_relative_framing():
 
 
 # ── Candidate selection ───────────────────────────────────────────────────────
+
 
 def test_candidates_are_cheapest_first():
     """Cost-ascending, because the router picks the cheapest qualifying model —
@@ -169,6 +175,7 @@ def test_candidate_limit_bounds_the_run():
 
 # ── The enrichment run ────────────────────────────────────────────────────────
 
+
 def _store_with(*specs: ModelSpec) -> SqliteStore:
     store = SqliteStore(":memory:")
     for spec in specs:
@@ -179,27 +186,40 @@ def _store_with(*specs: ModelSpec) -> SqliteStore:
 def _fake_rater(replies: dict[str, tuple[dict[str, str], str] | None]):
     async def rate(spec, **kwargs):
         return replies.get(spec.value)
+
     return rate
 
 
 def test_enrich_writes_ratings_and_recomposes_the_profile(monkeypatch):
     coder = _spec("openrouter/qwen3-coder", cost=1)
     store = _store_with(coder)
-    monkeypatch.setattr(llm_profiler, "rate_model", _fake_rater({
-        "openrouter/qwen3-coder": (
-            {"law_regulatory": "unsuited", "software_engineering": "specialty"},
-            "code specialist",
+    monkeypatch.setattr(
+        llm_profiler,
+        "rate_model",
+        _fake_rater(
+            {
+                "openrouter/qwen3-coder": (
+                    {"law_regulatory": "unsuited", "software_engineering": "specialty"},
+                    "code specialist",
+                ),
+            }
         ),
-    }))
+    )
 
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="rater",
-    ))
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="rater",
+        )
+    )
     assert (result.rated, result.changed, result.written, result.failed) == (1, 1, 1, 0)
 
     stored = store.get("openrouter/qwen3-coder")
     assert stored.profile_ratings == {
-        "law_regulatory": "unsuited", "software_engineering": "specialty"
+        "law_regulatory": "unsuited",
+        "software_engineering": "specialty",
     }
     assert stored.profile_note == "code specialist"
     assert stored.profile["law_regulatory"] == pytest.approx(0.60)
@@ -211,13 +231,24 @@ def test_enrich_writes_ratings_and_recomposes_the_profile(monkeypatch):
 
 def test_enrich_dry_run_writes_nothing_but_reports_the_shifts(monkeypatch):
     store = _store_with(_spec("m", cost=1))
-    monkeypatch.setattr(llm_profiler, "rate_model", _fake_rater({
-        "m": ({"medicine_health": "weak"}, "small model"),
-    }))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="rater",
-        dry_run=True,
-    ))
+    monkeypatch.setattr(
+        llm_profiler,
+        "rate_model",
+        _fake_rater(
+            {
+                "m": ({"medicine_health": "weak"}, "small model"),
+            }
+        ),
+    )
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="rater",
+            dry_run=True,
+        )
+    )
     assert result.written == 0
     assert result.changed == 1
     assert store.get("m").profile_ratings == {}
@@ -228,29 +259,51 @@ def test_enrich_dry_run_writes_nothing_but_reports_the_shifts(monkeypatch):
 
 def test_enrich_leaves_a_model_alone_when_rating_fails(monkeypatch):
     store = _store_with(_spec("good", cost=1), _spec("bad", cost=2))
-    monkeypatch.setattr(llm_profiler, "rate_model", _fake_rater({
-        "good": ({"law_regulatory": "weak"}, "ok"),
-        "bad": None,
-    }))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="rater",
-    ))
+    monkeypatch.setattr(
+        llm_profiler,
+        "rate_model",
+        _fake_rater(
+            {
+                "good": ({"law_regulatory": "weak"}, "ok"),
+                "bad": None,
+            }
+        ),
+    )
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="rater",
+        )
+    )
     assert (result.rated, result.failed) == (1, 1)
     assert any("bad" in e for e in result.errors)
     assert store.get("bad").profile == _spec("bad").profile
 
 
 def test_enrich_records_an_all_capable_verdict(monkeypatch):
-    """"Nothing unusual here" is a real answer. It must be stored (as an empty
+    """ "Nothing unusual here" is a real answer. It must be stored (as an empty
     rating set plus a note) so the next only_missing run doesn't re-ask — and
     only_missing keys on the note as well as the ratings."""
     store = _store_with(_spec("general", cost=1))
-    monkeypatch.setattr(llm_profiler, "rate_model", _fake_rater({
-        "general": ({}, "broad general-purpose model"),
-    }))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="rater",
-    ))
+    monkeypatch.setattr(
+        llm_profiler,
+        "rate_model",
+        _fake_rater(
+            {
+                "general": ({}, "broad general-purpose model"),
+            }
+        ),
+    )
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="rater",
+        )
+    )
     assert (result.rated, result.changed, result.written) == (1, 0, 1)
     assert store.get("general").profile_note == "broad general-purpose model"
 
@@ -259,35 +312,54 @@ def test_enrich_refuses_to_run_without_a_rater():
     """The rater is the caller's to choose (helper_models.PROFILER); "" means it
     found none, and rating with no rater is not a thing this can improvise."""
     store = _store_with(_spec("m"))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="",
-    ))
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="",
+        )
+    )
     assert result.rated == 0
     assert "no model profiler available" in result.errors[0]
 
 
 def test_enrich_refuses_to_run_without_a_base_url():
     store = _store_with(_spec("m"))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="", model="rater",
-    ))
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="",
+            model="rater",
+        )
+    )
     assert result.rated == 0
     assert "OpenRouter" in result.errors[0]
 
 
 def test_enrich_respects_the_limit(monkeypatch):
     store = _store_with(*[_spec(f"m{i}", cost=i) for i in range(6)])
-    monkeypatch.setattr(llm_profiler, "rate_model", _fake_rater(
-        {f"m{i}": ({"law_regulatory": "weak"}, "n") for i in range(6)}
-    ))
-    result = asyncio.run(llm_profiler.enrich_models(
-        store, store.all_models(), base_url="http://x/v1", model="rater", limit=2,
-    ))
+    monkeypatch.setattr(
+        llm_profiler,
+        "rate_model",
+        _fake_rater({f"m{i}": ({"law_regulatory": "weak"}, "n") for i in range(6)}),
+    )
+    result = asyncio.run(
+        llm_profiler.enrich_models(
+            store,
+            store.all_models(),
+            base_url="http://x/v1",
+            model="rater",
+            limit=2,
+        )
+    )
     assert result.considered == 2
     assert result.written == 2
 
 
 # ── The HTTP call itself ──────────────────────────────────────────────────────
+
 
 def test_rate_model_sends_the_strict_schema_and_parses_the_reply(monkeypatch):
     sent: list[dict] = []
@@ -296,15 +368,26 @@ def test_rate_model_sends_the_strict_schema_and_parses_the_reply(monkeypatch):
         sent.append(kwargs.get("json") or {})
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content":
-                '{"law_regulatory": "unsuited", "note": "a coder"}'}}]},
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"law_regulatory": "unsuited", "note": "a coder"}'
+                        }
+                    }
+                ]
+            },
             request=httpx.Request("POST", url),
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    got = asyncio.run(llm_profiler.rate_model(
-        _spec("openrouter/qwen3-coder"), base_url="http://x/v1", model="rater",
-    ))
+    got = asyncio.run(
+        llm_profiler.rate_model(
+            _spec("openrouter/qwen3-coder"),
+            base_url="http://x/v1",
+            model="rater",
+        )
+    )
     assert got == ({"law_regulatory": "unsuited"}, "a coder")
     assert sent[0]["response_format"] == llm_profiler._RESPONSE_FORMAT
     assert sent[0]["temperature"] == 0
@@ -317,9 +400,16 @@ def test_rate_model_returns_none_on_provider_error(monkeypatch):
         return httpx.Response(500, text="boom", request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    assert asyncio.run(llm_profiler.rate_model(
-        _spec("m"), base_url="http://x/v1", model="rater",
-    )) is None
+    assert (
+        asyncio.run(
+            llm_profiler.rate_model(
+                _spec("m"),
+                base_url="http://x/v1",
+                model="rater",
+            )
+        )
+        is None
+    )
 
 
 def test_rate_model_returns_none_on_network_failure(monkeypatch):
@@ -327,9 +417,16 @@ def test_rate_model_returns_none_on_network_failure(monkeypatch):
         raise httpx.ConnectError("refused")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    assert asyncio.run(llm_profiler.rate_model(
-        _spec("m"), base_url="http://x/v1", model="rater",
-    )) is None
+    assert (
+        asyncio.run(
+            llm_profiler.rate_model(
+                _spec("m"),
+                base_url="http://x/v1",
+                model="rater",
+            )
+        )
+        is None
+    )
 
 
 def test_rate_model_returns_none_on_unparseable_reply(monkeypatch):
@@ -341,16 +438,26 @@ def test_rate_model_returns_none_on_unparseable_reply(monkeypatch):
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    assert asyncio.run(llm_profiler.rate_model(
-        _spec("m"), base_url="http://x/v1", model="rater",
-    )) is None
+    assert (
+        asyncio.run(
+            llm_profiler.rate_model(
+                _spec("m"),
+                base_url="http://x/v1",
+                model="rater",
+            )
+        )
+        is None
+    )
 
 
 def test_describe_model_includes_the_vendor_description():
     spec = profile_model("openrouter/qwen3-coder", description="Agentic coding model")
     text = llm_profiler._describe_model(
-        ModelSpec(value="openrouter/qwen3-coder", profile=spec,
-                  description="Agentic coding model")
+        ModelSpec(
+            value="openrouter/qwen3-coder",
+            profile=spec,
+            description="Agentic coding model",
+        )
     )
     assert "Agentic coding model" in text
     assert "openrouter/qwen3-coder" in text

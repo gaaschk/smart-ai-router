@@ -29,6 +29,7 @@ DEPTHS is 4 levels rather than a 0-1 float for the same reason: a 3B model can
 choose between four described tiers far more reliably than it can calibrate a
 continuous score.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,22 +43,22 @@ from dataclasses import dataclass
 # residual. Fields are chosen to be distinguishable by a small model from the
 # prompt alone AND inferable for a model from its catalog description.
 FIELDS: dict[str, tuple[str, str]] = {
-    "software_engineering":    ("Software engineering",     "coding"),
-    "systems_architecture":    ("Systems architecture",     "reasoning"),
-    "data_analysis":           ("Data & statistics",        "reasoning"),
-    "math_formal":             ("Math & formal reasoning",  "reasoning"),
-    "natural_science":         ("Natural science & eng.",   "reasoning"),
-    "medicine_health":         ("Medicine & health",        "reasoning"),
-    "law_regulatory":          ("Law & regulatory",         "reasoning"),
-    "finance_business":        ("Finance & business",       "reasoning"),
-    "humanities_social":       ("Humanities & social sci.", "reasoning"),
-    "creative_writing":        ("Creative writing",         "docs"),
-    "technical_writing":       ("Technical writing",        "docs"),
-    "education_explanation":   ("Teaching & explanation",   "docs"),
+    "software_engineering": ("Software engineering", "coding"),
+    "systems_architecture": ("Systems architecture", "reasoning"),
+    "data_analysis": ("Data & statistics", "reasoning"),
+    "math_formal": ("Math & formal reasoning", "reasoning"),
+    "natural_science": ("Natural science & eng.", "reasoning"),
+    "medicine_health": ("Medicine & health", "reasoning"),
+    "law_regulatory": ("Law & regulatory", "reasoning"),
+    "finance_business": ("Finance & business", "reasoning"),
+    "humanities_social": ("Humanities & social sci.", "reasoning"),
+    "creative_writing": ("Creative writing", "docs"),
+    "technical_writing": ("Technical writing", "docs"),
+    "education_explanation": ("Teaching & explanation", "docs"),
     "translation_multilingual": ("Translation & multilingual", "docs"),
-    "product_design":          ("Product & design",         "reasoning"),
-    "operations_process":      ("Operations & process",     "general"),
-    "general_knowledge":       ("General knowledge",        "general"),
+    "product_design": ("Product & design", "reasoning"),
+    "operations_process": ("Operations & process", "general"),
+    "general_knowledge": ("General knowledge", "general"),
 }
 
 FIELD_KEYS = tuple(FIELDS)
@@ -71,12 +72,14 @@ FIELD_KEYS = tuple(FIELDS)
 # Deliberately narrow. `humanities_social` and `product_design` produce long
 # answers too, but they produce *analysis*, which is bounded by the question;
 # these four produce artifacts, whose length is set by the artifact.
-LONG_FORM_FIELDS: frozenset[str] = frozenset({
-    "creative_writing",
-    "technical_writing",
-    "education_explanation",
-    "translation_multilingual",   # output length is the *input's* length
-})
+LONG_FORM_FIELDS: frozenset[str] = frozenset(
+    {
+        "creative_writing",
+        "technical_writing",
+        "education_explanation",
+        "translation_multilingual",  # output length is the *input's* length
+    }
+)
 
 # ── Depth ─────────────────────────────────────────────────────────────────────
 # How far into a field the answer has to go, and the model score that demands.
@@ -88,10 +91,10 @@ LONG_FORM_FIELDS: frozenset[str] = frozenset({
 #   specialist    sonnet / gpt-4o class and up
 #   frontier      opus / fable class only
 DEPTHS: dict[str, float] = {
-    "surface":      0.45,
+    "surface": 0.45,
     "practitioner": 0.68,
-    "specialist":   0.85,
-    "frontier":     0.93,
+    "specialist": 0.85,
+    "frontier": 0.93,
 }
 
 DEPTH_KEYS = tuple(DEPTHS)
@@ -113,11 +116,14 @@ DEPTH_RANK: dict[str, int] = {name: i for i, name in enumerate(DEPTH_KEYS)}
 # a stronger model buys nothing — it just makes a confidently stale answer more
 # expensive. What it gates is a web search (see api.proxy), not a higher bar.
 DEMANDS: dict[str, tuple[float, str]] = {
-    "factual_precision": (0.05, "must name real statutes/standards/APIs/citations exactly"),
-    "quantitative":      (0.03, "requires numeric derivation or estimation, not prose"),
-    "long_synthesis":    (0.03, "must integrate many sources into one coherent artifact"),
-    "agentic":           (0.02, "requires multi-step tool use"),
-    "current_info":      (0.00, "answer depends on facts that change after training"),
+    "factual_precision": (
+        0.05,
+        "must name real statutes/standards/APIs/citations exactly",
+    ),
+    "quantitative": (0.03, "requires numeric derivation or estimation, not prose"),
+    "long_synthesis": (0.03, "must integrate many sources into one coherent artifact"),
+    "agentic": (0.02, "requires multi-step tool use"),
+    "current_info": (0.00, "answer depends on facts that change after training"),
 }
 
 DEMAND_KEYS = tuple(DEMANDS)
@@ -182,6 +188,7 @@ _LEGACY_COMPLEXITY_TOP = "expert"
 @dataclass(frozen=True)
 class DomainNeed:
     """One field the prompt reaches into, and how deep it goes."""
+
     field: str
     depth: str
 
@@ -196,6 +203,7 @@ class PromptProfile:
 
     `domains` is ordered by importance — the first entry is the primary field.
     """
+
     domains: tuple[DomainNeed, ...]
     demands: frozenset[str] = frozenset()
     stakes: str = "low"
@@ -369,12 +377,11 @@ def normalize_profile(raw: object) -> PromptProfile | None:
     raw_demands = raw.get("demands")
     demands: set[str] = set()
     if isinstance(raw_demands, dict):
-        demands = {
-            k for k, v in raw_demands.items() if k in DEMANDS and bool(v)
-        }
+        demands = {k for k, v in raw_demands.items() if k in DEMANDS and bool(v)}
     elif isinstance(raw_demands, list):
         demands = {
-            str(d).strip().lower() for d in raw_demands
+            str(d).strip().lower()
+            for d in raw_demands
             if str(d).strip().lower() in DEMANDS
         }
 

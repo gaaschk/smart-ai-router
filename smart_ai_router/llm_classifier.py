@@ -25,6 +25,7 @@ out-of-vocabulary label — the function returns None and the caller falls back 
 the next target and ultimately to the deterministic classifier in classifier.py.
 Classification must never be the reason a request fails.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -191,6 +192,7 @@ def _system_prompt() -> str:
         "years, of the world moving on. Judge current_info against that gap."
     )
 
+
 # Appended for the second pass. The refine model is told what triage guessed
 # because the expensive errors are systematic — a small model reads topic words
 # ("nuclear", "jurisdictions") as depth — and naming the suspected bias is more
@@ -208,6 +210,7 @@ _REFINE_SUFFIX = (
 @dataclass(frozen=True)
 class ClassifierTarget:
     """One step in the classifier fallback chain."""
+
     model: str
     base_url: str
     api_key: str = ""
@@ -250,7 +253,7 @@ def classifier_advisory(models: list[ModelSpec]) -> str:
     """
     name = classifier_model()
     if not name:
-        return ""   # deliberately disabled — the keyword classifier is the plan
+        return ""  # deliberately disabled — the keyword classifier is the plan
     spec = next((m for m in models if m.value.split("/", 1)[-1] == name), None)
     if spec is None:
         return (
@@ -353,8 +356,12 @@ async def classify_profile_llm(
     # Timed for a separate reason: this call is in front of every request, so its
     # latency is added to every reply, and a pinned local model that has been
     # evicted from memory pays a cold load here that no other measurement sees.
-    _overhead.note(kind, model=mdl, usage=data.get("usage"),
-                   latency_ms=int((time.monotonic() - started) * 1000))
+    _overhead.note(
+        kind,
+        model=mdl,
+        usage=data.get("usage"),
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
     return _parse_profile(content)
 
 
@@ -395,7 +402,10 @@ def needs_refinement(profile: PromptProfile) -> bool:
     return (
         profile.stakes == "high"
         or profile.deep_field_count() >= 2
-        or any(DEPTH_RANK.get(d.depth, 0) >= DEPTH_RANK["frontier"] for d in profile.domains)
+        or any(
+            DEPTH_RANK.get(d.depth, 0) >= DEPTH_RANK["frontier"]
+            for d in profile.domains
+        )
     )
 
 
@@ -436,7 +446,8 @@ async def classify_profile_two_speed(
         base_url=target.base_url,
         model=target.model,
         api_key=target.api_key,
-        system_prompt=_system_prompt() + _REFINE_SUFFIX.format(triage=profile.describe()),
+        system_prompt=_system_prompt()
+        + _REFINE_SUFFIX.format(triage=profile.describe()),
         kind=_overhead.CLASSIFY_REFINE,
     )
     if refined is None:

@@ -20,6 +20,7 @@ Execution never raises for user-caused errors (missing file, bad path, non-zero
 exit); it returns an error string the model can read and react to. That keeps
 the agent loop robust — a tool error is a turn, not a crash.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -55,10 +56,13 @@ _MAX_LIST_ENTRIES = 1000
 # Binary document formats write_file must refuse: writing UTF-8 text bytes to
 # one of these always yields a corrupt file. The model must use create_document
 # (which renders real binary) for these instead.
-_BINARY_DOC_EXTS = frozenset({".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"})
+_BINARY_DOC_EXTS = frozenset(
+    {".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
+)
 
 
 # ── schemas ─────────────────────────────────────────────────────────────────
+
 
 def _fn(name: str, description: str, properties: dict, required: list[str]) -> dict:
     return {
@@ -80,13 +84,23 @@ _READ_TOOLS = [
         "list_dir",
         "List the contents of a directory in your workspace. Use '' or '.' for "
         "the workspace root. Returns names with a trailing '/' for directories.",
-        {"path": {"type": "string", "description": "Directory path relative to the workspace root."}},
+        {
+            "path": {
+                "type": "string",
+                "description": "Directory path relative to the workspace root.",
+            }
+        },
         [],
     ),
     _fn(
         "read_file",
         "Read a UTF-8 text file from your workspace and return its contents.",
-        {"path": {"type": "string", "description": "File path relative to the workspace root."}},
+        {
+            "path": {
+                "type": "string",
+                "description": "File path relative to the workspace root.",
+            }
+        },
         ["path"],
     ),
 ]
@@ -100,8 +114,14 @@ _WRITE_TOOLS = [
         "download — a .pdf, .docx, .pptx, or .xlsx written this way is a corrupt "
         "file, because those are binary formats. Use create_document for those.",
         {
-            "path": {"type": "string", "description": "File path relative to the workspace root."},
-            "content": {"type": "string", "description": "Full file contents to write."},
+            "path": {
+                "type": "string",
+                "description": "File path relative to the workspace root.",
+            },
+            "content": {
+                "type": "string",
+                "description": "Full file contents to write.",
+            },
         },
         ["path", "content"],
     ),
@@ -110,7 +130,10 @@ _WRITE_TOOLS = [
         "Replace the first exact occurrence of old_text with new_text in a file. "
         "old_text must match exactly, including whitespace.",
         {
-            "path": {"type": "string", "description": "File path relative to the workspace root."},
+            "path": {
+                "type": "string",
+                "description": "File path relative to the workspace root.",
+            },
             "old_text": {"type": "string", "description": "Exact text to find."},
             "new_text": {"type": "string", "description": "Text to replace it with."},
         },
@@ -129,7 +152,7 @@ _WRITE_TOOLS = [
             "path": {
                 "type": "string",
                 "description": "Output file name/path relative to the workspace root; "
-                               "the extension picks the format (.pdf/.docx/.pptx/.xlsx/.md/.txt).",
+                "the extension picks the format (.pdf/.docx/.pptx/.xlsx/.md/.txt).",
             },
             "content": {
                 "type": "string",
@@ -150,30 +173,56 @@ _BASH_TOOL = _fn(
 )
 
 _AUDIO_TOOLS = [
-    _fn("design_voice", "Design an original custom voice from a detailed description "
+    _fn(
+        "design_voice",
+        "Design an original custom voice from a detailed description "
         "(pitch, texture, accent, delivery). Returns downloadable MP3 previews and "
         "preview IDs. Use this for character voices instead of shell commands. "
         "Offer previews for selection; do not promise an exact character match.",
-        {"description": {"type": "string", "minLength": 20, "maxLength": 1000}}, ["description"]),
-    _fn("save_voice", "Save a selected design_voice preview as a reusable voice. "
+        {"description": {"type": "string", "minLength": 20, "maxLength": 1000}},
+        ["description"],
+    ),
+    _fn(
+        "save_voice",
+        "Save a selected design_voice preview as a reusable voice. "
         "Use the preview the user selected; if they explicitly asked you to choose, "
         "you may select one. Returns a voice_id for generate_audio.",
-        {"preview_id": {"type": "string"}, "name": {"type": "string", "maxLength": 100}},
-        ["preview_id", "name"]),
-    _fn("list_audio_voices", "List saved custom voices and unsaved voice previews, "
+        {
+            "preview_id": {"type": "string"},
+            "name": {"type": "string", "maxLength": 100},
+        },
+        ["preview_id", "name"],
+    ),
+    _fn(
+        "list_audio_voices",
+        "List saved custom voices and unsaved voice previews, "
         "with IDs, descriptions, creation times and preview numbers. Use to reuse "
-        "voices or find the preview selected in a follow-up message.", {}, []),
-    _fn("generate_audio", "Generate a downloadable MP3 using a saved ElevenLabs "
+        "voices or find the preview selected in a follow-up message.",
+        {},
+        [],
+    ),
+    _fn(
+        "generate_audio",
+        "Generate a downloadable MP3 using a saved ElevenLabs "
         "voice_id and the exact words the user wants spoken. Supports delivery tags "
         "such as [whispering]. Use after save_voice, or reuse a listed voice. "
         "The text field is spoken content, not a voice description.",
-        {"voice_id": {"type": "string"}, "text": {"type": "string", "maxLength": 5000},
-         "path": {"type": "string", "description": "Optional workspace MP3 path."}},
-        ["voice_id", "text"]),
+        {
+            "voice_id": {"type": "string"},
+            "text": {"type": "string", "maxLength": 5000},
+            "path": {"type": "string", "description": "Optional workspace MP3 path."},
+        },
+        ["voice_id", "text"],
+    ),
 ]
 
 
-def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None, allow_audio: bool = False) -> list[dict]:
+def tool_schemas(
+    *,
+    allow_write: bool = True,
+    allow_bash: bool | None = None,
+    allow_audio: bool = False,
+) -> list[dict]:
     """The tool definitions to advertise to the model for this request.
 
     Read tools are always included. Write tools follow `allow_write`. Bash is
@@ -184,7 +233,11 @@ def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None, al
     schemas = list(_READ_TOOLS)
     if allow_write:
         schemas.extend(_WRITE_TOOLS)
-    bash_ok = _sandbox.available() if allow_bash is None else (allow_bash and _sandbox.available())
+    bash_ok = (
+        _sandbox.available()
+        if allow_bash is None
+        else (allow_bash and _sandbox.available())
+    )
     if bash_ok:
         schemas.append(_BASH_TOOL)
     if allow_write and allow_audio:
@@ -192,12 +245,22 @@ def tool_schemas(*, allow_write: bool = True, allow_bash: bool | None = None, al
     return schemas
 
 
-def tool_names(*, allow_write: bool = True, allow_bash: bool | None = None, allow_audio: bool = False) -> set[str]:
-    return {t["function"]["name"] for t in tool_schemas(
-        allow_write=allow_write, allow_bash=allow_bash, allow_audio=allow_audio)}
+def tool_names(
+    *,
+    allow_write: bool = True,
+    allow_bash: bool | None = None,
+    allow_audio: bool = False,
+) -> set[str]:
+    return {
+        t["function"]["name"]
+        for t in tool_schemas(
+            allow_write=allow_write, allow_bash=allow_bash, allow_audio=allow_audio
+        )
+    }
 
 
 # ── execution ─────────────────────────────────────────────────────────────────
+
 
 def _truncate(text: str, limit: int = _MAX_READ_BYTES) -> str:
     if len(text) <= limit:
@@ -212,10 +275,16 @@ def _do_list_dir(user: str, args: dict) -> str:
     if not target.is_dir():
         return f"Error: not a directory: {args.get('path', '')!r}"
     entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name))
-    names = [f"{p.name}/" if p.is_dir() else p.name for p in entries[:_MAX_LIST_ENTRIES]]
+    names = [
+        f"{p.name}/" if p.is_dir() else p.name for p in entries[:_MAX_LIST_ENTRIES]
+    ]
     if not names:
         return "(empty directory)"
-    suffix = "" if len(entries) <= _MAX_LIST_ENTRIES else f"\n[... {len(entries) - _MAX_LIST_ENTRIES} more]"
+    suffix = (
+        ""
+        if len(entries) <= _MAX_LIST_ENTRIES
+        else f"\n[... {len(entries) - _MAX_LIST_ENTRIES} more]"
+    )
     return "\n".join(names) + suffix
 
 
@@ -234,7 +303,7 @@ def _do_write_file(user: str, args: dict) -> str:
     # Guard: refuse to write text bytes to a binary document format — that
     # always produces a corrupt file. Steer the model to create_document, whose
     # result the loop feeds back so the model can retry with the right tool.
-    ext = path[path.rfind("."):].lower() if "." in path else ""
+    ext = path[path.rfind(".") :].lower() if "." in path else ""
     if ext in _BINARY_DOC_EXTS:
         return (
             f"Error: {ext} is a binary document format — writing text to it with "
@@ -268,7 +337,9 @@ def _do_edit_file(user: str, args: dict) -> str:
     return f"Edited {args.get('path', '')} (1 replacement)"
 
 
-def _do_create_document(user: str, args: dict, register_file: RegisterFile | None) -> str:
+def _do_create_document(
+    user: str, args: dict, register_file: RegisterFile | None
+) -> str:
     path = args.get("path", "")
     content = args.get("content", "")
     if not path:
@@ -291,7 +362,7 @@ def _do_create_document(user: str, args: dict, register_file: RegisterFile | Non
         return f"Error writing file: {exc}"
 
     filename = target.name
-    ext = filename[filename.rfind("."):].lower() if "." in filename else ""
+    ext = filename[filename.rfind(".") :].lower() if "." in filename else ""
     mime = _EXT_MIME.get(ext, "application/octet-stream")
     result = f"Created {filename} ({len(data)} bytes) in your workspace."
     if register_file is not None:
@@ -310,6 +381,7 @@ def _do_create_document(user: str, args: dict, register_file: RegisterFile | Non
 
 def _do_run_bash(user: str, args: dict) -> str:
     from smart_ai_router.workspace import user_workspace
+
     try:
         result = _sandbox.run_bash(args.get("command", ""), user_workspace(user))
     except RuntimeError as exc:
@@ -351,6 +423,7 @@ def execute_tool(
     try:
         if name in {t["function"]["name"] for t in _AUDIO_TOOLS}:
             from smart_ai_router.audio_tools import execute_audio_tool
+
             return execute_audio_tool(user, name, args or {}, register_file)
         if name == "create_document":
             return _do_create_document(user, args or {}, register_file)

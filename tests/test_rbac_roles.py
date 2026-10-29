@@ -8,6 +8,7 @@ hiding (see smart_ai_router/api/ui/index.html):
   Admin  — everything, including providers / models catalog / sync / updates /
            keys / settings / reports list / brain-wide GBrain (stats/skills/jobs)
 """
+
 from __future__ import annotations
 
 import warnings
@@ -50,6 +51,7 @@ def user_key(admin_client):
 
 # ── Admin ────────────────────────────────────────────────────────────────────
 
+
 def test_admin_reaches_operator_surfaces(admin_client):
     client, _ = admin_client
     h = _auth(_ADMIN)
@@ -62,6 +64,7 @@ def test_admin_reaches_operator_surfaces(admin_client):
 
 
 # ── User (operator-issued per-user key) ──────────────────────────────────────
+
 
 def test_user_can_reach_usage_and_whoami(admin_client, user_key):
     client, _ = admin_client
@@ -104,9 +107,10 @@ def test_user_blocked_from_brain_wide_gbrain(admin_client, user_key):
         "/api/gbrain/jobs/catalog",
     ):
         assert client.get(path, headers=h).status_code == 403, path
-    assert client.post(
-        "/api/gbrain/jobs?name=embed", headers=h, json={}
-    ).status_code == 403
+    assert (
+        client.post("/api/gbrain/jobs?name=embed", headers=h, json={}).status_code
+        == 403
+    )
 
 
 def test_user_can_reach_own_gbrain_memory(admin_client, user_key):
@@ -125,12 +129,14 @@ def test_user_can_reach_own_gbrain_memory(admin_client, user_key):
     with patch("smart_ai_router.api.gbrain_routes.get_gbrain", return_value=fake):
         assert client.get("/api/gbrain/pages", headers=h).status_code == 200
         assert client.get("/api/gbrain/search?q=hello", headers=h).status_code == 200
-        assert client.post(
-            "/api/gbrain/remember?title=t&content=c", headers=h
-        ).status_code == 200
+        assert (
+            client.post("/api/gbrain/remember?title=t&content=c", headers=h).status_code
+            == 200
+        )
 
 
 # ── Guest / open mode still works for bootstrap ──────────────────────────────
+
 
 def test_open_mode_still_allows_first_key_mint(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_API_KEYS", raising=False)

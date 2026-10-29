@@ -6,6 +6,7 @@ typed model and a missing field is a hard error, not a degraded list. And the
 truth of it: the names offered here have to be names the completions endpoint
 actually treats differently, or the list is decoration.
 """
+
 import warnings
 
 import pytest
@@ -75,8 +76,7 @@ def test_every_name_offered_is_one_the_proxy_understands(client):
     # doesn't recognize as orchestration would send tool-calling traffic to a
     # local model that can't tool-call.
     ids = [m["id"] for m in client.get("/v1/models").json()["data"]]
-    orchestrating = [i for i in ids
-                     if any(m in i for m in _ORCHESTRATOR_MARKERS)]
+    orchestrating = [i for i in ids if any(m in i for m in _ORCHESTRATOR_MARKERS)]
     assert len(orchestrating) == 1
 
 
@@ -92,5 +92,9 @@ def test_a_keyed_install_still_asks_for_a_key(monkeypatch):
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=SqliteStore(":memory:"))))
     assert c.get("/v1/models").status_code == 401
-    assert c.get("/v1/models",
-                 headers={"Authorization": "Bearer admin-secret"}).status_code == 200
+    assert (
+        c.get(
+            "/v1/models", headers={"Authorization": "Bearer admin-secret"}
+        ).status_code
+        == 200
+    )

@@ -15,6 +15,7 @@ could quietly *not* be limited:
   * signing up carries an anonymous visitor's existing chats with them, and does
     not touch anyone else's
 """
+
 import warnings
 from types import SimpleNamespace
 
@@ -36,8 +37,13 @@ _ADMIN = "admin-secret-key"
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "hi."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -55,8 +61,12 @@ def _clean_rate_limits():
 
 
 def _profile(score=0.95):
-    return {"software_engineering": score, "law_regulatory": score,
-            "medicine_health": score, "general_knowledge": score}
+    return {
+        "software_engineering": score,
+        "law_regulatory": score,
+        "medicine_health": score,
+        "general_knowledge": score,
+    }
 
 
 def _base_env(monkeypatch):
@@ -87,21 +97,52 @@ def _base_env(monkeypatch):
 def _seeded_store():
     store = SqliteStore(":memory:")
     # One model per tier that matters: local (0), free (1), pricey (8).
-    store.upsert_model(ModelSpec(
-        value="ollama/local-8b", provider="ollama", cost=0, ctx_k=128,
-        reliability=1.0, tools=True, profile=_profile(0.80),
-        competence={"coding": 0.8, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/free-model:free", provider="openrouter", cost=1, ctx_k=128,
-        reliability=1.0, tools=True, profile=_profile(0.85),
-        competence={"coding": 0.85, "reasoning": 0.85, "docs": 0.85, "general": 0.85},
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/expensive-frontier", provider="openrouter", cost=8, ctx_k=200,
-        reliability=1.0, tools=True, profile=_profile(0.99),
-        competence={"coding": 0.99, "reasoning": 0.99, "docs": 0.99, "general": 0.99},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="ollama/local-8b",
+            provider="ollama",
+            cost=0,
+            ctx_k=128,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.80),
+            competence={"coding": 0.8, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/free-model:free",
+            provider="openrouter",
+            cost=1,
+            ctx_k=128,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.85),
+            competence={
+                "coding": 0.85,
+                "reasoning": 0.85,
+                "docs": 0.85,
+                "general": 0.85,
+            },
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/expensive-frontier",
+            provider="openrouter",
+            cost=8,
+            ctx_k=200,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.99),
+            competence={
+                "coding": 0.99,
+                "reasoning": 0.99,
+                "docs": 0.99,
+                "general": 0.99,
+            },
+        )
+    )
     return store
 
 
@@ -140,14 +181,23 @@ def _chat(client, key, **kwargs):
 
 def _spend(store, user, amount):
     """Record a cost against `user` as if a request had really been billed."""
-    store.record_usage(UsageRecord(
-        user=user, key_prefix="", routed_model="openrouter/expensive-frontier",
-        domain="general", complexity="moderate",
-        prompt_tokens=100, completion_tokens=100, cost_usd=amount, status=200,
-    ))
+    store.record_usage(
+        UsageRecord(
+            user=user,
+            key_prefix="",
+            routed_model="openrouter/expensive-frontier",
+            domain="general",
+            complexity="moderate",
+            prompt_tokens=100,
+            completion_tokens=100,
+            cost_usd=amount,
+            status=200,
+        )
+    )
 
 
 # ── The gate ────────────────────────────────────────────────────────────────────
+
 
 def test_off_by_default(monkeypatch, client):
     """Letting strangers mint keys must be an explicit decision, never a default.
@@ -161,7 +211,9 @@ def test_off_by_default(monkeypatch, client):
     assert _do_signup(client).status_code == 401
 
 
-def test_the_status_endpoint_says_unavailable_rather_than_404(monkeypatch, guest_client):
+def test_the_status_endpoint_says_unavailable_rather_than_404(
+    monkeypatch, guest_client
+):
     """The UI needs one call that always answers, instead of reading a 404 as data."""
     monkeypatch.delenv("SMART_ROUTER_SELF_SIGNUP", raising=False)
     r = guest_client.get("/api/signup", headers=_BROWSER)
@@ -228,20 +280,25 @@ def test_an_operator_issued_key_does_not_count_against_the_signup_ceiling(
 ):
     """The cap is on self-serve accounts, not on the deployment's keys."""
     monkeypatch.setenv("SMART_ROUTER_SIGNUP_MAX_ACCOUNTS", "1")
-    client.post("/api/keys", json={"user": "colleague"},
-                headers={"Authorization": f"Bearer {_ADMIN}"})
+    client.post(
+        "/api/keys",
+        json={"user": "colleague"},
+        headers={"Authorization": f"Bearer {_ADMIN}"},
+    )
     assert _do_signup(client).status_code == 201
 
 
 def test_an_authenticated_caller_cannot_mint_a_second_identity(client):
     """A key is not a coupon for more quota."""
     first = _do_signup(client).json()["key"]
-    r = client.post("/api/signup", headers={**_BROWSER,
-                                           "Authorization": f"Bearer {first}"})
+    r = client.post(
+        "/api/signup", headers={**_BROWSER, "Authorization": f"Bearer {first}"}
+    )
     assert r.status_code == 409
 
 
 # ── The account it makes ────────────────────────────────────────────────────────
+
 
 def test_the_account_handle_carries_no_information_about_the_person(client):
     """No name field, so nothing for someone to type their email into."""
@@ -258,9 +315,12 @@ def test_two_accounts_are_different_identities(client):
 
 def test_the_key_authenticates_and_the_plaintext_is_never_stored(client):
     body = _do_signup(client).json()
-    assert client.get("/api/whoami",
-                      headers={"Authorization": f"Bearer {body['key']}"}
-                      ).json()["user"] == body["user"]
+    assert (
+        client.get(
+            "/api/whoami", headers={"Authorization": f"Bearer {body['key']}"}
+        ).json()["user"]
+        == body["user"]
+    )
     stored = [k for k in client.store.all_api_keys() if k.user == body["user"]]
     assert len(stored) == 1
     assert body["key"] not in (stored[0].key_hash, stored[0].key_prefix)
@@ -268,8 +328,9 @@ def test_the_key_authenticates_and_the_plaintext_is_never_stored(client):
 
 def test_whoami_flags_a_self_serve_account_as_capped_and_agentless(client):
     body = _do_signup(client).json()
-    me = client.get("/api/whoami",
-                    headers={"Authorization": f"Bearer {body['key']}"}).json()
+    me = client.get(
+        "/api/whoami", headers={"Authorization": f"Bearer {body['key']}"}
+    ).json()
     assert me["kind"] == "user"
     assert me["self_serve"] is True
     assert me["agent_available"] is False
@@ -285,6 +346,7 @@ def test_the_rate_limit_is_baked_into_the_key(monkeypatch, client):
 
 
 # ── A stranger with a key is still a stranger ───────────────────────────────────
+
 
 def test_a_self_serve_key_is_never_an_admin(client):
     key = _do_signup(client).json()["key"]
@@ -328,13 +390,17 @@ def test_output_tokens_are_capped_over_what_the_caller_asked_for(monkeypatch, cl
 def test_an_operator_issued_key_keeps_its_full_output_budget(monkeypatch, client):
     """The ceiling is for keys nobody vetted, not for every per-user key."""
     monkeypatch.setenv("SMART_ROUTER_SIGNUP_MAX_OUTPUT_TOKENS", "128")
-    made = client.post("/api/keys", json={"user": "colleague"},
-                       headers={"Authorization": f"Bearer {_ADMIN}"}).json()
+    made = client.post(
+        "/api/keys",
+        json={"user": "colleague"},
+        headers={"Authorization": f"Bearer {_ADMIN}"},
+    ).json()
     assert _chat(client, made["key"], body={"max_tokens": 4000}).status_code == 200
     assert client.sent[-1]["max_tokens"] == 4000
 
 
 # ── The spend caps ──────────────────────────────────────────────────────────────
+
 
 def test_the_tier_ceiling_binds_while_budget_remains(client):
     """With budget left, the configured ceiling applies — the pricey model is legal.
@@ -347,19 +413,22 @@ def test_the_tier_ceiling_binds_while_budget_remains(client):
     body = _do_signup(client).json()
     assert _chat(client, body["key"]).status_code == 200
     assert _permitted(client, body["user"]) == {
-        "ollama/local-8b", "openrouter/free-model:free", "openrouter/expensive-frontier"
+        "ollama/local-8b",
+        "openrouter/free-model:free",
+        "openrouter/expensive-frontier",
     }
 
 
 def test_reaching_the_per_account_cap_degrades_instead_of_refusing(client):
     body = _do_signup(client).json()
-    _spend(client.store, body["user"], 0.95)      # cap is 1.00, soft at 0.90
+    _spend(client.store, body["user"], 0.95)  # cap is 1.00, soft at 0.90
     r = _chat(client, body["key"])
-    assert r.status_code == 200                   # still answered, not 402
+    assert r.status_code == 200  # still answered, not 402
     assert r.headers["x-routed-model"] != "openrouter/expensive-frontier"
     # The degraded ceiling is 1: free and local stay, paid goes.
     assert _permitted(client, body["user"]) == {
-        "ollama/local-8b", "openrouter/free-model:free"
+        "ollama/local-8b",
+        "openrouter/free-model:free",
     }
 
 
@@ -460,6 +529,7 @@ def test_spend_for_user_is_exact_so_one_account_is_not_billed_for_another(client
 
 # ── Scope arithmetic ────────────────────────────────────────────────────────────
 
+
 def test_capped_at_takes_the_stricter_ceiling_and_never_loosens():
     assert ModelScope(max_tier=5).capped_at(3).max_tier == 3
     assert ModelScope(max_tier=2).capped_at(7).max_tier == 2
@@ -481,9 +551,9 @@ def _fake_request(client, record):
     """The two attributes _request_scope actually reads, and nothing else."""
     return SimpleNamespace(
         state=SimpleNamespace(is_anon=False, api_key=record, user=record.user),
-        app=SimpleNamespace(state=SimpleNamespace(
-            capability_router=client.app.state.capability_router
-        )),
+        app=SimpleNamespace(
+            state=SimpleNamespace(capability_router=client.app.state.capability_router)
+        ),
     )
 
 
@@ -498,11 +568,17 @@ def test_request_scope_applies_the_signup_ceiling_to_a_self_serve_key(client):
 def test_a_hand_tightened_row_is_not_loosened_by_the_signup_ceiling(client):
     """An operator who restricts one self-serve key by hand keeps that restriction,
     even though the signup ceiling is applied on top of it every request."""
-    record = ApiKey(user="u:deadbeef", key_hash="h", key_prefix="p", enabled=True,
-                    max_tier=1, scope_models='{"deny": ["expensive"]}')
+    record = ApiKey(
+        user="u:deadbeef",
+        key_hash="h",
+        key_prefix="p",
+        enabled=True,
+        max_tier=1,
+        scope_models='{"deny": ["expensive"]}',
+    )
     scope = _request_scope(_fake_request(client, record))
-    assert scope.max_tier == 1                 # not raised to the setting's 8
-    assert scope.deny == ("expensive",)        # and the substring axis survives
+    assert scope.max_tier == 1  # not raised to the setting's 8
+    assert scope.deny == ("expensive",)  # and the substring axis survives
 
 
 def test_an_operator_issued_key_is_untouched_by_the_signup_ceiling(client):
@@ -512,6 +588,7 @@ def test_an_operator_issued_key_is_untouched_by_the_signup_ceiling(client):
 
 
 # ── Carrying an anonymous visitor's history over ────────────────────────────────
+
 
 @pytest.fixture
 def guest_client(monkeypatch):
@@ -534,8 +611,9 @@ def guest_client(monkeypatch):
 def test_signing_up_brings_the_guest_chats_that_led_to_it(guest_client):
     """The conversations that convinced someone to make an account are the ones
     they would most hate to lose at the moment they commit."""
-    made = guest_client.post("/api/conversations", json={"title": "My thread"},
-                             headers=_BROWSER)
+    made = guest_client.post(
+        "/api/conversations", json={"title": "My thread"}, headers=_BROWSER
+    )
     assert made.status_code in (200, 201)
     owner = made.json()["user"]
     assert owner.startswith(_public.ANON_PREFIX)
@@ -543,8 +621,9 @@ def test_signing_up_brings_the_guest_chats_that_led_to_it(guest_client):
     body = guest_client.post("/api/signup", headers=_BROWSER).json()
     assert body["carried_over"] == 1
 
-    listed = guest_client.get("/api/conversations",
-                              headers={"Authorization": f"Bearer {body['key']}"}).json()
+    listed = guest_client.get(
+        "/api/conversations", headers={"Authorization": f"Bearer {body['key']}"}
+    ).json()
     assert [c["title"] for c in listed["data"]] == ["My thread"]
     assert listed["data"][0]["user"] == body["user"]
 

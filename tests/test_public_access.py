@@ -10,6 +10,7 @@ each has a test that fails loudly if it regresses:
   * the cost ceiling binds, and tightens on its own once the day's cap is spent
   * one visitor cannot read another's conversations
 """
+
 import time
 import warnings
 
@@ -28,8 +29,13 @@ _ADMIN = "admin-secret-key"
 
 _REPLY = {
     "id": "cmpl-1",
-    "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi."},
-                 "finish_reason": "stop"}],
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "hi."},
+            "finish_reason": "stop",
+        }
+    ],
     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
 }
 
@@ -47,8 +53,12 @@ def _clean_rate_limits():
 
 
 def _profile(score=0.95):
-    return {"software_engineering": score, "law_regulatory": score,
-            "medicine_health": score, "general_knowledge": score}
+    return {
+        "software_engineering": score,
+        "law_regulatory": score,
+        "medicine_health": score,
+        "general_knowledge": score,
+    }
 
 
 @pytest.fixture
@@ -81,21 +91,52 @@ def client(monkeypatch):
 
     store = SqliteStore(":memory:")
     # One model per tier that matters: local (0), free (1), and pricey (8).
-    store.upsert_model(ModelSpec(
-        value="ollama/local-8b", provider="ollama", cost=0, ctx_k=128,
-        reliability=1.0, tools=True, profile=_profile(0.80),
-        competence={"coding": 0.8, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/free-model:free", provider="openrouter", cost=1, ctx_k=128,
-        reliability=1.0, tools=True, profile=_profile(0.85),
-        competence={"coding": 0.85, "reasoning": 0.85, "docs": 0.85, "general": 0.85},
-    ))
-    store.upsert_model(ModelSpec(
-        value="openrouter/expensive-frontier", provider="openrouter", cost=8, ctx_k=200,
-        reliability=1.0, tools=True, profile=_profile(0.99),
-        competence={"coding": 0.99, "reasoning": 0.99, "docs": 0.99, "general": 0.99},
-    ))
+    store.upsert_model(
+        ModelSpec(
+            value="ollama/local-8b",
+            provider="ollama",
+            cost=0,
+            ctx_k=128,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.80),
+            competence={"coding": 0.8, "reasoning": 0.8, "docs": 0.8, "general": 0.8},
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/free-model:free",
+            provider="openrouter",
+            cost=1,
+            ctx_k=128,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.85),
+            competence={
+                "coding": 0.85,
+                "reasoning": 0.85,
+                "docs": 0.85,
+                "general": 0.85,
+            },
+        )
+    )
+    store.upsert_model(
+        ModelSpec(
+            value="openrouter/expensive-frontier",
+            provider="openrouter",
+            cost=8,
+            ctx_k=200,
+            reliability=1.0,
+            tools=True,
+            profile=_profile(0.99),
+            competence={
+                "coding": 0.99,
+                "reasoning": 0.99,
+                "docs": 0.99,
+                "general": 0.99,
+            },
+        )
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         c = TestClient(create_app(CapabilityRouter(store=store)))
@@ -113,6 +154,7 @@ def _chat(client, **kwargs):
 
 # ── The gate ────────────────────────────────────────────────────────────────────
 
+
 def test_off_by_default(monkeypatch, client):
     """Anonymous access must be an explicit decision, never a default."""
     monkeypatch.delenv("SMART_ROUTER_PUBLIC_CHAT", raising=False)
@@ -127,9 +169,10 @@ def test_bare_api_client_still_refused_when_public_chat_is_on(client):
     This is the property that keeps `curl https://host/v1/chat/completions` from
     working the moment public chat is switched on.
     """
-    r = client.post("/v1/chat/completions",
-                    json={"model": "smart-worker",
-                          "messages": [{"role": "user", "content": "hi"}]})
+    r = client.post(
+        "/v1/chat/completions",
+        json={"model": "smart-worker", "messages": [{"role": "user", "content": "hi"}]},
+    )
     assert r.status_code == 401
 
 
@@ -147,8 +190,10 @@ def test_same_origin_browser_request_allowed_and_gets_a_session(client):
 
 def test_top_level_navigation_counts_as_browser():
     """Sec-Fetch-Site: none is how the page itself loads, not a cross-origin call."""
+
     class _Req:
         headers = {"sec-fetch-site": "none"}
+
     assert _public.is_same_origin_browser_request(_Req())
 
 
@@ -165,17 +210,26 @@ def test_origin_fallback_for_browsers_without_sec_fetch_site():
 
 # ── Identity and isolation ──────────────────────────────────────────────────────
 
+
 def test_anon_is_not_admin_and_cannot_reach_admin_surfaces(client):
     """Opening the chat page must not open the dashboard."""
     assert client.get("/api/whoami", headers=_BROWSER).json()["kind"] == "anon"
-    for path in ("/api/keys", "/api/settings", "/api/usage", "/api/providers",
-                 "/api/files"):
+    for path in (
+        "/api/keys",
+        "/api/settings",
+        "/api/usage",
+        "/api/providers",
+        "/api/files",
+    ):
         assert client.get(path, headers=_BROWSER).status_code == 401, path
 
 
 def test_anon_cannot_upload_files(client):
-    r = client.post("/api/files", headers=_BROWSER,
-                    files={"file": ("x.txt", b"hello", "text/plain")})
+    r = client.post(
+        "/api/files",
+        headers=_BROWSER,
+        files={"file": ("x.txt", b"hello", "text/plain")},
+    )
     assert r.status_code == 401
 
 
@@ -186,10 +240,14 @@ def test_anon_can_report_a_bad_reply_but_not_read_the_reports(client):
     the least likely to have any other way to say so, so filing is allowed. Reading
     is not: the list is full of other visitors' conversations.
     """
-    r = client.post("/api/reports", headers=_BROWSER, json={
-        "description": "It answered in the wrong language.",
-        "transcript": [{"role": "user", "content": "hola"}],
-    })
+    r = client.post(
+        "/api/reports",
+        headers=_BROWSER,
+        json={
+            "description": "It answered in the wrong language.",
+            "transcript": [{"role": "user", "content": "hola"}],
+        },
+    )
     assert r.status_code == 200
     assert client.get("/api/reports", headers=_BROWSER).status_code == 403
     assert client.delete("/api/reports/1", headers=_BROWSER).status_code == 401
@@ -251,6 +309,7 @@ def test_an_authenticated_key_is_not_downgraded_when_public_chat_is_on(client):
 
 # ── The cost ceiling ────────────────────────────────────────────────────────────
 
+
 def test_tier_ceiling_keeps_anon_off_expensive_models(client):
     """The pricey model is the best one available, and must still be refused."""
     r = _chat(client)
@@ -262,9 +321,15 @@ def test_admin_still_reaches_the_expensive_model(client):
     """Proof the ceiling above is anon policy, not the model being unroutable."""
     r = client.post(
         "/v1/chat/completions",
-        json={"model": "smart-worker",
-              "messages": [{"role": "user", "content":
-                            "Analyze this FDA submission for regulatory risk."}]},
+        json={
+            "model": "smart-worker",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Analyze this FDA submission for regulatory risk.",
+                }
+            ],
+        },
         headers={"Authorization": f"Bearer {_ADMIN}"},
     )
     assert r.status_code == 200
@@ -286,12 +351,12 @@ def test_zero_cap_means_no_paid_spend_not_unlimited(monkeypatch, client):
 def test_ceiling_tightens_once_the_daily_cap_is_spent(monkeypatch, client):
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_DAILY_BUDGET", "1.00")
     cr = client.app.state.capability_router
-    assert _public.tier_ceiling(cr) == 3          # configured ceiling, budget intact
+    assert _public.tier_ceiling(cr) == 3  # configured ceiling, budget intact
 
     cr.record_usage(UsageRecord(kind="proxy", user="anon:someone", cost_usd=0.95))
     status = _public.budget_status(cr)
-    assert status.degraded is True                # 0.95 ≥ 90% of 1.00
-    assert _public.tier_ceiling(cr) == 1          # degraded ceiling now applies
+    assert status.degraded is True  # 0.95 ≥ 90% of 1.00
+    assert _public.tier_ceiling(cr) == 1  # degraded ceiling now applies
 
 
 def test_degraded_ceiling_excludes_paid_models_from_the_scope(monkeypatch, client):
@@ -348,6 +413,7 @@ def test_spend_since_is_prefix_scoped_and_escapes_wildcards(client):
 
 # ── Per-request limits ──────────────────────────────────────────────────────────
 
+
 def test_anon_output_tokens_are_capped(client):
     _chat(client, body={"max_tokens": 100_000})
     assert client.sent[-1]["max_tokens"] == 256
@@ -366,9 +432,13 @@ def test_agent_mode_refused_for_anon(client):
 
 
 def test_agent_auto_never_escalates_for_anon(client):
-    r = _chat(client, body={"agent": "auto",
-                            "messages": [{"role": "user",
-                                          "content": "write a file called out.txt"}]})
+    r = _chat(
+        client,
+        body={
+            "agent": "auto",
+            "messages": [{"role": "user", "content": "write a file called out.txt"}],
+        },
+    )
     assert r.status_code == 200
     assert "tools" not in client.sent[-1]
 
@@ -403,25 +473,40 @@ def test_rotating_ip_does_not_buy_a_fresh_quota_either(monkeypatch, client):
     """
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_RL_MAX_REQ", "1")
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_RL_WINDOW_S", "60")
-    assert _chat(client, headers={**_BROWSER, "cf-connecting-ip": "1.1.1.1"}).status_code == 200
+    assert (
+        _chat(client, headers={**_BROWSER, "cf-connecting-ip": "1.1.1.1"}).status_code
+        == 200
+    )
     # Same cookie jar, new address — the per-session cap catches it.
-    assert _chat(client, headers={**_BROWSER, "cf-connecting-ip": "9.9.9.9"}).status_code == 429
+    assert (
+        _chat(client, headers={**_BROWSER, "cf-connecting-ip": "9.9.9.9"}).status_code
+        == 429
+    )
 
 
 def test_separate_visitors_have_separate_quotas(monkeypatch, client):
     """One abuser must not rate-limit everyone else off the site."""
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_RL_MAX_REQ", "1")
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_RL_WINDOW_S", "60")
-    assert _chat(client, headers={**_BROWSER, "cf-connecting-ip": "1.1.1.1"}).status_code == 200
+    assert (
+        _chat(client, headers={**_BROWSER, "cf-connecting-ip": "1.1.1.1"}).status_code
+        == 200
+    )
     client.cookies.clear()  # a different visitor: new session, new address
-    assert _chat(client, headers={**_BROWSER, "cf-connecting-ip": "2.2.2.2"}).status_code == 200
+    assert (
+        _chat(client, headers={**_BROWSER, "cf-connecting-ip": "2.2.2.2"}).status_code
+        == 200
+    )
 
 
 def test_client_ip_prefers_the_tunnels_real_client_header():
     """Behind the Cloudflare tunnel, request.client is identical for everyone."""
+
     class _Req:
-        headers = {"cf-connecting-ip": "203.0.113.5",
-                   "x-forwarded-for": "10.0.0.1, 10.0.0.2"}
+        headers = {
+            "cf-connecting-ip": "203.0.113.5",
+            "x-forwarded-for": "10.0.0.1, 10.0.0.2",
+        }
         client = type("C", (), {"host": "127.0.0.1"})()
 
     class _NoCf:
@@ -436,9 +521,9 @@ def test_concurrency_cap_admits_up_to_the_limit(monkeypatch):
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_MAX_CONCURRENT", "2")
     gate = _public._Concurrency()
     assert gate.try_acquire() and gate.try_acquire()
-    assert not gate.try_acquire()          # third is refused
+    assert not gate.try_acquire()  # third is refused
     gate.release()
-    assert gate.try_acquire()              # a slot freed up
+    assert gate.try_acquire()  # a slot freed up
 
 
 def test_concurrency_zero_means_unlimited(monkeypatch):
@@ -459,6 +544,7 @@ def test_usage_is_attributed_to_the_anonymous_session(client):
 # A new anon: id per visit is not a fresh start, it's amnesia — the chat list
 # empties and the old conversations become unreachable by anyone. These tests are
 # about the identity *surviving*.
+
 
 def _cookie_headers(response) -> list[str]:
     return response.headers.get_list("set-cookie")
@@ -551,7 +637,7 @@ def test_the_page_load_settles_the_identity_before_any_fetch_can_race(client):
 
 def test_a_settled_cookie_is_left_alone_on_later_requests(client):
     first = _chat(client)
-    assert _anon_cookie_header(first)          # minted here
+    assert _anon_cookie_header(first)  # minted here
     assert _anon_cookie_header(_chat(client)) == ""
 
 
@@ -586,6 +672,7 @@ def test_a_refresh_keeps_the_same_visitor(client):
 def test_is_https_honors_the_terminating_proxy():
     """The tunnel forwards plain HTTP, so scheme alone marks a Secure cookie
     un-settable — which would be a new identity on every request."""
+
     class _Req:
         def __init__(self, headers, scheme):
             self.headers = headers
@@ -600,20 +687,22 @@ def test_is_https_honors_the_terminating_proxy():
 
 # ── Recovery: the localStorage mirror and the recovery link ─────────────────────
 
+
 def test_a_visitor_can_read_the_token_behind_their_own_cookie(client):
     user = _chat(client).headers["x-user"]
     r = client.get("/api/anon/session", headers=_BROWSER)
     assert r.status_code == 200
     body = r.json()
-    assert body["session_id"] == user[len(_public.ANON_PREFIX):]
+    assert body["session_id"] == user[len(_public.ANON_PREFIX) :]
     cr = client.app.state.capability_router
     assert _public.read_session(body["token"], cr) == body["session_id"]
 
 
 def test_claiming_a_token_restores_the_history_a_lost_cookie_stranded(client):
     """The point of the whole mechanism: a cleared cookie used to be terminal."""
-    conv = client.post("/api/conversations", json={"title": "my thread"},
-                       headers=_BROWSER)
+    conv = client.post(
+        "/api/conversations", json={"title": "my thread"}, headers=_BROWSER
+    )
     assert conv.status_code == 200
     token = client.get("/api/anon/session", headers=_BROWSER).json()["token"]
 
@@ -623,8 +712,10 @@ def test_claiming_a_token_restores_the_history_a_lost_cookie_stranded(client):
 
     claimed = client.post("/api/anon/claim", json={"token": token}, headers=_BROWSER)
     assert claimed.status_code == 200
-    titles = [c["title"] for c in
-              client.get("/api/conversations", headers=_BROWSER).json()["data"]]
+    titles = [
+        c["title"]
+        for c in client.get("/api/conversations", headers=_BROWSER).json()["data"]
+    ]
     assert titles == ["my thread"]
 
 
@@ -634,8 +725,9 @@ def test_a_claim_leaves_exactly_one_cookie_deciding_who_the_visitor_is(client):
     token = client.get("/api/anon/session", headers=_BROWSER).json()["token"]
     client.cookies.clear()
     r = client.post("/api/anon/claim", json={"token": token}, headers=_BROWSER)
-    session_cookies = [ln for ln in _cookie_headers(r)
-                       if ln.startswith(f"{_public.COOKIE_NAME}=")]
+    session_cookies = [
+        ln for ln in _cookie_headers(r) if ln.startswith(f"{_public.COOKIE_NAME}=")
+    ]
     assert len(session_cookies) == 1
     cr = client.app.state.capability_router
     assert _public.read_session(_anon_cookie_value(r), cr) == r.json()["session_id"]
@@ -649,7 +741,7 @@ def test_a_claimed_token_is_restamped_so_a_year_old_bookmark_still_works(client)
     r = client.post("/api/anon/claim", json={"token": stale}, headers=_BROWSER)
     assert r.status_code == 200
     assert r.json()["session_id"] == session_id
-    assert r.json()["token"] != stale          # re-stamped, same identity
+    assert r.json()["token"] != stale  # re-stamped, same identity
     fresh = _public.read_session_meta(r.json()["token"], cr)
     assert fresh.session_id == session_id
     assert _public.refresh_due(fresh) is False
@@ -662,18 +754,23 @@ def test_a_forged_recovery_token_is_refused_rather_than_silently_ignored(client)
         assert r.status_code == 400, bad
 
 
-def test_recovery_endpoints_do_not_exist_when_anonymous_access_is_off(monkeypatch, client):
+def test_recovery_endpoints_do_not_exist_when_anonymous_access_is_off(
+    monkeypatch, client
+):
     monkeypatch.setenv("SMART_ROUTER_PUBLIC_CHAT", "false")
     admin = {"Authorization": f"Bearer {_ADMIN}", **_BROWSER}
     assert client.get("/api/anon/session", headers=admin).status_code == 404
-    assert client.post("/api/anon/claim", json={"token": "x"},
-                       headers=admin).status_code == 404
+    assert (
+        client.post("/api/anon/claim", json={"token": "x"}, headers=admin).status_code
+        == 404
+    )
 
 
 def test_an_authenticated_key_is_not_handed_an_anonymous_token(client):
     """A key is a better identity than a cookie; there is nothing to mirror."""
-    r = client.get("/api/anon/session",
-                   headers={"Authorization": f"Bearer {_ADMIN}", **_BROWSER})
+    r = client.get(
+        "/api/anon/session", headers={"Authorization": f"Bearer {_ADMIN}", **_BROWSER}
+    )
     assert r.status_code == 404
 
 

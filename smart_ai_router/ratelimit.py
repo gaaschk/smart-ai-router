@@ -12,6 +12,7 @@ usage — approximate at the margins (a request is counted once its usage row is
 written, which for streaming happens in a later phase), but sufficient to stop a
 key that's over budget. It never blocks admin/open requests, which have no key.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,11 +24,11 @@ from smart_ai_router.models import ApiKey, UsageRecord
 @dataclass(frozen=True)
 class RateLimitStatus:
     allowed: bool
-    reason: str = ""                 # human-readable, for the 429 body
-    limit: int = 0                   # the cap that was hit (req or tokens)
-    used: int = 0                    # usage in the window (of the hit dimension)
+    reason: str = ""  # human-readable, for the 429 body
+    limit: int = 0  # the cap that was hit (req or tokens)
+    used: int = 0  # usage in the window (of the hit dimension)
     window_s: int = 0
-    retry_after_s: int = 0           # seconds until the window frees up
+    retry_after_s: int = 0  # seconds until the window frees up
 
 
 def _window_start(window_s: int, now: datetime) -> str:
@@ -57,17 +58,21 @@ def check_rate_limit(
         return RateLimitStatus(
             allowed=False,
             reason=f"request quota exceeded: {req_count}/{key.rl_max_req} "
-                   f"in {window}s window",
-            limit=key.rl_max_req, used=req_count,
-            window_s=window, retry_after_s=window,
+            f"in {window}s window",
+            limit=key.rl_max_req,
+            used=req_count,
+            window_s=window,
+            retry_after_s=window,
         )
     if key.rl_max_tokens and token_count >= key.rl_max_tokens:
         return RateLimitStatus(
             allowed=False,
             reason=f"token quota exceeded: {token_count}/{key.rl_max_tokens} "
-                   f"in {window}s window",
-            limit=key.rl_max_tokens, used=token_count,
-            window_s=window, retry_after_s=window,
+            f"in {window}s window",
+            limit=key.rl_max_tokens,
+            used=token_count,
+            window_s=window,
+            retry_after_s=window,
         )
     return RateLimitStatus(allowed=True, window_s=window)
 

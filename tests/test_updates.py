@@ -20,6 +20,7 @@ launchd's KeepAlive. Every test in that group pins the interlock as much as the
 feature — a self-exit that fires when launchd is *not* supervising this process
 is an outage, and the suite itself is one of the processes it must not kill.
 """
+
 from __future__ import annotations
 
 import os
@@ -42,15 +43,18 @@ class _Proc:
 
 def _fake_git(responses):
     """Route git calls by subcommand; unlisted ones succeed with empty output."""
+
     def _git(*args):
         for key, proc in responses.items():
             if key in args:
                 return proc
         return _Proc()
+
     return _git
 
 
 # ── Merge failures must be reported verbatim ─────────────────────────────────
+
 
 def test_merge_blocked_by_untracked_file_reports_git_message(monkeypatch):
     """The real production blocker. git puts this on stdout, not stderr."""
@@ -60,7 +64,8 @@ def test_merge_blocked_by_untracked_file_reports_git_message(monkeypatch):
         "Please move or remove them before you merge.\nAborting"
     )
     monkeypatch.setattr(
-        updates, "_git",
+        updates,
+        "_git",
         _fake_git({"merge": _Proc(returncode=1, stdout=stdout, stderr="")}),
     )
     out = updates.apply_source_update()
@@ -71,8 +76,11 @@ def test_merge_blocked_by_untracked_file_reports_git_message(monkeypatch):
 
 def test_merge_failure_on_stderr_also_reported(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
-        _fake_git({"merge": _Proc(returncode=1, stderr="fatal: not possible to fast-forward")}),
+        updates,
+        "_git",
+        _fake_git(
+            {"merge": _Proc(returncode=1, stderr="fatal: not possible to fast-forward")}
+        ),
     )
     out = updates.apply_source_update()
     assert out["ok"] is False
@@ -81,7 +89,8 @@ def test_merge_failure_on_stderr_also_reported(monkeypatch):
 
 def test_fetch_failure_short_circuits(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
+        updates,
+        "_git",
         _fake_git({"fetch": _Proc(returncode=1, stderr="could not resolve host")}),
     )
     out = updates.apply_source_update()
@@ -89,6 +98,7 @@ def test_fetch_failure_short_circuits(monkeypatch):
 
 
 # ── Restart-target resolution ────────────────────────────────────────────────
+
 
 def _no_pip(monkeypatch):
     """Neutralize the uv dep-reinstall so tests don't shell out."""
@@ -118,7 +128,8 @@ def test_system_daemon_needs_sudo_and_gets_a_command(monkeypatch):
     """A root-owned LaunchDaemon can't be kickstarted by this process."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
     monkeypatch.setattr(
-        updates, "_job_exists",
+        updates,
+        "_job_exists",
         lambda domain, label: domain == "system",
     )
     _no_job(monkeypatch)
@@ -133,8 +144,12 @@ def test_system_daemon_needs_sudo_and_gets_a_command(monkeypatch):
 
 
 def test_user_domain_job_is_kickstarted_and_reports_success(monkeypatch):
-    monkeypatch.setattr(updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
+    monkeypatch.setattr(
+        updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")})
+    )
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain.startswith("gui/")
+    )
     _no_job(monkeypatch)
     monkeypatch.setattr(updates, "APP_DAEMON_LABEL", "com.example.router")
 
@@ -143,6 +158,7 @@ def test_user_domain_job_is_kickstarted_and_reports_success(monkeypatch):
     def _run(cmd, **kwargs):
         calls.append(list(cmd))
         return _Proc()
+
     monkeypatch.setattr(subprocess, "run", _run)
 
     out = updates.apply_source_update()
@@ -158,13 +174,16 @@ def test_user_domain_job_is_kickstarted_and_reports_success(monkeypatch):
 def test_kickstart_failure_is_surfaced(monkeypatch):
     """A restart that errors must not be reported as a restart."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain.startswith("gui/")
+    )
     _no_job(monkeypatch)
 
     def _run(cmd, **kwargs):
         if cmd and cmd[0] == "launchctl":
             return _Proc(returncode=1, stderr="Could not find service")
         return _Proc()
+
     monkeypatch.setattr(subprocess, "run", _run)
 
     out = updates.apply_source_update()
@@ -181,6 +200,7 @@ def test_user_domain_preferred_over_system(monkeypatch):
 
 
 # ── Finding our own job by what it runs ──────────────────────────────────────
+
 
 def _write_plist(directory: Path, name: str, body: dict) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
@@ -202,13 +222,18 @@ def _scan(monkeypatch, *dirs):
     monkeypatch.setattr(updates, "_PLIST_DIRS", tuple(dirs))
 
 
-def test_own_job_is_found_by_its_program_not_by_the_configured_label(monkeypatch, tmp_path):
+def test_own_job_is_found_by_its_program_not_by_the_configured_label(
+    monkeypatch, tmp_path
+):
     """The live failure: the plist is named com.kevingaasch.smart-ai-router while
     the code defaults to com.smart-ai-router, so a label lookup finds nothing and
     the pull silently never restarts. Reading the plist removes the guess."""
     daemons = tmp_path / "LaunchDaemons"
-    _write_plist(daemons, "com.kevingaasch.smart-ai-router",
-                 _app_plist(label="com.kevingaasch.smart-ai-router"))
+    _write_plist(
+        daemons,
+        "com.kevingaasch.smart-ai-router",
+        _app_plist(label="com.kevingaasch.smart-ai-router"),
+    )
     _scan(monkeypatch, (daemons, "system"))
     monkeypatch.setattr(updates, "APP_DAEMON_LABEL", "com.smart-ai-router")
 
@@ -224,12 +249,21 @@ def test_a_job_that_merely_mentions_the_app_is_not_ours(monkeypatch, tmp_path):
     com.cloudflare.smart-ai-router and names the app in its config path.
     Kickstarting or killing *that* would take the tunnel down instead."""
     agents = tmp_path / "LaunchAgents"
-    _write_plist(agents, "com.cloudflare.smart-ai-router", {
-        "Label": "com.cloudflare.smart-ai-router",
-        "ProgramArguments": ["/opt/homebrew/bin/cloudflared", "tunnel", "run",
-                             "--config", "/etc/smart-ai-router.yml"],
-        "KeepAlive": True,
-    })
+    _write_plist(
+        agents,
+        "com.cloudflare.smart-ai-router",
+        {
+            "Label": "com.cloudflare.smart-ai-router",
+            "ProgramArguments": [
+                "/opt/homebrew/bin/cloudflared",
+                "tunnel",
+                "run",
+                "--config",
+                "/etc/smart-ai-router.yml",
+            ],
+            "KeepAlive": True,
+        },
+    )
     _scan(monkeypatch, (agents, "gui"))
     assert updates._own_job() is None
 
@@ -266,6 +300,7 @@ def test_keepalive_forms_that_do_and_do_not_guarantee_a_relaunch():
 
 # ── Restarting by exiting into KeepAlive ─────────────────────────────────────
 
+
 def _system_job(monkeypatch, *, keep_alive=True, pid=None):
     """A root-owned daemon that launchd reports as running under `pid`."""
     job = updates._Job(
@@ -276,7 +311,8 @@ def _system_job(monkeypatch, *, keep_alive=True, pid=None):
     )
     monkeypatch.setattr(updates, "_own_job", lambda: job)
     monkeypatch.setattr(
-        updates, "_job_pid",
+        updates,
+        "_job_pid",
         lambda domain, label: os.getpid() if pid is None else pid,
     )
     return job
@@ -284,15 +320,21 @@ def _system_job(monkeypatch, *, keep_alive=True, pid=None):
 
 def _watch_exit(monkeypatch) -> list[bool]:
     exits: list[bool] = []
-    monkeypatch.setattr(updates, "_exit_for_relaunch", lambda *a, **k: exits.append(True))
+    monkeypatch.setattr(
+        updates, "_exit_for_relaunch", lambda *a, **k: exits.append(True)
+    )
     return exits
 
 
 def test_a_system_daemon_restarts_itself_by_exiting(monkeypatch):
     """The live host's configuration. An unprivileged kickstart is denied, but
     ending the process is not — launchd's KeepAlive starts the new code."""
-    monkeypatch.setattr(updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain == "system")
+    monkeypatch.setattr(
+        updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")})
+    )
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain == "system"
+    )
     _no_pip(monkeypatch)
     _system_job(monkeypatch)
     exits = _watch_exit(monkeypatch)
@@ -308,7 +350,9 @@ def test_self_exit_is_refused_when_launchd_is_not_supervising_this_process(monke
     """The interlock. Without the pid check this path would end a hand-started
     process — or the test runner — and call it a restart."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain == "system")
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain == "system"
+    )
     _no_pip(monkeypatch)
     _system_job(monkeypatch, pid=os.getpid() + 1000)
     exits = _watch_exit(monkeypatch)
@@ -322,7 +366,9 @@ def test_self_exit_is_refused_when_launchd_is_not_supervising_this_process(monke
 def test_self_exit_is_refused_when_keepalive_would_not_relaunch(monkeypatch):
     """Exiting a job launchd won't restart is an outage, not an update."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain == "system")
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain == "system"
+    )
     _no_pip(monkeypatch)
     _system_job(monkeypatch, keep_alive=False)
     exits = _watch_exit(monkeypatch)
@@ -336,9 +382,15 @@ def test_a_failed_kickstart_falls_back_to_exiting(monkeypatch):
     """A wrong label, a job booted out from under us — the second route doesn't
     depend on either being right."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
-    job = updates._Job(label="com.example.router", domain=f"gui/{os.getuid()}",
-                       relaunch_on_exit=True, path=Path("/tmp/x.plist"))
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain.startswith("gui/")
+    )
+    job = updates._Job(
+        label="com.example.router",
+        domain=f"gui/{os.getuid()}",
+        relaunch_on_exit=True,
+        path=Path("/tmp/x.plist"),
+    )
     monkeypatch.setattr(updates, "_own_job", lambda: job)
     monkeypatch.setattr(updates, "_job_pid", lambda domain, label: os.getpid())
     exits = _watch_exit(monkeypatch)
@@ -347,6 +399,7 @@ def test_a_failed_kickstart_falls_back_to_exiting(monkeypatch):
         if cmd and cmd[0] == "launchctl":
             return _Proc(returncode=1, stderr="Could not find service")
         return _Proc()
+
     monkeypatch.setattr(subprocess, "run", _run)
 
     out = updates.apply_source_update()
@@ -357,7 +410,9 @@ def test_a_kickstartable_job_is_not_restarted_by_exiting(monkeypatch):
     """Kickstart when it works: no throttle interval, no window where the app is
     simply down. Exiting is the fallback, not the default."""
     monkeypatch.setattr(updates, "_git", _fake_git({}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain.startswith("gui/")
+    )
     _system_job(monkeypatch)  # supervised and KeepAlive — still must not be used
     exits = _watch_exit(monkeypatch)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Proc())
@@ -374,7 +429,8 @@ def test_job_pid_is_read_from_launchctl_print(monkeypatch):
         "\truns = 64\n\tpid = 4242\n\tproperties = keepalive | runatload\n}"
     )
     monkeypatch.setattr(
-        subprocess, "run",
+        subprocess,
+        "run",
         lambda *a, **k: _Proc(stdout=printed),
     )
     assert updates._job_pid("system", "com.example.router") == 4242
@@ -382,7 +438,8 @@ def test_job_pid_is_read_from_launchctl_print(monkeypatch):
 
 def test_job_pid_is_none_when_launchd_does_not_know_the_job(monkeypatch):
     monkeypatch.setattr(
-        subprocess, "run",
+        subprocess,
+        "run",
         lambda *a, **k: _Proc(returncode=1, stderr="Could not find service"),
     )
     assert updates._job_pid("system", "nope") is None
@@ -390,13 +447,17 @@ def test_job_pid_is_none_when_launchd_does_not_know_the_job(monkeypatch):
 
 # ── Status reporting ─────────────────────────────────────────────────────────
 
+
 def test_status_reports_behind_count(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
-        _fake_git({
-            "rev-parse": _Proc(stdout="1111111aaaa\n"),
-            "rev-list": _Proc(stdout="0\t3\n"),
-        }),
+        updates,
+        "_git",
+        _fake_git(
+            {
+                "rev-parse": _Proc(stdout="1111111aaaa\n"),
+                "rev-list": _Proc(stdout="0\t3\n"),
+            }
+        ),
     )
     out = updates.source_update_status()
     assert out["ok"] is True
@@ -405,7 +466,8 @@ def test_status_reports_behind_count(monkeypatch):
 
 def test_status_fetch_failure_reports_git_output(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
+        updates,
+        "_git",
         _fake_git({"fetch": _Proc(returncode=1, stderr="network unreachable")}),
     )
     out = updates.source_update_status()
@@ -419,13 +481,17 @@ def test_status_fetch_failure_reports_git_output(monkeypatch):
 # failure paths — a status call that omits it reads as "old build with no
 # instance support" and sends the UI down its weaker fallback.
 
+
 def test_instance_is_stable_across_calls(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
-        _fake_git({
-            "rev-parse": _Proc(stdout="1111111aaaa\n"),
-            "rev-list": _Proc(stdout="0\t0\n"),
-        }),
+        updates,
+        "_git",
+        _fake_git(
+            {
+                "rev-parse": _Proc(stdout="1111111aaaa\n"),
+                "rev-list": _Proc(stdout="0\t0\n"),
+            }
+        ),
     )
     first = updates.source_update_status()["instance"]
     second = updates.source_update_status()["instance"]
@@ -434,7 +500,8 @@ def test_instance_is_stable_across_calls(monkeypatch):
 
 def test_every_status_path_carries_the_instance(monkeypatch):
     monkeypatch.setattr(
-        updates, "_git",
+        updates,
+        "_git",
         _fake_git({"fetch": _Proc(returncode=1, stderr="offline")}),
     )
     assert updates.source_update_status()["instance"] == updates.INSTANCE
@@ -445,8 +512,12 @@ def test_every_status_path_carries_the_instance(monkeypatch):
 
 
 def test_apply_reports_the_pulled_sha_and_the_pulling_instance(monkeypatch):
-    monkeypatch.setattr(updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")}))
-    monkeypatch.setattr(updates, "_job_exists", lambda domain, label: domain.startswith("gui/"))
+    monkeypatch.setattr(
+        updates, "_git", _fake_git({"rev-parse": _Proc(stdout="abcdef1234\n")})
+    )
+    monkeypatch.setattr(
+        updates, "_job_exists", lambda domain, label: domain.startswith("gui/")
+    )
     _no_job(monkeypatch)
     monkeypatch.setattr(updates, "APP_DAEMON_LABEL", "com.example.router")
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Proc())
@@ -471,11 +542,14 @@ def test_the_endpoint_does_not_strip_the_instance(monkeypatch):
 
     monkeypatch.delenv("SMART_ROUTER_API_KEYS", raising=False)
     monkeypatch.setattr(
-        updates, "_git",
-        _fake_git({
-            "rev-parse": _Proc(stdout="1111111aaaa\n"),
-            "rev-list": _Proc(stdout="0\t0\n"),
-        }),
+        updates,
+        "_git",
+        _fake_git(
+            {
+                "rev-parse": _Proc(stdout="1111111aaaa\n"),
+                "rev-list": _Proc(stdout="0\t0\n"),
+            }
+        ),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

@@ -1,4 +1,5 @@
 """Write-only Voice credentials: persistence, live use, redaction and form behavior."""
+
 import json
 from unittest.mock import patch
 
@@ -20,20 +21,31 @@ def test_saved_key_is_redacted_persistent_and_used_live(tmp_path, monkeypatch):
     client = _client(cr)
     auth = {"Authorization": f"Bearer {_ADMIN}"}
     for value in ("saved-secret", "replacement-secret", ""):
-        response = client.put("/api/settings", headers=auth,
-            json={"updates": {"elevenlabs_api_key": value}})
+        response = client.put(
+            "/api/settings",
+            headers=auth,
+            json={"updates": {"elevenlabs_api_key": value}},
+        )
         assert response.status_code == 200
         rows = {row["key"]: row for row in response.json()["settings"]}
         assert rows["elevenlabs_api_key"]["value"] == ""
         assert rows["elevenlabs_api_key"]["secret"] is True
         assert rows["elevenlabs_api_key"]["configured"] is bool(value)
         assert "env-secret" not in response.text
-        assert "saved-secret" not in response.text and "replacement-secret" not in response.text
+        assert (
+            "saved-secret" not in response.text
+            and "replacement-secret" not in response.text
+        )
         fetched = client.get("/api/settings", headers=auth)
-        assert "saved-secret" not in fetched.text and "replacement-secret" not in fetched.text
+        assert (
+            "saved-secret" not in fetched.text
+            and "replacement-secret" not in fetched.text
+        )
         assert SqliteStore(database).get_setting("elevenlabs_api_key") == value
         if value:
-            with patch.object(httpx.Client, "post", return_value=httpx.Response(200, json={})) as post:
+            with patch.object(
+                httpx.Client, "post", return_value=httpx.Response(200, json={})
+            ) as post:
                 audio_tools._post("text-to-voice/design", {})
                 assert post.call_args.kwargs["headers"]["xi-api-key"] == value
         else:
@@ -43,24 +55,39 @@ def test_saved_key_is_redacted_persistent_and_used_live(tmp_path, monkeypatch):
 
 def test_env_key_is_redacted_and_works_as_fallback(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "env-secret")
-    row = next(row for row in settings.effective() if row["key"] == "elevenlabs_api_key")
+    row = next(
+        row for row in settings.effective() if row["key"] == "elevenlabs_api_key"
+    )
     assert row["source"] == "env" and row["configured"] is True and row["value"] == ""
     assert settings.get_str("elevenlabs_api_key") == "env-secret"
 
 
-@pytest.mark.parametrize("value", [None, 123, "x" * 513, "key\ninjected", "key\rinjected"])
+@pytest.mark.parametrize(
+    "value", [None, 123, "x" * 513, "key\ninjected", "key\rinjected"]
+)
 def test_invalid_credential_error_does_not_echo_input(value):
     with pytest.raises(ValueError) as exc:
         settings.normalize("elevenlabs_api_key", value)
     assert "injected" not in str(exc.value)
 
 
-@pytest.mark.skipif(__import__("shutil").which("node") is None, reason="node is not installed")
+@pytest.mark.skipif(
+    __import__("shutil").which("node") is None, reason="node is not installed"
+)
 def test_secret_form_keeps_blank_field_and_sends_only_explicit_changes():
-    spec = next(row for row in settings.effective() if row["key"] == "elevenlabs_api_key")
+    spec = next(
+        row for row in settings.effective() if row["key"] == "elevenlabs_api_key"
+    )
     spec["configured"] = True
-    harness = "\n".join(_js_function(name) for name in (
-        "renderSettingField", "_readSettingInput", "_collectChangedSettings", "clearSecretSetting"))
+    harness = "\n".join(
+        _js_function(name)
+        for name in (
+            "renderSettingField",
+            "_readSettingInput",
+            "_collectChangedSettings",
+            "clearSecretSetting",
+        )
+    )
     harness += f"""
 const _settingsSpecs = [{json.dumps(spec)}];
 const el = {{value: '', dataset: {{}}}};

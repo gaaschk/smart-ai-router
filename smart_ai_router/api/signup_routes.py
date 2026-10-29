@@ -23,6 +23,7 @@ An anonymous visitor who signs up brings their chats with them. That is the poin
 of doing it here rather than making them start over: the conversations that
 convinced them to create an account are the ones they would most hate to lose.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -38,7 +39,9 @@ signup_router = APIRouter()
 def _require_enabled() -> None:
     """404 when self-serve signup is off — the endpoint genuinely doesn't exist."""
     if not _signup.enabled():
-        raise HTTPException(status_code=404, detail="Self-serve accounts are not enabled")
+        raise HTTPException(
+            status_code=404, detail="Self-serve accounts are not enabled"
+        )
 
 
 @signup_router.get("/signup", response_model=SignupStatusResponse)
@@ -73,7 +76,7 @@ def create_self_account(request: Request):
         raise HTTPException(
             status_code=409,
             detail="This request is already authenticated. Sign out first if you "
-                   "want a separate self-serve account.",
+            "want a separate self-serve account.",
         )
 
     reason = _signup.lockout_reason(cr)
@@ -81,9 +84,13 @@ def create_self_account(request: Request):
         raise HTTPException(status_code=503, detail=reason)
 
     plaintext = generate_key()
-    record = cr.create_api_key(_signup.new_account(
-        cr, key_hash=hash_key(plaintext), key_prefix=display_prefix(plaintext),
-    ))
+    record = cr.create_api_key(
+        _signup.new_account(
+            cr,
+            key_hash=hash_key(plaintext),
+            key_prefix=display_prefix(plaintext),
+        )
+    )
 
     carried = 0
     if _public.is_anon_user(caller):

@@ -1,4 +1,5 @@
 """Tests for the core routing logic."""
+
 import pytest
 from smart_ai_router.models import ModelSpec
 from smart_ai_router.store.sqlite_store import SqliteStore
@@ -24,7 +25,7 @@ def test_picks_cheapest_over_bar():
 def test_excludes_low_reliability():
     store = _store_with(
         ModelSpec("cheap-flaky", cost=0, reliability=0.5, competence={"coding": 0.95}),
-        ModelSpec("reliable",    cost=2, reliability=1.0, competence={"coding": 0.89}),
+        ModelSpec("reliable", cost=2, reliability=1.0, competence={"coding": 0.89}),
     )
     result = route(store, "coding", "hard", needs_tools=False)
     assert result == "reliable"
@@ -40,8 +41,20 @@ def test_exclude_set():
 
 def test_tools_filter():
     store = _store_with(
-        ModelSpec("no-tools",   cost=0, reliability=1.0, tools=False, competence={"coding": 0.95}),
-        ModelSpec("with-tools", cost=1, reliability=1.0, tools=True,  competence={"coding": 0.88}),
+        ModelSpec(
+            "no-tools",
+            cost=0,
+            reliability=1.0,
+            tools=False,
+            competence={"coding": 0.95},
+        ),
+        ModelSpec(
+            "with-tools",
+            cost=1,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.88},
+        ),
     )
     assert route(store, "coding", "hard", needs_tools=True) == "with-tools"
 
@@ -60,10 +73,15 @@ def test_denylist_excludes_matching_models(monkeypatch):
     # it's the cheapest and clears the bar. Survives sync() resetting reliability.
     monkeypatch.setenv("SMART_ROUTER_MODEL_DENYLIST", "mxfp8")
     store = _store_with(
-        ModelSpec("ollama/qwen3.6:35b-a3b-coding-mxfp8", cost=0, reliability=1.0,
-                  competence={"general": 0.95}),
-        ModelSpec("ollama/llama3", cost=0, reliability=1.0,
-                  competence={"general": 0.60}),
+        ModelSpec(
+            "ollama/qwen3.6:35b-a3b-coding-mxfp8",
+            cost=0,
+            reliability=1.0,
+            competence={"general": 0.95},
+        ),
+        ModelSpec(
+            "ollama/llama3", cost=0, reliability=1.0, competence={"general": 0.60}
+        ),
     )
     assert route(store, "general", "trivial", needs_tools=False) == "ollama/llama3"
 
@@ -73,10 +91,15 @@ def test_denylist_also_excludes_from_fallback(monkeypatch):
     # fallback pick.
     monkeypatch.setenv("SMART_ROUTER_MODEL_DENYLIST", "mxfp8")
     store = _store_with(
-        ModelSpec("ollama/qwen3.6:35b-a3b-coding-mxfp8", cost=0, reliability=1.0,
-                  competence={"coding": 0.99}),
-        ModelSpec("ollama/llama3", cost=0, reliability=1.0,
-                  competence={"coding": 0.10}),
+        ModelSpec(
+            "ollama/qwen3.6:35b-a3b-coding-mxfp8",
+            cost=0,
+            reliability=1.0,
+            competence={"coding": 0.99},
+        ),
+        ModelSpec(
+            "ollama/llama3", cost=0, reliability=1.0, competence={"coding": 0.10}
+        ),
     )
     # hard bar is 0.88; only the denylisted model clears it, so fallback picks
     # the next-best eligible model instead.
@@ -86,10 +109,17 @@ def test_denylist_also_excludes_from_fallback(monkeypatch):
 def test_empty_denylist_is_noop(monkeypatch):
     monkeypatch.delenv("SMART_ROUTER_MODEL_DENYLIST", raising=False)
     store = _store_with(
-        ModelSpec("ollama/qwen3.6:35b-a3b-coding-mxfp8", cost=0, reliability=1.0,
-                  competence={"general": 0.95}),
+        ModelSpec(
+            "ollama/qwen3.6:35b-a3b-coding-mxfp8",
+            cost=0,
+            reliability=1.0,
+            competence={"general": 0.95},
+        ),
     )
-    assert route(store, "general", "trivial", needs_tools=False) == "ollama/qwen3.6:35b-a3b-coding-mxfp8"
+    assert (
+        route(store, "general", "trivial", needs_tools=False)
+        == "ollama/qwen3.6:35b-a3b-coding-mxfp8"
+    )
 
 
 def test_agent_denylist_excludes_only_in_agent_mode(monkeypatch):
@@ -97,16 +127,31 @@ def test_agent_denylist_excludes_only_in_agent_mode(monkeypatch):
     # It stays eligible for plain chat, but is excluded when agent_mode=True.
     monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
     store = _store_with(
-        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
-                  tools=True, competence={"coding": 0.95}),
-        ModelSpec("openrouter/openai/gpt-5", cost=5, reliability=1.0,
-                  tools=True, competence={"coding": 0.90}),
+        ModelSpec(
+            "openrouter/openai/gpt-5-nano",
+            cost=0,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.95},
+        ),
+        ModelSpec(
+            "openrouter/openai/gpt-5",
+            cost=5,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.90},
+        ),
     )
     # Plain chat: cheapest (nano) is fine.
-    assert route(store, "coding", "trivial", needs_tools=False) == "openrouter/openai/gpt-5-nano"
+    assert (
+        route(store, "coding", "trivial", needs_tools=False)
+        == "openrouter/openai/gpt-5-nano"
+    )
     # Agent mode: nano is excluded, so the reliable tool model is picked.
-    assert route(store, "coding", "trivial", needs_tools=True,
-                 agent_mode=True) == "openrouter/openai/gpt-5"
+    assert (
+        route(store, "coding", "trivial", needs_tools=True, agent_mode=True)
+        == "openrouter/openai/gpt-5"
+    )
 
 
 def test_agent_denylist_excludes_from_fallback(monkeypatch):
@@ -114,24 +159,43 @@ def test_agent_denylist_excludes_from_fallback(monkeypatch):
     # fall back to it.
     monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
     store = _store_with(
-        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
-                  tools=True, competence={"coding": 0.99}),
-        ModelSpec("openrouter/openai/gpt-5", cost=5, reliability=1.0,
-                  tools=True, competence={"coding": 0.10}),
+        ModelSpec(
+            "openrouter/openai/gpt-5-nano",
+            cost=0,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.99},
+        ),
+        ModelSpec(
+            "openrouter/openai/gpt-5",
+            cost=5,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.10},
+        ),
     )
-    assert route(store, "coding", "hard", needs_tools=True,
-                 agent_mode=True) == "openrouter/openai/gpt-5"
+    assert (
+        route(store, "coding", "hard", needs_tools=True, agent_mode=True)
+        == "openrouter/openai/gpt-5"
+    )
 
 
 def test_agent_denylist_ignored_when_not_agent_mode(monkeypatch):
     # The agent denylist must not affect ordinary (non-agent) tool requests.
     monkeypatch.setenv("SMART_ROUTER_AGENT_DENYLIST", "gpt-5-nano")
     store = _store_with(
-        ModelSpec("openrouter/openai/gpt-5-nano", cost=0, reliability=1.0,
-                  tools=True, competence={"coding": 0.95}),
+        ModelSpec(
+            "openrouter/openai/gpt-5-nano",
+            cost=0,
+            reliability=1.0,
+            tools=True,
+            competence={"coding": 0.95},
+        ),
     )
-    assert route(store, "coding", "trivial", needs_tools=True,
-                 agent_mode=False) == "openrouter/openai/gpt-5-nano"
+    assert (
+        route(store, "coding", "trivial", needs_tools=True, agent_mode=False)
+        == "openrouter/openai/gpt-5-nano"
+    )
 
 
 def test_raises_when_matrix_empty():

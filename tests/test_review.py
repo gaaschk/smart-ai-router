@@ -9,9 +9,13 @@ def test_run_review_dry_run_outputs_markdown(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "smart_ai_router").mkdir()
-    (repo / "smart_ai_router" / "__init__.py").write_text("# package\n", encoding="utf-8")
+    (repo / "smart_ai_router" / "__init__.py").write_text(
+        "# package\n", encoding="utf-8"
+    )
     (repo / "tests").mkdir()
-    (repo / "tests" / "test_sample.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (repo / "tests" / "test_sample.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8"
+    )
     (repo / "logs").mkdir()
 
     out = review.run_review(repo, output_path=repo / "logs" / "review.md", dry_run=True)
@@ -35,15 +39,19 @@ def test_install_review_launchd_uses_expected_plist(monkeypatch, tmp_path):
 
     def fake_run(cmd, **kwargs):
         calls.append(list(cmd))
+
         class Proc:
             returncode = 0
             stdout = ""
             stderr = ""
+
         return Proc()
 
     monkeypatch.setattr(review.subprocess, "run", fake_run)
 
-    plist_path = review.install_review_launchd(repo, output_path=repo / "logs" / "review.md", hour=5, minute=45)
+    plist_path = review.install_review_launchd(
+        repo, output_path=repo / "logs" / "review.md", hour=5, minute=45
+    )
 
     assert plist_path.name == "com.smart-ai-router-review.plist"
     assert plist_path.parent.name == "LaunchAgents"
@@ -64,7 +72,19 @@ def test_cli_schedule_invokes_install(monkeypatch, capsys):
 
     monkeypatch.setattr(review, "install_review_launchd", fake_install)
 
-    rc = review.run_review_cli(["--repo", "/tmp/repo", "--output", "/tmp/review.md", "--schedule", "--hour", "7", "--minute", "15"])
+    rc = review.run_review_cli(
+        [
+            "--repo",
+            "/tmp/repo",
+            "--output",
+            "/tmp/review.md",
+            "--schedule",
+            "--hour",
+            "7",
+            "--minute",
+            "15",
+        ]
+    )
 
     assert rc == 0
     assert calls == [("/tmp/repo", "/tmp/review.md", 7, 15)]

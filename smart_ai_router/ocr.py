@@ -14,6 +14,7 @@ pymupdf is pip-only (no system packages), so this stays install-clean. If it
 isn't importable, rendering is a no-op ([]) and the caller degrades to a clear
 "couldn't read" path rather than crashing.
 """
+
 from __future__ import annotations
 
 from smart_ai_router import settings as _settings
@@ -36,6 +37,7 @@ def available() -> bool:
     """True if the rasterizer backend (pymupdf) can be imported."""
     try:
         import fitz  # noqa: F401  (pymupdf)
+
         return True
     except ImportError:
         return False
@@ -43,10 +45,14 @@ def available() -> bool:
 
 def is_scanned_pdf(mime: str, extracted_text: str) -> bool:
     """A PDF with no usable text layer — the case OCR-by-vision exists for."""
-    return (mime or "").lower() == "application/pdf" and not (extracted_text or "").strip()
+    return (mime or "").lower() == "application/pdf" and not (
+        extracted_text or ""
+    ).strip()
 
 
-def rasterize_pdf(data: bytes, *, max_pages: int | None = None, dpi: int | None = None) -> list[bytes]:
+def rasterize_pdf(
+    data: bytes, *, max_pages: int | None = None, dpi: int | None = None
+) -> list[bytes]:
     """Render PDF pages to PNG bytes (one per page), capped at max_pages.
 
     Best-effort: returns [] if pymupdf is unavailable or the PDF can't be
