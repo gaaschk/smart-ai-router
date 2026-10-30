@@ -1,0 +1,76 @@
+{
+  "reviewed_at": "2026-10-29",
+  "scope": "Known findings are not clean security certification; changes require review. Low-severity findings remain in report artifacts.",
+  "findings": [
+    {
+      "fingerprint": "80fda80ff3ff955e0557a1920eebb8a8acdbb79e7048de8c1cca3274a61ea072",
+      "file": "smart_ai_router/__main__.py",
+      "test": "B104",
+      "severity": "MEDIUM",
+      "reason": "Existing documented server binding behavior; no network settings changed. Operator must constrain exposure; not classified as harmless."
+    },
+    {
+      "fingerprint": "968426deb8d5d29c4c1aca2c9aa385c4dd37fbd765537ec10f4e42bec68c60d8",
+      "file": "smart_ai_router/gbrain_client.py",
+      "test": "B324",
+      "severity": "HIGH",
+      "reason": "Unresolved persistent per-user source identity risk. Hash/slug output participates in isolation; do not mark usedforsecurity=False. Migration/collision design required before changing existing IDs."
+    },
+    {
+      "fingerprint": "4fc55a95b72a155bac729c6b2ee14da95854aeb8ff35fadd4a78e58761cffacf",
+      "file": "smart_ai_router/gbrain_client.py",
+      "test": "B324",
+      "severity": "HIGH",
+      "reason": "Unresolved persistent per-user source identity risk. Hash/slug output participates in isolation; do not mark usedforsecurity=False. Migration/collision design required before changing existing IDs."
+    },
+    {
+      "fingerprint": "74e2bfe604c7b5b882fd26fb83c87a8502f9d5b9b3a337207146de68c8e25af0",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "79c76de4e7e591f1d080d03e75c005577a2900c05c58145adc19642d440a6b3c",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "b0ca8020c3f6e1cbcbe197798c2816e80e92157ac9b363cd9e03f51cd073f349",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "1380bbd23d9ec0dd49f00a834b79f052aef09d8bb9851d6eb90945bd93f8ed1e",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "4c5228e428e617a74e26fbf260b62b46bac1ff3e691af23de1e431f1f649778f",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "31cc712241e6e7b2da2fdec4d2e4d3888e1be1cbc66334a7703a05346e93a23f",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    },
+    {
+      "fingerprint": "4f884b3c586f428b43ab679fd09af25a4fcc8eb90275b78b38633c7d6f996c11",
+      "file": "smart_ai_router/store/sqlite_store.py",
+      "test": "B608",
+      "severity": "MEDIUM",
+      "reason": "Reviewed internal query fragments/constants and placeholder counts only; user values remain bound parameters. Nested aggregate select/group fragments are internal literals. Re-review on code changes."
+    }
+  ]
+}
