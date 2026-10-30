@@ -1,5 +1,7 @@
 # smart-ai-router
 
+[![Measured coverage baseline](docs/coverage/baseline.svg)](docs/testing.md#coverage-dashboard-and-changed-lines)
+
 [![CI and coverage gate](https://github.com/gaaschk/smart-ai-router/actions/workflows/ci.yml/badge.svg)](https://github.com/gaaschk/smart-ai-router/actions/workflows/ci.yml)
 
 A vendor-agnostic LLM capability router that classifies each prompt and routes it to the cheapest model that clears the quality bar. Sits in front of OpenRouter, Ollama, and AWS Bedrock as a single OpenAI-compatible endpoint.
