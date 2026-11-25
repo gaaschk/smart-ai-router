@@ -187,3 +187,99 @@ def test_usage_log_classifier_matches_the_header(client):
     r = _chat(client, "")
     rows = client.store.recent_usage("", "1970-01-01T00:00:00+00:00")
     assert rows[0].classifier == r.headers["X-Classifier"] == "default"
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("mode", [None, "on", "off"])
+def test_gbrain_request_opt_out(client, monkeypatch, stream, mode):
+    from contextlib import asynccontextmanager
+    from unittest.mock import Mock
+
+    from smart_ai_router.api import proxy
+
+    messages = [{"role": "user", "content": "Write a Python function to reverse a linked list."}]
+    enrich = Mock(return_value=messages + [{"role": "system", "content": "Memory fixture"}])
+    remember = Mock()
+    monkeypatch.setattr(proxy, "_enrich_with_gbrain_context", enrich)
+    monkeypatch.setattr(proxy, "_schedule_gbrain_save_back", remember)
+
+    @asynccontextmanager
+    async def fake_stream(self, method, url, **kwargs):
+        client.sent.append(kwargs["json"])
+        assert "x-smart-router-memory" not in {k.lower() for k in kwargs["headers"]}
+
+        class Reply:
+            status_code = 200
+
+            async def aiter_raw(self):
+                yield b'data: {"choices":[{"delta":{"content":"answer."},"finish_reason":"stop"}]}\n\n'
+                yield b"data: [DONE]\n\n"
+
+        yield Reply()
+
+    monkeypatch.setattr(httpx.AsyncClient, "stream", fake_stream)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={} if mode is None else {"X-Smart-Router-Memory": mode},
+        json={"model": "smart-auto", "agent": False, "messages": messages, "stream": stream},
+    )
+    assert response.status_code == 200
+    assert response.headers["X-Smart-Router-Memory"] == (mode or "on")
+    if mode == "off":
+        enrich.assert_not_called()
+        remember.assert_not_called()
+        assert client.sent[-1]["messages"] == messages
+    else:
+        enrich.assert_called_once()
+        remember.assert_called_once()
+        assert client.sent[-1]["messages"][-1]["content"] == "Memory fixture"
+
+
+def test_invalid_gbrain_memory_header_is_rejected(client):
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"X-Smart-Router-Memory": "maybe"},
+        json={"model": "smart-auto", "messages": []},
+    )
+    assert response.status_code == 400
+    assert client.sent == []
+
+
+def test_request_trace_correlation_and_safe_error(client, monkeypatch, capsys):
+    import json
+    from uuid import uuid4
+
+    request_id = str(uuid4())
+
+    async def fail(self, url, **kwargs):
+        raise httpx.ReadTimeout("provider-secret")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fail)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"X-Request-ID": request_id, "X-Smart-Router-Memory": "off"},
+        json={"messages": [{"role": "user", "content": "private prompt sentinel"}], "agent": False},
+    )
+    assert response.status_code == 502
+    assert response.headers["x-request-id"] == request_id
+    records = [line.removeprefix("[request_trace] ") for line in capsys.readouterr().err.splitlines()
+               if line.startswith("[request_trace] ")]
+    assert all("provider-secret" not in line and "private prompt sentinel" not in line for line in records)
+    entries = [json.loads(line) for line in records]
+    assert all(e["request_id"] == request_id and e["elapsed_ms"] >= 0 for e in entries)
+    assert [e["event"] for e in entries] == [
+        "request_received", "model_selected", "upstream_start", "upstream_end",
+        "upstream_fallback", "response_headers", "first_response_bytes", "request_end",
+    ]
+    assert entries[3]["error_kind"] == "ReadTimeout"
+    assert entries[-1]["outcome"] == "http_error" and entries[-1]["status"] == 502
+
+
+def test_request_trace_replaces_invalid_client_ids(client, capsys):
+    from uuid import UUID
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"X-Request-ID": "not-for-logs", "X-Smart-Router-Memory": "invalid"},
+        json={},
+    )
+    assert response.status_code == 400
+    UUID(response.headers["x-request-id"])
+    assert "not-for-logs" not in capsys.readouterr().err

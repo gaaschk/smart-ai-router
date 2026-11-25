@@ -31,6 +31,7 @@ import time
 from typing import Any, AsyncIterator
 
 import httpx
+from smart_ai_router.api.request_trace import TracedUpstream, trace_event
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -1382,6 +1383,10 @@ def _schedule_gbrain_save_back(
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body: dict[str, Any] = await request.json()
+    memory_mode = request.headers.get("X-Smart-Router-Memory", "on").strip().lower()
+    if memory_mode not in {"on", "off"}:
+        raise HTTPException(status_code=400, detail="X-Smart-Router-Memory must be on or off")
+    use_memory = memory_mode == "on"
     cr = request.app.state.capability_router
 
     messages = body.get("messages", [])
@@ -1665,7 +1670,7 @@ async def chat_completions(request: Request):
         decision = None
 
     def dispatch_client(client):
-        return (
+        upstream = (
             CircuitClient(
                 client,
                 cr.provider_circuits,
@@ -1675,6 +1680,8 @@ async def chat_completions(request: Request):
             if circuits_enabled
             else client
         )
+        trace = getattr(request.state, "request_trace", None)
+        return TracedUpstream(upstream, trace, routed_model) if trace else upstream
 
     canary_used = decision is not None
 
@@ -1716,6 +1723,8 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=status, detail=str(exc))
     routed_model = decision.model
     request.state.routed_model = routed_model
+    trace_event(request, "model_selected", model=routed_model,
+                classifier=classifier_used, stream=stream, agent=agent_mode)
 
     # Worker path escalated to Claude — no cheaper model cleared the quality bar.
     # Claude is the most expensive tier, so surface a note to the user.
@@ -1799,10 +1808,11 @@ async def chat_completions(request: Request):
     # Best-effort; if retrieval fails, proceeds normally. Scoped to this caller's
     # own GBrain source — see source_id_for_user() — so one user's chats never
     # surface another's private knowledge.
-    gbrain_source = source_id_for_user(user)
-    forward_body["messages"] = _enrich_with_gbrain_context(
-        forward_body.get("messages") or [], prompt_text, source_id=gbrain_source
-    )
+    gbrain_source = source_id_for_user(user) if use_memory else ""
+    if use_memory:
+        forward_body["messages"] = _enrich_with_gbrain_context(
+            forward_body.get("messages") or [], prompt_text, source_id=gbrain_source
+        )
 
     # Search the web when the prompt turns on facts that move. Set on forward_body
     # before the agent branch reads it, so an agent round searches too.
@@ -1878,6 +1888,7 @@ async def chat_completions(request: Request):
     capture_lane = "orchestrator" if is_orchestrator else "worker"
     capture_this = bool(forward_body.get("tools")) and _capture.wanted(user)
     routing_headers = {
+        "X-Smart-Router-Memory": memory_mode,
         "X-Routed-Model": routed_model,
         "X-Domain": domain,
         "X-Complexity": complexity,
@@ -1970,12 +1981,8 @@ async def chat_completions(request: Request):
                 )
         except Exception:  # noqa: BLE001 — recording is best-effort
             pass
-        print(
-            f"[proxy] {failed} failed ({status}): {detail[:300]!r}"
-            f"{' → failing over to ' + nxt.model if nxt else ' — no failover'}",
-            file=sys.stderr,
-            flush=True,
-        )
+        trace_event(request, "upstream_fallback", model=failed, status=status,
+                    next_model=nxt.model if nxt else None, attempted=attempted)
         if nxt is None:
             return False
         if circuits_enabled:
@@ -2173,7 +2180,7 @@ async def chat_completions(request: Request):
                 # Save this exchange back into the caller's own GBrain source —
                 # only for a whole reply, same reasoning as capture above (a
                 # partial answer isn't worth remembering as fact).
-                if drained and status < 400:
+                if use_memory and drained and status < 400:
                     _schedule_gbrain_save_back(
                         user, gbrain_source, prompt_text, scanner.content_text
                     )
@@ -2199,6 +2206,7 @@ async def chat_completions(request: Request):
                                         logged = False
                                         scanner = _StreamUsageScanner()
                                         continue
+                                    trace_event(request, "stream_error", status=resp.status_code)
                                     yield _sse_error(detail, resp.status_code)
                                     return
                                 # Prepend escalation note as a synthetic first delta chunk
@@ -2235,6 +2243,7 @@ async def chat_completions(request: Request):
                         if not sent and _fail_over(503, str(exc), attempted=False):
                             continue
                         _record(503, attempted=False)
+                        trace_event(request, "stream_error", status=503)
                         yield _sse_error(str(exc), 503)
                         return
                     except httpx.RequestError as exc:
@@ -2243,6 +2252,7 @@ async def chat_completions(request: Request):
                             logged = False
                             scanner = _StreamUsageScanner()
                             continue
+                        trace_event(request, "stream_error", status=502)
                         yield _sse_error(f"proxy upstream error: {exc}", 502)
                         return
             finally:
@@ -2323,7 +2333,8 @@ async def chat_completions(request: Request):
                     tool_calls=msg.get("tool_calls") or [],
                     content_len=len(msg.get("content") or ""),
                 )
-            _schedule_gbrain_save_back(
-                user, gbrain_source, prompt_text, msg.get("content") or ""
-            )
+            if use_memory:
+                _schedule_gbrain_save_back(
+                    user, gbrain_source, prompt_text, msg.get("content") or ""
+                )
         return JSONResponse(content=data, headers=routing_headers)

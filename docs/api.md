@@ -477,3 +477,23 @@ curl http://localhost:8001/api/updates
 curl -X POST http://localhost:8001/api/updates/apply
 ```
 
+
+### Trace a model request
+
+For `POST /v1/chat/completions` and `POST /v1/responses`, the router echoes a
+single valid UUID supplied in `X-Request-ID`, or assigns a new UUID. Generate
+the ID on the client so you still have it when no response arrives.
+
+On the server, search stderr for the ID in `[request_trace]` JSON records.
+Records distinguish request receipt, selection, each upstream attempt,
+fallback, response headers and first bytes, and the final delivery outcome.
+Upstream exception class names (for example, `ReadTimeout`) are logged without
+provider response bodies, prompts, or credentials. Timing fields use a
+monotonic clock; `timestamp` is Unix time for cross-log comparison. For
+streaming, the first response bytes can be a heartbeat; upstream headers and
+stream errors are logged separately. Disconnect and upstream cancellation are
+separate events: observing a disconnect does not guarantee the provider stopped.
+
+For requests that should not read or write GBrain, send
+`X-Smart-Router-Memory: off`. The response echoes the effective mode. This
+does not change router usage accounting or Responses API storage.

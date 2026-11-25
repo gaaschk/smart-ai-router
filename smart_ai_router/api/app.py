@@ -22,6 +22,7 @@ from smart_ai_router.apikeys import hash_key
 from smart_ai_router.facade import CapabilityRouter
 from smart_ai_router.api.routes import api_router
 from smart_ai_router.api.proxy import proxy_router
+from smart_ai_router.api.request_trace import RequestTraceMiddleware
 from smart_ai_router.api.responses_routes import responses_router, error_response
 from smart_ai_router.api.files_routes import files_router
 from smart_ai_router.api.conversations_routes import conversations_router
@@ -333,4 +334,5 @@ def create_app(capability_router: CapabilityRouter | None = None) -> FastAPI:
         def ui_index():
             return FileResponse(_UI_DIR / "index.html")
 
+    app.add_middleware(RequestTraceMiddleware)
     return app
